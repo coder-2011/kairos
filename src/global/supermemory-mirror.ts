@@ -4,7 +4,10 @@ import type { GlobalMemoryApi } from "./memory.js";
 import { GLOBAL_MEMORY_CONTAINER_TAG, getMemoryContainerTag } from "./memory.js";
 import type { AgentObserver } from "./observability.js";
 
-export type SupermemoryMirrorTarget = Pick<GlobalMemoryApi, "addContent" | "writeConversation">;
+export type SupermemoryMirrorTarget = Pick<
+  GlobalMemoryApi,
+  "addContent" | "createMemories" | "writeConversation"
+>;
 
 export type SupermemoryMirrorRecord = {
   type: string;
@@ -88,28 +91,25 @@ export function createSupermemoryMirror(
     });
 
     await Promise.all(
-      tags.map((containerTag) =>
+      tags.flatMap((containerTag) => [
         options.memory.addContent({
           containerTag,
-          customId: safeCustomId(
-            record.customId ??
-              [
-                "kairos",
-                record.scope,
-                record.type,
-                record.runId,
-                record.branchId,
-                record.debateId,
-                record.artifactId,
-                record.timestamp,
-              ]
-                .filter(Boolean)
-                .join(":"),
-          ),
+          customId: safeCustomId(customIdForRecord(record)),
           content: content.value,
           metadata,
+          entityContext: entityContextForRecord(record),
         }),
-      ),
+        options.memory.createMemories({
+          containerTag,
+          memories: [
+            {
+              content: compactMemoryForRecord(record),
+              isStatic: false,
+              metadata,
+            },
+          ],
+        }),
+      ]),
     );
   };
 
@@ -167,29 +167,41 @@ export function createSupermemoryMirror(
 
     await mirrorBestEffort(record, async (mirroredRecord) => {
         const content = truncateContent(formatMirrorRecord(mirroredRecord), maxContentChars);
+        const metadata = compactMetadata({
+          type: mirroredRecord.type,
+          scope: mirroredRecord.scope,
+          run_id: mirroredRecord.runId,
+          branch_id: mirroredRecord.branchId,
+          law_id: mirroredRecord.lawId,
+          debate_id: mirroredRecord.debateId,
+          source: mirroredRecord.source,
+          message_count: result.messages.length,
+          tool_event_count: result.toolEvents.length,
+          human_interjection_count: result.humanInterjections.length,
+          citation_count: result.finalDecision.citations.length,
+          content_truncated: content.truncated,
+        });
         await Promise.all(
-          containerTagsForRecord(mirroredRecord, globalContainerTag).map(
-            (containerTag) =>
+          containerTagsForRecord(mirroredRecord, globalContainerTag).flatMap(
+            (containerTag) => [
               options.memory.writeConversation({
                 containerTag,
                 customId: safeCustomId(mirroredRecord.customId ?? `kairos:debate:${result.debateId}:transcript`),
                 content: content.value,
                 messages: transcriptMessages,
-                metadata: compactMetadata({
-                  type: mirroredRecord.type,
-                  scope: mirroredRecord.scope,
-                  run_id: mirroredRecord.runId,
-                  branch_id: mirroredRecord.branchId,
-                  law_id: mirroredRecord.lawId,
-                  debate_id: mirroredRecord.debateId,
-                  source: mirroredRecord.source,
-                  message_count: result.messages.length,
-                  tool_event_count: result.toolEvents.length,
-                  human_interjection_count: result.humanInterjections.length,
-                  citation_count: result.finalDecision.citations.length,
-                  content_truncated: content.truncated,
-                }),
+                metadata,
               }),
+              options.memory.createMemories({
+                containerTag,
+                memories: [
+                  {
+                    content: compactMemoryForRecord(mirroredRecord),
+                    isStatic: false,
+                    metadata,
+                  },
+                ],
+              }),
+            ],
           ),
         );
       }, options);
@@ -321,6 +333,52 @@ function containerTagsForRecord(
     }));
   }
   return [...tags];
+}
+
+function customIdForRecord(record: SupermemoryMirrorRecord): string {
+  return (
+    record.customId ??
+    [
+      "kairos",
+      record.scope,
+      record.type,
+      record.runId,
+      record.branchId,
+      record.debateId,
+      record.artifactId,
+      record.timestamp,
+    ]
+      .filter(Boolean)
+      .join(":")
+  );
+}
+
+function entityContextForRecord(record: SupermemoryMirrorRecord): string {
+  return [
+    "Kairos is a human-steered trading research system.",
+    "This record is part of Kairos persistent agent memory.",
+    record.scope ? `Scope: ${record.scope}.` : undefined,
+    record.type ? `Type: ${record.type}.` : undefined,
+    record.branchId ? `Branch ID: ${record.branchId}.` : undefined,
+    record.lawId ? `Law ID: ${record.lawId}.` : undefined,
+    record.runId ? `Run ID: ${record.runId}.` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join(" ");
+}
+
+function compactMemoryForRecord(record: SupermemoryMirrorRecord): string {
+  return redactText(
+    [
+      `Kairos ${record.scope}.${record.type}`,
+      record.branchId ? `branch=${record.branchId}` : undefined,
+      record.lawId ? `law=${record.lawId}` : undefined,
+      record.runId ? `run=${record.runId}` : undefined,
+      record.summary ?? record.title,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(": "),
+  );
 }
 
 function truncateContent(

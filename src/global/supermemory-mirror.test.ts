@@ -141,6 +141,17 @@ function createMemoryTarget(
       writes.push(input);
       return { id: `write_${writes.length}`, status: "queued" };
     },
+    async createMemories(input) {
+      return {
+        documentId: null,
+        memories: input.memories.map((_, index) => ({
+          id: `memory_${index}`,
+          memory: input.memories[index]?.content ?? "",
+          isStatic: input.memories[index]?.isStatic ?? false,
+          createdAt: "2026-05-03T12:00:00.000Z",
+        })),
+      };
+    },
     async writeConversation(input) {
       writes.push({
         containerTag: input.containerTag,
