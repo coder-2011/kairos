@@ -741,6 +741,11 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     branchId,
     dryRun: input.dryRun,
     input: runPayload,
+    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+  });
+  await context.store.appendRunEvent(run.id, {
+    type: "run.started",
+    payload: { kind: "debate", dryRun: input.dryRun },
   });
 
   let result: DebateCreateResult;
