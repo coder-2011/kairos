@@ -2934,40 +2934,6 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
   );
 }
 
-function EscalationCard({ runs }: { runs: RunRecord[] }) {
-  const escalatedRuns = runs.filter(
-    (run) => run.kind === "debate" || run.status === "failed",
-  );
-
-  return (
-    <section className="side-panel grow">
-      <div className="section-title">
-        <Icon name="warning" /> ACTIVE ESCALATIONS
-      </div>
-      {escalatedRuns.length === 0 ? (
-        <EmptyPanel
-          icon="warning"
-          title="No Active Escalations"
-          message="No escalations yet."
-        />
-      ) : (
-        escalatedRuns.map((run) => (
-          <div className="escalation-card" key={run.id}>
-            <div>
-              <b>{run.kind.toUpperCase()}</b>
-              <span>{timeOnly(run.createdAt)}</span>
-            </div>
-            <p>{String(run.output?.summary ?? run.status)}</p>
-            <div className="button-row">
-              <button className="command-button" type="button">VIEW RUN</button>
-            </div>
-          </div>
-        ))
-      )}
-    </section>
-  );
-}
-
 function EventRecordCard({ event }: { event: RunEventRecord }) {
   const actor =
     event.type.startsWith("human.") ? "HUMAN" : event.type.split(".")[0].toUpperCase();
