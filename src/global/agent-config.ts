@@ -198,9 +198,6 @@ export const kairosBranchAgentConfigSchema = z
       .object({
         exaInstruction: z.string().optional(),
         dataPacket: z.string().optional(),
-        dataPacketType: z
-          .enum(["ticker", "sector", "law", "branch", "source", "catalyst"])
-          .optional(),
       })
       .strict()
       .optional(),
