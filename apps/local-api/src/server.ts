@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { z } from "zod";
+import { ExaApi } from "../../../src/api/exa.js";
 import {
   kairosBranchAgentConfigSchema,
   createSupermemoryMemoryApi,
@@ -30,6 +31,8 @@ import {
   type BranchRecord,
   type KairosLocalStore,
   type JsonRecord,
+  type RouterAttachmentRecord,
+  type RouterMessageRecord,
   type RunRecord,
 } from "./store.js";
 import { SupabaseKairosStore } from "./supabase-store.js";
@@ -39,6 +42,7 @@ export type LocalApiDependencies = {
   store?: KairosLocalStore;
   runHeartbeat?: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate?: (input: DebateCreateInput) => Promise<DebateCreateResult>;
+  retrieveUrlContents?: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
@@ -53,6 +57,7 @@ export type LocalApiContext = {
   store: KairosLocalStore;
   runHeartbeat: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate: (input: DebateCreateInput) => Promise<DebateCreateResult>;
+  retrieveUrlContents: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
@@ -79,6 +84,18 @@ type DebateCreateInput = {
 type DebateCreateResult = {
   output: JsonRecord;
   events?: AppendRunEventInput[];
+};
+
+type RouterExtractedSource = {
+  id: string;
+  kind: "chat_text" | "webpage" | "image" | "pdf";
+  text: string;
+  ref?: string;
+};
+
+type RouterUrlRetrieveInput = {
+  urls: string[];
+  dryRun: boolean;
 };
 
 const branchCreateSchema = z.object({
@@ -111,6 +128,26 @@ const interjectionSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
+const routerChatCreateSchema = z.object({
+  id: z.string().min(1).optional(),
+});
+
+const routerMessageCreateSchema = z.object({
+  text: z.string().optional().default(""),
+  dryRun: z.boolean().optional().default(true),
+  attachments: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        mimeType: z.string().min(1),
+        path: z.string().min(1),
+      }).strict(),
+    )
+    .optional()
+    .default([]),
+});
+
 const paperSubmitSchema = z.object({
   tradingConfig: tradingConfigSchema.optional(),
 });
@@ -130,6 +167,8 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     store,
     runHeartbeat: options.dependencies?.runHeartbeat ?? deterministicHeartbeat,
     createDebate: options.dependencies?.createDebate ?? deterministicDebate,
+    retrieveUrlContents:
+      options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
     notificationSender:
       options.dependencies?.notificationSender ??
