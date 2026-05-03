@@ -4,6 +4,7 @@ import {
   type OpenRouterAiSdkChatModel,
   type OpenRouterModelConfig,
 } from "./openrouter.js";
+import type { KairosBranchAgentConfig } from "./agent-config.js";
 
 export type OpenRouterReasoningEffort =
   | "xhigh"
@@ -129,6 +130,22 @@ export function resolveKairosModelConfig(
         ? { effort: reasoningEffort }
         : defaults.reasoning,
   };
+}
+
+export function branchConfigToModelOverrides(
+  config: KairosBranchAgentConfig | undefined,
+): KairosRoleModelOverrides {
+  if (!config?.models) return {};
+
+  return Object.fromEntries(
+    Object.entries(config.models).map(([role, roleConfig]) => [
+      role,
+      {
+        model: roleConfig?.model,
+        reasoningEffort: roleConfig?.reasoningEffort,
+      },
+    ]),
+  ) as KairosRoleModelOverrides;
 }
 
 export function createOpenRouterChatModelForRole(
