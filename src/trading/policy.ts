@@ -1,147 +1,91 @@
 import type { KairosBranchAgentConfig } from "../global/agent-config.js";
-import {
-  kairosTradingConfigSchema,
-  type CreateKairosMessageInput,
-  type CreateTradeIntentInput,
-  type KairosTradingConfig,
-} from "./schema.js";
+import type { TradingConfig } from "./schemas.js";
 
-export type TradingDecisionInput = {
-  branchId?: string;
-  runId?: string;
-  lawId?: string;
-  branchConfig?: KairosBranchAgentConfig;
-  summary: string;
-  confidence: number;
-  citations?: Array<Record<string, unknown>>;
-  symbol?: string;
-  metadata?: Record<string, unknown>;
-};
+export type ThresholdActionResult =
+  | "below_thresholds"
+  | "message_human"
+  | "paper_trade_candidate";
 
-export type TradingDecisionPlan = {
-  action: "record_only" | "message_human" | "paper_trade_intent" | "paper_order_submit";
-  tradingConfig: KairosTradingConfig;
+export type PermittedTradingAction =
+  | "record_only"
+  | "message_human"
+  | "paper_buy_intent"
+  | "paper_order";
+
+export type ThresholdPolicyResult = {
+  confidenceScore: number;
   notifyThreshold: number;
-  paperTradeThreshold: number;
-  message?: CreateKairosMessageInput;
-  tradeIntent?: CreateTradeIntentInput;
+  paperThreshold: number;
+  thresholdResult: ThresholdActionResult;
+  permittedAction: PermittedTradingAction;
+  paperAutoBuyEnabled: boolean;
   rationale: string;
 };
 
-export function planTradingDecision(input: TradingDecisionInput): TradingDecisionPlan {
-  const tradingConfig = kairosTradingConfigSchema.parse(input.branchConfig?.trading ?? {});
-  const thresholds = input.branchConfig?.thresholds ?? {};
-  const notifyThreshold = thresholds.notifyConfidence ?? 0.65;
-  const paperTradeThreshold =
-    thresholds.paperTradeDraftConfidence ?? thresholds.buyConfidence ?? 0.85;
-  const confidence = clampConfidence(input.confidence);
-  const symbol = normalizeSymbol(input.symbol ?? input.branchConfig?.assets?.[0]);
+export type ThresholdPolicyInput = {
+  confidence: number;
+  tradingConfig?: TradingConfig;
+  branchConfig?: KairosBranchAgentConfig;
+};
 
-  if (confidence < notifyThreshold) {
+const DEFAULT_NOTIFY_THRESHOLD = 0.65;
+const DEFAULT_PAPER_THRESHOLD = 0.85;
+
+export function evaluateTradingThresholdPolicy(
+  input: ThresholdPolicyInput,
+): ThresholdPolicyResult {
+  const branchConfig = input.branchConfig as
+    | (KairosBranchAgentConfig & { trading?: TradingConfig })
+    | undefined;
+  const notifyThreshold =
+    input.tradingConfig?.notifyConfidenceThreshold ??
+    branchConfig?.trading?.notifyConfidenceThreshold ??
+    input.branchConfig?.thresholds?.notifyConfidence ??
+    DEFAULT_NOTIFY_THRESHOLD;
+  const paperThreshold =
+    input.tradingConfig?.paperTradeConfidenceThreshold ??
+    branchConfig?.trading?.paperTradeConfidenceThreshold ??
+    input.branchConfig?.thresholds?.buyConfidence ??
+    input.branchConfig?.thresholds?.paperTradeDraftConfidence ??
+    DEFAULT_PAPER_THRESHOLD;
+  const paperAutoBuyEnabled =
+    input.tradingConfig?.paperAutoBuyEnabled ??
+    branchConfig?.trading?.paperAutoBuyEnabled ??
+    false;
+
+  if (input.confidence >= paperThreshold) {
     return {
-      action: "record_only",
-      tradingConfig,
+      confidenceScore: input.confidence,
       notifyThreshold,
-      paperTradeThreshold,
-      rationale: `Confidence ${confidence} is below notify threshold ${notifyThreshold}.`,
+      paperThreshold,
+      thresholdResult: "paper_trade_candidate",
+      permittedAction: paperAutoBuyEnabled ? "paper_order" : "paper_buy_intent",
+      paperAutoBuyEnabled,
+      rationale: paperAutoBuyEnabled
+        ? "Confidence crossed the paper threshold and branch trading config allows paper auto-buy."
+        : "Confidence crossed the paper threshold, but paper auto-buy is disabled.",
     };
   }
 
-  const baseMessage: CreateKairosMessageInput = {
-    branchId: input.branchId,
-    runId: input.runId,
-    level: confidence >= paperTradeThreshold ? "action" : "info",
-    title:
-      confidence >= paperTradeThreshold
-        ? "Buy signal crossed paper threshold"
-        : "Trading signal crossed notify threshold",
-    body: input.summary,
-    metadata: {
-      confidence,
-      notifyThreshold,
-      paperTradeThreshold,
-      actionSource: "threshold_policy",
-      ...input.metadata,
-    },
-  };
-
-  if (confidence < paperTradeThreshold) {
+  if (input.confidence >= notifyThreshold) {
     return {
-      action: tradingConfig.notifyOnBuySignal ? "message_human" : "record_only",
-      tradingConfig,
+      confidenceScore: input.confidence,
       notifyThreshold,
-      paperTradeThreshold,
-      message: tradingConfig.notifyOnBuySignal ? baseMessage : undefined,
-      rationale: `Confidence ${confidence} reached notify threshold but not paper trade threshold.`,
+      paperThreshold,
+      thresholdResult: "message_human",
+      permittedAction: "message_human",
+      paperAutoBuyEnabled,
+      rationale: "Confidence crossed the notify threshold but stayed below the paper threshold.",
     };
   }
-
-  if (tradingConfig.mode !== "paper" || !symbol) {
-    return {
-      action: tradingConfig.notifyOnBuySignal ? "message_human" : "record_only",
-      tradingConfig,
-      notifyThreshold,
-      paperTradeThreshold,
-      message: tradingConfig.notifyOnBuySignal ? baseMessage : undefined,
-      rationale:
-        tradingConfig.mode !== "paper"
-          ? "Paper trading is disabled for this branch."
-          : "No tradable symbol is configured for this branch.",
-    };
-  }
-
-  const tradeIntent: CreateTradeIntentInput = {
-    branchId: input.branchId,
-    runId: input.runId,
-    lawId: input.lawId,
-    symbol,
-    side: "buy",
-    mode: "paper",
-    status: tradingConfig.paperAutoBuyEnabled
-      ? "pending_preflight"
-      : "message_only",
-    action: tradingConfig.paperAutoBuyEnabled
-      ? "paper_order_submit"
-      : "paper_trade_intent",
-    confidence,
-    notifyThreshold,
-    paperTradeThreshold,
-    summary: input.summary,
-    rationale: tradingConfig.paperAutoBuyEnabled
-      ? "Paper auto-buy is enabled and confidence crossed the paper trade threshold."
-      : "Paper auto-buy is disabled, so this remains a trade intent and message.",
-    citations: input.citations ?? [],
-    notional: tradingConfig.maxNotionalPerOrder,
-    orderType: tradingConfig.allowedOrderType,
-    autoBuyEnabled: tradingConfig.paperAutoBuyEnabled,
-    requiredApproval: !tradingConfig.paperAutoBuyEnabled,
-    metadata: input.metadata,
-  };
 
   return {
-    action: tradingConfig.paperAutoBuyEnabled
-      ? "paper_order_submit"
-      : "paper_trade_intent",
-    tradingConfig,
+    confidenceScore: input.confidence,
     notifyThreshold,
-    paperTradeThreshold,
-    message: tradingConfig.notifyOnBuySignal
-      ? {
-          ...baseMessage,
-          tradeIntentId: tradeIntent.id,
-        }
-      : undefined,
-    tradeIntent,
-    rationale: tradeIntent.rationale ?? "",
+    paperThreshold,
+    thresholdResult: "below_thresholds",
+    permittedAction: "record_only",
+    paperAutoBuyEnabled,
+    rationale: "Confidence stayed below configured action thresholds.",
   };
-}
-
-function normalizeSymbol(symbol: string | undefined): string | undefined {
-  const normalized = symbol?.trim().toUpperCase();
-  return normalized || undefined;
-}
-
-function clampConfidence(confidence: number): number {
-  if (!Number.isFinite(confidence)) return 0;
-  return Math.max(0, Math.min(1, confidence));
 }
