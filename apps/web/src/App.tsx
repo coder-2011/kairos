@@ -597,7 +597,7 @@ function DraftLaw({ onCompile }: { onCompile: () => void }) {
         </div>
         <div className="editor-body">
           <FieldLabel label="Thesis Title">
-            <input placeholder="e.g. Abnormal contract-signing evidence for PLTR" />
+            <input placeholder="Enter a monitoring-law title..." />
           </FieldLabel>
           <FieldLabel label="Market Signal Logic">
             <textarea

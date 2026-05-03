@@ -476,6 +476,14 @@ select:focus {
   padding: 0 12px;
 }
 
+.empty-table-cell {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 12px;
+  height: 96px !important;
+  text-align: center;
+}
+
 .branch-table th {
   color: #475569;
   font-weight: 700;
@@ -723,6 +731,18 @@ select:focus {
 
 .agent-card p {
   margin: 0 0 12px;
+}
+
+.event-json {
+  background: #0f172a;
+  border: 1px solid var(--outline-variant);
+  color: #cbd5e1;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 15px;
+  margin: 0;
+  overflow-x: auto;
+  padding: 10px;
 }
 
 .source-list {
@@ -1207,6 +1227,49 @@ select:focus {
 .config-canvas {
   background: var(--surface-lowest);
   overflow-y: auto;
+}
+
+.empty-canvas {
+  align-items: center;
+  background: var(--surface-lowest);
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+}
+
+.empty-panel {
+  align-items: center;
+  border: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 140px;
+  padding: 24px;
+  text-align: center;
+}
+
+.empty-panel .material-symbols-outlined {
+  color: var(--outline);
+  font-size: 28px;
+}
+
+.empty-panel h3 {
+  color: var(--on-surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  line-height: 16px;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.empty-panel p {
+  margin: 0;
+  max-width: 320px;
 }
 
 .config-body {
