@@ -1217,21 +1217,22 @@ function MonitoringView({
             stats={monitoringStats}
             onSelectRun={onSelectRun}
           />
-          {run && runSummary && (
-            <RunOverviewPanel
+          {run && runSummary ? (
+            <MonitoringRunDetail
+              escalation={heartbeatEscalation}
               eventCount={events.length}
               run={run}
               summary={runSummary}
-            />
-          )}
-          {run?.kind === "heartbeat" && (
-            <HeartbeatHandoffPanel
-              escalation={heartbeatEscalation}
-              run={run}
               onStartDebate={onStartDebateFromEscalation}
             />
+          ) : (
+            <EmptyPanel
+              icon="touch_app"
+              message="Select a run from the left column to inspect the decision packet."
+              title="No Run Selected"
+            />
           )}
-          {transcriptEvents.length === 0 ? (
+          {run && transcriptEvents.length === 0 ? (
             <EmptyPanel
               icon="forum"
               message={
@@ -1241,11 +1242,11 @@ function MonitoringView({
               }
               title={run?.kind === "heartbeat" ? "No Debate Started" : "No Debate Transcript"}
             />
-          ) : (
+          ) : run ? (
             transcriptEvents.map((event) => (
               <EventRecordCard event={event} key={event.id} />
             ))
-          )}
+          ) : null}
         </div>
         <div className="interjection-panel">
           <label>HUMAN INTERJECTION</label>
@@ -1312,6 +1313,115 @@ function MonitoringView({
         />
       )}
     </main>
+  );
+}
+
+function MonitoringRunDetail({
+  escalation,
+  eventCount,
+  run,
+  summary,
+  onStartDebate,
+}: {
+  escalation?: JsonRecord;
+  eventCount: number;
+  run: RunRecord;
+  summary: ReturnType<typeof summarizeRun>;
+  onStartDebate: (branchId: string, escalation: JsonRecord) => void;
+}) {
+  const output = run.output ?? {};
+  const input = run.input ?? {};
+  const finalDecision = isJsonRecord(output.finalDecision)
+    ? output.finalDecision
+    : undefined;
+  const error = readDisplay(output.error, "");
+  const decision = readDisplay(output.decision, "");
+  const action = readDisplay(finalDecision?.action ?? output.action, "");
+  const confidence = formatConfidenceValue(finalDecision?.confidence ?? output.confidence);
+  const escalationSummary = escalation
+    ? compactValue(
+        escalation.summary ??
+          escalation.heartbeatSummary ??
+          (isJsonRecord(escalation.heartbeatOutput)
+            ? escalation.heartbeatOutput.summary
+            : undefined),
+        "Escalation packet available.",
+      )
+    : "No escalation packet.";
+  const statusTone = run.status === "failed" ? "danger" : "default";
+
+  return (
+    <article className={`monitoring-detail-card ${run.status}`}>
+      <div className="monitoring-detail-hero">
+        <div>
+          <span className="section-kicker">
+            <Icon name={run.status === "failed" ? "error" : run.kind === "debate" ? "forum" : "monitor_heart"} />
+            {run.kind.toUpperCase()} / {run.status.toUpperCase()}
+          </span>
+          <h3>{summary.outcomeTitle}</h3>
+          <p>{summary.outcome}</p>
+        </div>
+        <div className="monitoring-status-stack">
+          <RunFact label="Decision" tone={statusTone} value={decision || action || "-"} />
+          <RunFact label="Confidence" value={confidence} />
+        </div>
+      </div>
+
+      <div className="monitoring-detail-grid">
+        <section className="monitoring-detail-section">
+          <div className="section-title">RUN</div>
+          <div className="monitoring-detail-list">
+            <DetailRow label="Branch" value={summary.branchLabel} />
+            <DetailRow label="Run ID" value={run.id} />
+            <DetailRow label="Created" value={formatDateTime(run.createdAt)} />
+            <DetailRow label="Updated" value={formatDateTime(run.updatedAt)} />
+            <DetailRow label="Events" value={String(eventCount)} />
+          </div>
+        </section>
+
+        <section className="monitoring-detail-section">
+          <div className="section-title">CONTEXT</div>
+          <div className="monitoring-detail-list">
+            <DetailRow label="Input Source" value={compactValue(run.metadata?.source ?? input.source)} />
+            <DetailRow label="Branch ID" value={readDisplay(run.branchId, "-")} />
+            <DetailRow label="Escalation" value={escalationSummary} />
+            {error && <DetailRow label="Error" tone="danger" value={error} />}
+          </div>
+        </section>
+      </div>
+
+      {run.kind === "heartbeat" && (
+        <HeartbeatHandoffPanel
+          escalation={escalation}
+          run={run}
+          onStartDebate={onStartDebate}
+        />
+      )}
+
+      <details className="raw-details compact">
+        <summary>Raw run packet</summary>
+        <pre className="event-json">
+          {JSON.stringify({ input: run.input, output: run.output ?? {} }, null, 2)}
+        </pre>
+      </details>
+    </article>
+  );
+}
+
+function DetailRow({
+  label,
+  tone = "default",
+  value,
+}: {
+  label: string;
+  tone?: "default" | "danger";
+  value: string;
+}) {
+  return (
+    <div className={`monitoring-detail-row ${tone}`}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
   );
 }
 
@@ -2742,17 +2852,19 @@ function EvidencePane({
                 <span>{run?.status ?? "loaded"}</span>
               </div>
             </div>
-            <div className="field-label">DETAILS</div>
-            <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
             <div className="field-label">TIMELINE</div>
             <div className="alignment-row">
               <span>Run Created</span>
-              <b>{run ? timeOnly(run.createdAt) : "-"}</b>
+              <b>{run ? formatDateTime(run.createdAt) : "-"}</b>
             </div>
             <div className="alignment-row">
               <span>Last Event</span>
-              <b>{events.at(-1) ? timeOnly(events.at(-1)!.timestamp) : "-"}</b>
+              <b>{events.at(-1) ? formatDateTime(events.at(-1)!.timestamp) : "-"}</b>
             </div>
+            <details className="raw-details evidence-raw" open>
+              <summary>Details</summary>
+              <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
+            </details>
           </>
         )}
       </div>
