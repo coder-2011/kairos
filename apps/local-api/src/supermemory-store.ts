@@ -114,11 +114,11 @@ class SupermemoryMirroredStore implements KairosLocalStore {
           timestamp: run.updatedAt,
           title: `Kairos debate output ${run.id}`,
           summary: readSummary(run.output),
-          data: {
-            run,
-            output: run.output,
-          },
-          customId: `kairos:run:${run.id}:debate_output`,
+        data: {
+          run,
+          output: run.output,
+        },
+          customId: `kairos:run:${run.id}:debate_output:${run.updatedAt}`,
         });
       }
     }
@@ -284,7 +284,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         run_status: run.status,
         dry_run: run.dryRun,
       },
-      customId: `kairos:run:${run.id}:${type}`,
+      customId: `kairos:run:${run.id}:${type}:${run.updatedAt}`,
     });
   }
 
@@ -307,7 +307,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         status: intent.status,
         mode: intent.mode,
       },
-      customId: `kairos:trade_intent:${intent.id}:${type}`,
+      customId: `kairos:trade_intent:${intent.id}:${type}:${intent.updatedAt}`,
     });
   }
 
