@@ -1319,7 +1319,7 @@ function lazyAlpacaPaperBroker(): PaperTradingBroker {
     getPortfolioSnapshot: () => current().getPortfolioSnapshot(),
     getClock: () => current().getClock(),
     getAsset: (symbol) => current().getAsset(symbol),
-    listPaperOrders: (input) => current().listPaperOrders(input),
+    listPaperOrders: (input) => current().listPaperOrders?.(input) ?? Promise.resolve([]),
     submitPaperOrder: (input) => current().submitPaperOrder(input),
   };
 }
