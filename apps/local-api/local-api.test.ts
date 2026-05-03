@@ -628,7 +628,7 @@ describe("local API handler", () => {
           branchId: "branch_runtime",
         },
       });
-      expect(heartbeatBody.message).toContain("Agent pipeline heartbeat is not configured");
+      expect(heartbeatBody.message).toContain("OPENROUTER_API_KEY is required to run the heartbeat agent");
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }
