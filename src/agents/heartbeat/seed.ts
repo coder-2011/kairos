@@ -4,7 +4,10 @@ import {
   type HeartbeatSeedDataProviders,
   type HeartbeatSeedRequest,
 } from "./types.js";
-import { getSupermemoryContainerTag } from "./memory.js";
+import {
+  getSupermemoryContainerTag,
+  getSupermemoryProfileContainerTag,
+} from "./memory.js";
 
 export async function buildHeartbeatSeedBundle(
   branch: BranchConfig,
@@ -17,6 +20,7 @@ export async function buildHeartbeatSeedBundle(
     timestamp,
     seedWindowDays: branch.heartbeat.seedWindowDays,
     supermemoryContainerTag: getSupermemoryContainerTag(branch),
+    supermemoryProfileContainerTag: getSupermemoryProfileContainerTag(branch),
   };
 
   const [
@@ -63,6 +67,8 @@ export async function buildHeartbeatSeedBundle(
     law: branch.law,
     assets: branch.assets,
     seedWindowDays: branch.heartbeat.seedWindowDays,
+    supermemoryContainerTag: request.supermemoryContainerTag,
+    supermemoryProfileContainerTag: request.supermemoryProfileContainerTag,
     defaultSources: {
       currentPrice,
       recentVolume,

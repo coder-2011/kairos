@@ -26,6 +26,8 @@ or down.
 The user message contains one JSON package:
 - package_type: heartbeat_seed_bundle_v1
 - seed_bundle: the runtime-built package for this branch
+- seed_bundle.supermemoryProfileContainerTag: the branch-specific Supermemory
+  user-profile tag to use for branch memory/profile tool calls
 - seed_bundle.priorDecisions: prior Kairos decisions retrieved for duplicate checks
 
 Use the seeded data as your main context: branch law, assets, current price,

@@ -71,9 +71,15 @@ export type BranchConfig = {
   memory?: {
     /**
      * Supermemory containerTag. If omitted, the runtime derives one from the
-     * branch ID.
+     * branch ID. This is retained for raw branch document grouping.
      */
     supermemoryContainerTag?: string;
+    /**
+     * Supermemory user-profile containerTag for this branch. If omitted, the
+     * runtime derives a branch-specific profile tag from the branch ID so each
+     * branch gets its own Supermemory profile.
+     */
+    supermemoryProfileContainerTag?: string;
   };
 };
 
@@ -99,6 +105,8 @@ export type HeartbeatSeedBundle = {
   law: string;
   assets: string[];
   seedWindowDays: number;
+  supermemoryContainerTag: string;
+  supermemoryProfileContainerTag: string;
   defaultSources: Record<HeartbeatSeedSource, unknown | null>;
   priorDecisions: HeartbeatPriorDecision[];
   optionalData: Record<string, unknown>;
@@ -109,6 +117,7 @@ export type HeartbeatSeedRequest = {
   timestamp: string;
   seedWindowDays: number;
   supermemoryContainerTag: string;
+  supermemoryProfileContainerTag: string;
 };
 
 export type OptionalSeedDataRequest = HeartbeatSeedRequest & {

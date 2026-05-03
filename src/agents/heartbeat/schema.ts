@@ -34,6 +34,7 @@ export const branchConfigSchema = z
     memory: z
       .object({
         supermemoryContainerTag: z.string().optional(),
+        supermemoryProfileContainerTag: z.string().optional(),
       })
       .strict()
       .optional(),
@@ -47,6 +48,8 @@ export const heartbeatSeedBundleSchema = z
     law: z.string(),
     assets: z.array(z.string()),
     seedWindowDays: z.number().int().positive(),
+    supermemoryContainerTag: z.string(),
+    supermemoryProfileContainerTag: z.string(),
     defaultSources: z.object({
       currentPrice: z.unknown().nullable(),
       recentVolume: z.unknown().nullable(),

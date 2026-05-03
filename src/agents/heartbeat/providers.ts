@@ -19,14 +19,14 @@ export function createHeartbeatSeedProviders(input: {
   return {
     ...finnhubProviders,
     getSupermemoryContext: memory
-      ? ({ branch, supermemoryContainerTag }) =>
+      ? ({ branch, supermemoryProfileContainerTag }) =>
           memory.getHeartbeatContext({
-            containerTag: supermemoryContainerTag,
+            containerTag: supermemoryProfileContainerTag,
             query: [branch.law, ...branch.assets].join("\n"),
           })
       : finnhubProviders.getSupermemoryContext,
     getPriorDecisions: memory
-      ? async ({ branch, supermemoryContainerTag }) => {
+      ? async ({ branch, supermemoryProfileContainerTag }) => {
           const response = await memory.search({
             q: [
               "Prior Kairos decisions for duplicate suppression.",
@@ -35,7 +35,7 @@ export function createHeartbeatSeedProviders(input: {
               `Assets: ${branch.assets.join(", ")}`,
               "Find previous heartbeat outputs, heartbeat escalations, debate decisions, and no-escalation decisions about similar catalysts or upcoming events.",
             ].join("\n"),
-            containerTag: supermemoryContainerTag,
+            containerTag: supermemoryProfileContainerTag,
             limit: 50,
             rerank: true,
             searchMode: "memories",

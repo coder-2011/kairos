@@ -1,1 +1,4 @@
-export { getBranchMemoryContainerTag as getSupermemoryContainerTag } from "../../global/memory.js";
+export {
+  getBranchMemoryContainerTag as getSupermemoryContainerTag,
+  getBranchProfileContainerTag as getSupermemoryProfileContainerTag,
+} from "../../global/memory.js";

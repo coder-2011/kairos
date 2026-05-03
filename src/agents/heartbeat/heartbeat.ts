@@ -11,7 +11,7 @@ import {
 } from "../../global/index.js";
 import type { BranchConfig, HeartbeatMemoryWriter } from "./types.js";
 import { createEscalationEvent } from "./escalation.js";
-import { getSupermemoryContainerTag } from "./memory.js";
+import { getSupermemoryProfileContainerTag } from "./memory.js";
 
 export type HeartbeatOnceDependencies = HeartbeatAgentDependencies & {
   memoryWriter?: HeartbeatMemoryWriter;
@@ -42,7 +42,7 @@ export async function runHeartbeatOnce(
   }
   const output = result.output;
   const escalationEvent = createEscalationEvent(output, result.seedBundle);
-  const containerTag = getSupermemoryContainerTag(branch);
+  const containerTag = getSupermemoryProfileContainerTag(branch);
 
   await observeAgentEvent(
     runtime,

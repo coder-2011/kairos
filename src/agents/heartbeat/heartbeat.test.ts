@@ -5,7 +5,10 @@ import { FinnhubApi, createFinnhubHeartbeatSeedProviders } from "../../api/finnh
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { validateKairosEnv } from "../../global/env.js";
 import { createEscalationEvent } from "./escalation.js";
-import { getSupermemoryContainerTag } from "./memory.js";
+import {
+  getSupermemoryContainerTag,
+  getSupermemoryProfileContainerTag,
+} from "./memory.js";
 import { resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import { runHeartbeatAgent } from "./agent.js";
@@ -48,6 +51,8 @@ function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
     law: "law",
     assets: ["PLTR"],
     seedWindowDays: 30,
+    supermemoryContainerTag: "branch_branch",
+    supermemoryProfileContainerTag: "branch_profile_branch",
     defaultSources: {
       currentPrice: null,
       recentVolume: null,
@@ -61,36 +66,39 @@ function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
 }
 
 describe("heartbeat seed bundle", () => {
-  it("builds the default seed bundle and passes Supermemory scope to providers", async () => {
+  it("builds the default seed bundle and passes branch Supermemory profile scope to providers", async () => {
     const branch = branchConfig();
+    const getSupermemoryContext = vi.fn(async (request) => ({
+      rawContainerTag: request.supermemoryContainerTag,
+      profileContainerTag: request.supermemoryProfileContainerTag,
+      profile: "Prior PLTR deal escalations were useful.",
+    }));
+    const getPriorDecisions = vi.fn(async (request) => [
+      {
+        id: "prior_1",
+        memory:
+          `Prior decision loaded from ${request.supermemoryProfileContainerTag}: generic PLTR commentary was not useful.`,
+        similarity: 0.8,
+        updatedAt: "2026-05-02T12:00:00.000Z",
+        metadata: {
+          type: "heartbeat_output",
+        },
+      },
+    ]);
     const seed = await buildHeartbeatSeedBundle(
       branch,
       {
         getCurrentPrice: vi.fn(async () => ({ PLTR: 100 })),
         getRecentVolume: vi.fn(async () => ({ PLTR: "2x average" })),
         getTickerMovement: vi.fn(async () => ({ PLTR: "+4.2% 1d" })),
-        getSupermemoryContext: vi.fn(async (request) => ({
-          containerTag: request.supermemoryContainerTag,
-          profile: "Prior PLTR deal escalations were useful.",
-        })),
+        getSupermemoryContext,
         getNewsHeadlinesAndSummaries: vi.fn(async () => [
           {
             title: "PLTR announces new government contract",
             summary: "Potentially material deal headline.",
           },
         ]),
-        getPriorDecisions: vi.fn(async () => [
-          {
-            id: "prior_1",
-            memory:
-              "Heartbeat for branch pltr enterprise deals returned no_escalation: prior generic PLTR commentary was not useful.",
-            similarity: 0.8,
-            updatedAt: "2026-05-02T12:00:00.000Z",
-            metadata: {
-              type: "heartbeat_output",
-            },
-          },
-        ]),
+        getPriorDecisions,
       },
       fixedNow,
     );
@@ -101,22 +109,33 @@ describe("heartbeat seed bundle", () => {
       law: branch.law,
       assets: ["PLTR"],
       seedWindowDays: 30,
+      supermemoryContainerTag: "branch_pltr_enterprise_deals",
+      supermemoryProfileContainerTag: "branch_profile_pltr_enterprise_deals",
       defaultSources: {
         currentPrice: { PLTR: 100 },
         recentVolume: { PLTR: "2x average" },
         tickerMovement: { PLTR: "+4.2% 1d" },
         supermemoryContext: {
-          containerTag: "branch_pltr_enterprise_deals",
+          rawContainerTag: "branch_pltr_enterprise_deals",
+          profileContainerTag: "branch_profile_pltr_enterprise_deals",
         },
       },
       priorDecisions: [
         {
           id: "prior_1",
           memory:
-            "Heartbeat for branch pltr enterprise deals returned no_escalation: prior generic PLTR commentary was not useful.",
+            "Prior decision loaded from branch_profile_pltr_enterprise_deals: generic PLTR commentary was not useful.",
         },
       ],
       optionalData: {},
+    });
+    expect(getSupermemoryContext.mock.calls[0]?.[0]).toMatchObject({
+      supermemoryContainerTag: "branch_pltr_enterprise_deals",
+      supermemoryProfileContainerTag: "branch_profile_pltr_enterprise_deals",
+    });
+    expect(getPriorDecisions.mock.calls[0]?.[0]).toMatchObject({
+      supermemoryContainerTag: "branch_pltr_enterprise_deals",
+      supermemoryProfileContainerTag: "branch_profile_pltr_enterprise_deals",
     });
   });
 
@@ -161,6 +180,25 @@ describe("Supermemory container tags", () => {
     expect(getSupermemoryContainerTag(branchConfig())).toBe(
       "branch_pltr_enterprise_deals",
     );
+  });
+
+  it("derives separate branch-scoped user profile tags from branch IDs", () => {
+    expect(getSupermemoryProfileContainerTag(branchConfig())).toBe(
+      "branch_profile_pltr_enterprise_deals",
+    );
+  });
+
+  it("uses configured branch profile tags when present", () => {
+    expect(
+      getSupermemoryProfileContainerTag(
+        branchConfig({
+          memory: {
+            supermemoryContainerTag: "raw_branch_pltr_deals",
+            supermemoryProfileContainerTag: "profile_branch_pltr_deals",
+          },
+        }),
+      ),
+    ).toBe("profile_branch_pltr_deals");
   });
 });
 
@@ -467,7 +505,7 @@ describe("heartbeat de-dupe", () => {
 
     expect(result.toolTraces).toHaveLength(1);
     expect(writeToolTraces).toHaveBeenCalledWith({
-      containerTag: "branch_pltr_enterprise_deals",
+      containerTag: "branch_profile_pltr_enterprise_deals",
       traces: result.toolTraces,
     });
   });
@@ -493,7 +531,7 @@ describe("API clients", () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
     const result = await api.getHeartbeatContext({
-      containerTag: "law_pltr_deals",
+      containerTag: "branch_profile_pltr_deals",
       query: "PLTR deals",
     });
 
@@ -506,6 +544,10 @@ describe("API clients", () => {
         Authorization: "Bearer sm_key",
         "Content-Type": "application/json",
       },
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      containerTag: "branch_profile_pltr_deals",
+      q: "PLTR deals",
     });
   });
 
