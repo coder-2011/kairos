@@ -2267,13 +2267,28 @@ function BranchConfig({
 
 function TradeSymbolDropdown({
   assets,
+  catalog,
+  loadState,
   selected,
   onChange,
 }: {
   assets: string[];
+  catalog: TradeSymbolRecord[];
+  loadState: LoadState;
   selected: string[];
   onChange: (symbols: string[]) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const options = mergeTradeSymbolOptions(catalog, assets, selected);
+  const optionSymbols = options.map((option) => option.symbol);
+  const normalizedQuery = normalizeTickerInput(query);
+  const visibleOptions = options.filter((option) => {
+    if (!normalizedQuery) return true;
+    return (
+      option.symbol.includes(normalizedQuery) ||
+      option.name?.toUpperCase().includes(normalizedQuery)
+    );
+  });
   const selectedSet = new Set(selected);
   const summary =
     selected.length === 0
@@ -2286,24 +2301,43 @@ function TradeSymbolDropdown({
     const next = checked
       ? [...selectedSet, symbol]
       : selected.filter((item) => item !== symbol);
-    onChange(normalizeSymbolSelection(next, assets));
+    onChange(normalizeSymbolSelection(next, optionSymbols));
   }
 
   return (
     <details className="multi-select">
       <summary>{summary}</summary>
       <div className="multi-select-menu">
-        {assets.length === 0 ? (
-          <span className="empty-option">Add tracked tickers first.</span>
+        <input
+          className="multi-select-search"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search Alpaca symbols"
+          value={query}
+        />
+        {loadState === "loading" && (
+          <span className="empty-option">Loading Alpaca symbol catalog.</span>
+        )}
+        {loadState === "offline" && catalog.length === 0 && (
+          <span className="empty-option">Alpaca symbols unavailable. Add tracked tickers manually.</span>
+        )}
+        {visibleOptions.length === 0 ? (
+          <span className="empty-option">No matching symbols.</span>
         ) : (
-          assets.map((asset) => (
-            <label key={asset}>
+          visibleOptions.map((option) => (
+            <label className="symbol-option" key={option.symbol}>
               <input
-                checked={selectedSet.has(asset)}
-                onChange={(event) => toggle(asset, event.target.checked)}
+                checked={selectedSet.has(option.symbol)}
+                onChange={(event) => toggle(option.symbol, event.target.checked)}
                 type="checkbox"
               />
-              <span>{asset}</span>
+              <span className="symbol-option-main">
+                <b>{option.symbol}</b>
+                <small>{option.name ?? option.exchange ?? "Tracked ticker"}</small>
+              </span>
+              <span className="symbol-option-meta">
+                <b>{formatMoneyValue(option.price)}</b>
+                <small>{formatPercentValue(option.dayChangePercent)}</small>
+              </span>
             </label>
           ))
         )}
@@ -2497,12 +2531,16 @@ function PaneHeader({
   meta,
   action,
   actionIcon,
+  actionIconLabel,
+  onActionIconClick,
 }: {
   icon?: string;
   title: string;
   meta: string;
   action?: string;
   actionIcon?: string;
+  actionIconLabel?: string;
+  onActionIconClick?: () => void;
 }) {
   return (
     <div className="pane-head">
@@ -2511,7 +2549,13 @@ function PaneHeader({
         {meta && <div>{meta}</div>}
       </div>
       {action && <button className="command-button compact" type="button">{action}</button>}
-      {actionIcon && <IconButton icon={actionIcon} label={actionIcon} />}
+      {actionIcon && (
+        <IconButton
+          icon={actionIcon}
+          label={actionIconLabel ?? actionIcon}
+          onClick={onActionIconClick}
+        />
+      )}
     </div>
   );
 }
@@ -2615,9 +2659,17 @@ function EmptyPanel({
   );
 }
 
-function IconButton({ icon, label }: { icon: string; label: string }) {
+function IconButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  onClick?: () => void;
+}) {
   return (
-    <button className="icon-button" title={label} type="button">
+    <button className="icon-button" onClick={onClick} title={label} type="button">
       <Icon name={icon} />
     </button>
   );
@@ -2944,6 +2996,48 @@ function normalizeSymbolSelection(symbols: string[], assets: string[]): string[]
   const assetSet = new Set(assets.map(normalizeTickerInput));
   return [...new Set(symbols.map(normalizeTickerInput).filter(Boolean))]
     .filter((symbol) => assetSet.size === 0 || assetSet.has(symbol));
+}
+
+function mergeTradeSymbolOptions(
+  catalog: TradeSymbolRecord[],
+  assets: string[],
+  selected: string[],
+): TradeSymbolRecord[] {
+  const bySymbol = new Map<string, TradeSymbolRecord>();
+  for (const symbol of catalog) {
+    bySymbol.set(normalizeTickerInput(symbol.symbol), symbol);
+  }
+
+  const orderedSymbols = [...assets, ...selected].filter(
+    (value, index, all) =>
+      value &&
+      all.findIndex((item) => normalizeTickerInput(item) === normalizeTickerInput(value)) === index,
+  );
+
+  const result: TradeSymbolRecord[] = [];
+  const added = new Set<string>();
+
+  for (const value of orderedSymbols) {
+    const symbol = normalizeTickerInput(value);
+    if (!symbol || added.has(symbol)) continue;
+    added.add(symbol);
+    result.push(
+      bySymbol.get(symbol) ?? {
+        symbol,
+        tradable: false,
+        source: "alpaca",
+      },
+    );
+  }
+
+  for (const item of catalog) {
+    const symbol = normalizeTickerInput(item.symbol);
+    if (!symbol || added.has(symbol)) continue;
+    added.add(symbol);
+    result.push(item);
+  }
+
+  return result;
 }
 
 function parseHeartbeatIntervalMinutes(value: string): number | undefined {
