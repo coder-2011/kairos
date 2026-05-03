@@ -3389,7 +3389,6 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       mode: "disabled",
       symbol: config.trading?.symbol || config.assets?.[0] || readAssets(branch)[0],
       symbols: config.trading?.symbols ?? [],
-      autoTradeEnabled: false,
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
