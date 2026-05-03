@@ -114,6 +114,83 @@ describe("AlpacaTradingClient", () => {
       notional: 500,
     });
   });
+
+  it("loads active symbols and enriches them with market snapshots", async () => {
+    const requests: Request[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+
+      if (request.url.endsWith("/v2/assets?status=active&asset_class=us_equity")) {
+        return jsonResponse([
+          {
+            symbol: "PLTR",
+            name: "Palantir Technologies Inc.",
+            exchange: "NASDAQ",
+            tradable: true,
+            marginable: true,
+            shortable: true,
+            fractionable: true,
+            status: "active",
+            asset_class: "us_equity",
+          },
+          {
+            symbol: "MSFT",
+            name: "Microsoft Corporation",
+            exchange: "NASDAQ",
+            tradable: true,
+            status: "active",
+            asset_class: "us_equity",
+          },
+        ]);
+      }
+
+      if (request.url.startsWith("https://data.alpaca.test/v2/stocks/snapshots")) {
+        return jsonResponse({
+          PLTR: {
+            latestTrade: { p: 25.5, t: "2026-05-03T16:00:00Z" },
+            dailyBar: { v: 1000 },
+            prevDailyBar: { c: 25 },
+          },
+        });
+      }
+
+      throw new Error(`Unexpected URL ${request.url}`);
+    };
+
+    const client = new AlpacaTradingClient({
+      apiKey: "paper-key",
+      secretKey: "paper-secret",
+      baseUrl: "http://alpaca.test",
+      marketDataBaseUrl: "https://data.alpaca.test",
+      fetchImpl,
+      retryAttempts: 1,
+    });
+
+    const symbols = await client.listMarketSymbols({ query: "pal", limit: 10 });
+
+    expect(symbols).toEqual([
+      {
+        symbol: "PLTR",
+        name: "Palantir Technologies Inc.",
+        exchange: "NASDAQ",
+        assetClass: "us_equity",
+        tradable: true,
+        marginable: true,
+        shortable: true,
+        easyToBorrow: undefined,
+        fractionable: true,
+        price: 25.5,
+        previousClose: 25,
+        dayChangePercent: 2,
+        dailyVolume: 1000,
+        updatedAt: "2026-05-03T16:00:00Z",
+        source: "alpaca",
+      },
+    ]);
+    expect(requests[1].url).toContain("symbols=PLTR");
+    expect(requests[1].url).toContain("feed=iex");
+  });
 });
 
 function jsonResponse(body: unknown): Response {

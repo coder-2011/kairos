@@ -247,10 +247,11 @@ export class AlpacaTradingClient {
     for (const chunk of chunks) {
       const params = new URLSearchParams();
       params.set("symbols", chunk.join(","));
-      const response = await this.marketDataRequest<{
-        snapshots?: Record<string, AlpacaStockSnapshot>;
-      }>(`/v2/stocks/snapshots?${params.toString()}`);
-      Object.assign(snapshots, response.snapshots ?? {});
+      params.set("feed", process.env.ALPACA_DATA_FEED ?? "iex");
+      const response = await this.marketDataRequest<
+        Record<string, AlpacaStockSnapshot> | { snapshots?: Record<string, AlpacaStockSnapshot> }
+      >(`/v2/stocks/snapshots?${params.toString()}`);
+      Object.assign(snapshots, readSnapshotMap(response));
     }
 
     return snapshots;
@@ -500,6 +501,13 @@ function chunkArray<T>(values: T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
+}
+
+function readSnapshotMap(
+  response: Record<string, AlpacaStockSnapshot> | { snapshots?: Record<string, AlpacaStockSnapshot> },
+): Record<string, AlpacaStockSnapshot> {
+  const wrapped = response as { snapshots?: Record<string, AlpacaStockSnapshot> };
+  return wrapped.snapshots ?? (response as Record<string, AlpacaStockSnapshot>);
 }
 
 function toBrokerOrder(
