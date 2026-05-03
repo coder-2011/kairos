@@ -275,6 +275,7 @@ describe("local API handler", () => {
     const run = await requestJson("POST", "/branches/branch_supabase/heartbeat-runs", {
       input: { ticker: "PLTR" },
     });
+    expect(run.status).toBe(201);
     const events = await requestJson("GET", `/runs/${run.body.run.id}/events`);
 
     expect(created.status).toBe(201);
