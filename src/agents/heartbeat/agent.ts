@@ -6,7 +6,12 @@ import {
   type ToolSet,
 } from "ai";
 
-import { observe, type AgentObserver } from "../../global/observability.js";
+import {
+  getAgentRunId,
+  observeAgentError,
+  observeAgentEvent,
+  type AgentObserver,
+} from "../../global/index.js";
 import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
 import {
   heartbeatOutputSchema,
@@ -17,8 +22,11 @@ import type {
   BranchConfig,
   EscalationEvent,
   HeartbeatOutput,
+  HeartbeatPromptSet,
   HeartbeatSeedBundle,
   HeartbeatSeedDataProviders,
+  HeartbeatSeedPolicy,
+  HeartbeatSeedSource,
   HeartbeatToolTrace,
 } from "./types.js";
 import { createEscalationEvent } from "./escalation.js";
@@ -52,9 +60,7 @@ type HeartbeatGenerateText = (options: {
 
 export type HeartbeatAgentDependencies = {
   model: LanguageModel;
-  prompts?: {
-    systemPrompt?: string;
-  };
+  prompts?: HeartbeatPromptSet;
   seedProviders?: HeartbeatSeedDataProviders;
   tools?: ToolSet;
   maxToolSteps?: number;
@@ -62,6 +68,7 @@ export type HeartbeatAgentDependencies = {
   now?: () => Date;
   observer?: AgentObserver;
   runId?: string;
+  seedPolicy?: HeartbeatSeedPolicy;
 };
 
 export type HeartbeatRunResult = {
@@ -75,83 +82,126 @@ export async function runHeartbeatAgent(
   branch: BranchConfig,
   deps: HeartbeatAgentDependencies,
 ): Promise<HeartbeatRunResult> {
+  const runId = getAgentRunId("heartbeat", deps.runId);
+  const runtime = {
+    agent: "heartbeat" as const,
+    observer: deps.observer,
+    runId,
+    branchId: branch.id,
+    now: deps.now,
+  };
+
   if (!branch.heartbeat.enabled) {
-    throw new Error(`Heartbeat is disabled for branch ${branch.id}.`);
+    const error = new Error(`Heartbeat is disabled for branch ${branch.id}.`);
+    await observeAgentError(runtime, "run_error", error);
+    throw error;
   }
 
-  const seedBundle = heartbeatSeedBundleSchema.parse(
-    await buildHeartbeatSeedBundle(
-      branch,
-      deps.seedProviders,
-      deps.now?.() ?? new Date(),
-    ),
-  );
-  await observe(deps.observer, {
-    agent: "heartbeat",
-    type: "seed_built",
-    runId: deps.runId,
-    branchId: branch.id,
-    timestamp: seedBundle.timestamp,
-    payload: {
-      assets: seedBundle.assets,
-      seedWindowDays: seedBundle.seedWindowDays,
-      defaultSourceKeys: Object.keys(seedBundle.defaultSources),
-      priorDecisionCount: seedBundle.priorDecisions.length,
-      optionalDataKeys: Object.keys(seedBundle.optionalData),
-    },
-  });
+  try {
+    await observeAgentEvent(runtime, "seed_start");
+    const seedBundle = heartbeatSeedBundleSchema.parse(
+      await buildHeartbeatSeedBundle(
+        branch,
+        deps.seedProviders,
+        deps.now?.() ?? new Date(),
+      ),
+    );
+    await observeAgentEvent(
+      runtime,
+      "seed_built",
+      {
+        assets: seedBundle.assets,
+        seedWindowDays: seedBundle.seedWindowDays,
+        defaultSourceKeys: Object.keys(seedBundle.defaultSources),
+        priorDecisionCount: seedBundle.priorDecisions.length,
+        optionalDataKeys: Object.keys(seedBundle.optionalData),
+      },
+      seedBundle.timestamp,
+    );
+    validateSeedBundleCompleteness(seedBundle, deps);
 
-  const runModel = deps.generateText ?? (generateText as HeartbeatGenerateText);
-  await observe(deps.observer, {
-    agent: "heartbeat",
-    type: "model_start",
-    runId: deps.runId,
-    branchId: branch.id,
-    timestamp: seedBundle.timestamp,
-    payload: {
-      maxToolSteps: deps.maxToolSteps ?? 3,
-      hasTools: Boolean(deps.tools && Object.keys(deps.tools).length > 0),
-    },
-  });
-  const result = await runModel({
-    model: deps.model,
-    system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
-    prompt: buildHeartbeatUserMessage(seedBundle),
-    tools: deps.tools,
-    stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
-    output: Output.object({
-      schema: heartbeatOutputSchema,
-      name: "heartbeat_output",
-      description:
-        "Compact heartbeat triage decision for whether this branch should escalate.",
-    }),
-  });
-  const parsed = heartbeatOutputSchema.parse(result.output);
-  const output = {
-    ...parsed,
-    branch_id: seedBundle.branchId,
-    timestamp: seedBundle.timestamp,
-  };
-  const toolTraces = extractToolTraces(result.steps, seedBundle);
+    const runModel = deps.generateText ?? (generateText as HeartbeatGenerateText);
+    await observeAgentEvent(
+      runtime,
+      "model_start",
+      {
+        maxToolSteps: deps.maxToolSteps ?? 3,
+        hasTools: Boolean(deps.tools && Object.keys(deps.tools).length > 0),
+      },
+      seedBundle.timestamp,
+    );
+    const result = await runModel({
+      model: deps.model,
+      system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
+      prompt: buildHeartbeatUserMessage(seedBundle),
+      tools: deps.tools,
+      stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
+      output: Output.object({
+        schema: heartbeatOutputSchema,
+        name: "heartbeat_output",
+        description:
+          "Compact heartbeat triage decision for whether this branch should escalate.",
+      }),
+    });
+    const parsed = heartbeatOutputSchema.parse(result.output);
+    const output = {
+      ...parsed,
+      branch_id: seedBundle.branchId,
+      timestamp: seedBundle.timestamp,
+    };
+    const toolTraces = extractToolTraces(result.steps, seedBundle);
 
-  await observe(deps.observer, {
-    agent: "heartbeat",
-    type: "model_complete",
-    runId: deps.runId,
-    branchId: branch.id,
-    timestamp: seedBundle.timestamp,
-    payload: {
+    await observeAgentEvent(
+      runtime,
+      "model_complete",
+      {
+        output,
+        toolTraceCount: toolTraces.length,
+      },
+      seedBundle.timestamp,
+    );
+
+    return {
       output,
-      toolTraceCount: toolTraces.length,
-    },
+      seedBundle,
+      escalationEvent: createEscalationEvent(output, seedBundle),
+      toolTraces,
+    };
+  } catch (error) {
+    await observeAgentError(runtime, "run_error", error);
+    throw error;
+  }
+}
+
+function validateSeedBundleCompleteness(
+  seedBundle: HeartbeatSeedBundle,
+  deps: HeartbeatAgentDependencies,
+): void {
+  if (deps.generateText || deps.seedPolicy?.allowPartialSeedBundle) {
+    return;
+  }
+
+  const requiredSources: HeartbeatSeedSource[] = [
+    "currentPrice",
+    "recentVolume",
+    "tickerMovement",
+    "supermemoryContext",
+    "newsHeadlinesAndSummaries",
+  ];
+  const missingSources = requiredSources.filter((source) => {
+    const value = seedBundle.defaultSources[source];
+    return value === null || value === undefined;
   });
 
-  return {
-    output,
-    seedBundle,
-    escalationEvent: createEscalationEvent(output, seedBundle),
-    toolTraces,
-  };
+  if (missingSources.length > 0) {
+    throw new Error(
+      [
+        "Heartbeat seed bundle is incomplete.",
+        `Missing required source(s): ${missingSources.join(", ")}.`,
+        "Refusing to run because fallback context would not preserve enough functionality.",
+      ].join(" "),
+    );
+  }
 }
 
 function extractToolTraces(

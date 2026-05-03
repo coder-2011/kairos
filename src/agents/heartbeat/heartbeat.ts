@@ -3,7 +3,12 @@ import {
   type HeartbeatAgentDependencies,
   type HeartbeatRunResult,
 } from "./agent.js";
-import { observe } from "../../global/observability.js";
+import {
+  assertOpenRouterToolCapableModel,
+  getAgentRunId,
+  observeAgentError,
+  observeAgentEvent,
+} from "../../global/index.js";
 import type { BranchConfig, HeartbeatMemoryWriter } from "./types.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { createEscalationEvent } from "./escalation.js";
@@ -18,54 +23,66 @@ export async function runHeartbeatOnce(
   branch: BranchConfig,
   deps: HeartbeatOnceDependencies,
 ): Promise<HeartbeatRunResult> {
-  const result = await runHeartbeatAgent(branch, deps);
+  const runId = getAgentRunId("heartbeat", deps.runId);
+  const runtime = {
+    agent: "heartbeat" as const,
+    observer: deps.observer,
+    runId,
+    branchId: branch.id,
+    now: deps.now,
+  };
+  if (deps.tools && Object.keys(deps.tools).length > 0 && !deps.generateText) {
+    assertOpenRouterToolCapableModel(branch.heartbeat.model);
+  }
+
+  let result: HeartbeatRunResult;
+  try {
+    result = await runHeartbeatAgent(branch, { ...deps, runId });
+  } catch (error) {
+    await observeAgentError(runtime, "run_error", error);
+    throw error;
+  }
   const output = deps.deduper?.suppressDuplicate(result.output) ?? result.output;
   const escalationEvent = createEscalationEvent(output, result.seedBundle);
   const containerTag = getSupermemoryContainerTag(branch);
 
-  await observe(deps.observer, {
-    agent: "heartbeat",
-    type: "dedupe_complete",
-    runId: deps.runId,
-    branchId: branch.id,
-    timestamp: result.seedBundle.timestamp,
-    payload: {
+  await observeAgentEvent(
+    runtime,
+    "dedupe_complete",
+    {
       decisionBeforeDedupe: result.output.decision,
       decisionAfterDedupe: output.decision,
       summary: output.summary,
     },
-  });
+    result.seedBundle.timestamp,
+  );
 
   await deps.memoryWriter?.writeHeartbeatOutput?.({
     containerTag,
     output,
     seedBundle: result.seedBundle,
   });
-  await observe(deps.observer, {
-    agent: "heartbeat",
-    type: "heartbeat_output_persisted",
-    runId: deps.runId,
-    branchId: branch.id,
-    timestamp: result.seedBundle.timestamp,
-    payload: { containerTag },
-  });
+  await observeAgentEvent(
+    runtime,
+    "heartbeat_output_persisted",
+    { containerTag },
+    result.seedBundle.timestamp,
+  );
 
   if (result.toolTraces.length > 0) {
     await deps.memoryWriter?.writeToolTraces?.({
       containerTag,
       traces: result.toolTraces,
     });
-    await observe(deps.observer, {
-      agent: "heartbeat",
-      type: "tool_traces_persisted",
-      runId: deps.runId,
-      branchId: branch.id,
-      timestamp: result.seedBundle.timestamp,
-      payload: {
+    await observeAgentEvent(
+      runtime,
+      "tool_traces_persisted",
+      {
         containerTag,
         toolTraceCount: result.toolTraces.length,
       },
-    });
+      result.seedBundle.timestamp,
+    );
   }
 
   if (escalationEvent) {
@@ -73,17 +90,15 @@ export async function runHeartbeatOnce(
       containerTag,
       event: escalationEvent,
     });
-    await observe(deps.observer, {
-      agent: "heartbeat",
-      type: "escalation_persisted",
-      runId: deps.runId,
-      branchId: branch.id,
-      timestamp: result.seedBundle.timestamp,
-      payload: {
+    await observeAgentEvent(
+      runtime,
+      "escalation_persisted",
+      {
         containerTag,
         decision: escalationEvent.heartbeatOutput.decision,
       },
-    });
+      result.seedBundle.timestamp,
+    );
   }
 
   return {

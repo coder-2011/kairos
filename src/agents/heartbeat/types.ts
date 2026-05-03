@@ -16,6 +16,18 @@ export type HeartbeatToolTrace = {
   error?: string;
 };
 
+export type HeartbeatPromptSet = {
+  systemPrompt?: string;
+};
+
+export type HeartbeatSeedPolicy = {
+  /**
+   * Production default is false. Set true only for tests, dry-runs, or degraded
+   * probes where running with a partial packet is explicitly acceptable.
+   */
+  allowPartialSeedBundle?: boolean;
+};
+
 export type HeartbeatSeedSource =
   | "currentPrice"
   | "recentVolume"

@@ -11,6 +11,7 @@ import { validateKairosEnv } from "../../global/env.js";
 import { createEscalationEvent } from "./escalation.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { getSupermemoryContainerTag } from "./memory.js";
+import { resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import { runHeartbeatAgent } from "./agent.js";
 import { runHeartbeatOnce, startHeartbeatScheduler } from "./heartbeat.js";
@@ -227,6 +228,17 @@ describe("heartbeat agent", () => {
         system: "CUSTOM HEARTBEAT SYSTEM",
       }),
     );
+  });
+
+  it("resolves configurable heartbeat system prompts from the environment", () => {
+    expect(
+      resolveHeartbeatPrompts({
+        KAIROS_HEARTBEAT_SYSTEM_PROMPT: "ENV HEARTBEAT",
+      }),
+    ).toEqual({
+      systemPrompt: "ENV HEARTBEAT",
+    });
+    expect(resolveHeartbeatPrompts({})).toBeUndefined();
   });
 
   it("does not create escalation events for no-escalation output", () => {

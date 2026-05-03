@@ -1,4 +1,8 @@
-import type { HeartbeatSeedBundle } from "./types.js";
+import type { HeartbeatPromptSet, HeartbeatSeedBundle } from "./types.js";
+
+export const HEARTBEAT_PROMPT_ENV = {
+  systemPrompt: "KAIROS_HEARTBEAT_SYSTEM_PROMPT",
+} as const;
 
 export const HEARTBEAT_SYSTEM_PROMPT = `
 You are the Kairos heartbeat agent.
@@ -91,4 +95,12 @@ export function buildHeartbeatUserMessage(seed: HeartbeatSeedBundle): string {
     null,
     2,
   );
+}
+
+export function resolveHeartbeatPrompts(
+  env: NodeJS.ProcessEnv = process.env,
+): HeartbeatPromptSet | undefined {
+  const systemPrompt = env[HEARTBEAT_PROMPT_ENV.systemPrompt];
+
+  return systemPrompt ? { systemPrompt } : undefined;
 }

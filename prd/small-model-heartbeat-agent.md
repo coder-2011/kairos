@@ -275,6 +275,7 @@ Initial configurable parameters:
 - `assets`.
 - `branch_id`.
 - `enabled`.
+- Heartbeat system prompt override via `KAIROS_HEARTBEAT_SYSTEM_PROMPT`.
 - Optional seeded data source toggles, represented generically as keyed UI-configurable source names.
 
 These should be branch-level settings where practical.

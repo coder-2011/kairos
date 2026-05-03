@@ -52,6 +52,7 @@ describe("heartbeat debate handoff", () => {
     };
 
     const debate = await runDebateForHeartbeatResult(result, {
+      allowDeterministicFallback: true,
       tools: {
         information: async () => ({
           summary: "Information check completed.",
@@ -91,6 +92,7 @@ describe("heartbeat debate handoff", () => {
         })),
       },
       {
+        allowDeterministicFallback: true,
         tools: {
           information,
         },
