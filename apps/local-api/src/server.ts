@@ -764,6 +764,15 @@ async function createRouterMessage(
     const extraction = await extractRouterSources(context, input, userMessage);
     const { sources } = extraction;
     const toolCalls = [...extraction.toolCalls];
+    for (const toolCall of extraction.toolCalls) {
+      await context.store.appendRunEvent(run.id, {
+        type:
+          toolCall.status === "failed"
+            ? "router.tool_call.failed"
+            : "router.tool_call.completed",
+        payload: toolCall,
+      });
+    }
     await context.store.appendRunEvent(run.id, {
       type: "router.sources.extracted",
       payload: { sources },
@@ -1327,8 +1336,9 @@ async function extractRouterSources(
   context: LocalApiContext,
   input: z.infer<typeof routerMessageCreateSchema>,
   message: RouterMessageRecord,
-): Promise<RouterExtractedSource[]> {
+): Promise<RouterSourceExtractionResult> {
   const sources: RouterExtractedSource[] = [];
+  const toolCalls: RouterToolCallRecord[] = [];
   if (message.text) {
     sources.push({
       id: "chat_text",
@@ -1338,16 +1348,66 @@ async function extractRouterSources(
   }
 
   const urls = extractUrls(message.text ?? "");
-  sources.push(...await context.retrieveUrlContents({
-    urls,
-    dryRun: input.dryRun,
-  }));
+  if (urls.length > 0) {
+    try {
+      const webpageSources = await context.retrieveUrlContents({
+        urls,
+        dryRun: input.dryRun,
+      });
+      sources.push(...webpageSources);
+      const toolCall = createRouterToolCall({
+        name: "exa_contents",
+        status: input.dryRun ? "skipped" : "succeeded",
+        summary: input.dryRun
+          ? `Preserved ${urls.length} URL${urls.length === 1 ? "" : "s"} without live Exa retrieval because this was a dry run.`
+          : `Retrieved ${webpageSources.length} webpage source${webpageSources.length === 1 ? "" : "s"} through Exa contents.`,
+        input: { urls },
+        output: {
+          sourceIds: webpageSources.map((source) => source.id),
+          characterCount: webpageSources.reduce(
+            (sum, source) => sum + source.text.length,
+            0,
+          ),
+        },
+      });
+      toolCalls.push(toolCall);
+    } catch (error) {
+      const toolCall = createRouterToolCall({
+        name: "exa_contents",
+        status: "failed",
+        summary: "Exa contents retrieval failed. The original URL remains in the submitted chat text.",
+        input: { urls },
+        error: error instanceof Error ? error.message : String(error),
+      });
+      toolCalls.push(toolCall);
+    }
+  }
 
   for (const attachment of input.attachments) {
     sources.push(attachmentSource(attachment));
   }
 
-  return sources;
+  return { sources, toolCalls };
+}
+
+function createRouterToolCall(input: {
+  name: string;
+  status: RouterToolCallRecord["status"];
+  summary: string;
+  input?: JsonRecord;
+  output?: JsonRecord;
+  error?: string;
+}): RouterToolCallRecord {
+  return {
+    id: randomUUID(),
+    name: input.name,
+    status: input.status,
+    summary: input.summary,
+    input: input.input,
+    output: input.output,
+    error: input.error,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function attachmentSource(attachment: RouterAttachmentRecord): RouterExtractedSource {
