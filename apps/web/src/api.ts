@@ -32,7 +32,7 @@ export type BranchRecord = {
 
 export type RunRecord = {
   id: string;
-  kind: "heartbeat" | "debate";
+  kind: "heartbeat" | "debate" | "router";
   status: "pending" | "running" | "succeeded" | "failed" | "canceled";
   branchId?: string;
   createdAt: string;
@@ -79,6 +79,29 @@ export type MessageRecord = JsonRecord & {
   title?: string;
   summary?: string;
   message?: string;
+};
+
+export type RouterChatRecord = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RouterAttachmentRecord = {
+  id: string;
+  name: string;
+  mimeType: string;
+  path: string;
+};
+
+export type RouterMessageRecord = {
+  id: string;
+  chatId: string;
+  role: "user" | "assistant";
+  createdAt: string;
+  text?: string;
+  attachments?: RouterAttachmentRecord[];
+  runId?: string;
 };
 
 export type TradeIntentRecord = JsonRecord & {
@@ -138,6 +161,51 @@ export async function getTradeIntents(): Promise<TradeIntentRecord[]> {
       readRecordArray(response, "intents");
 
     return (records ?? []) as TradeIntentRecord[];
+  });
+}
+
+export async function getRouterChats(): Promise<RouterChatRecord[]> {
+  return request<{ chats: RouterChatRecord[] }>("/router/chats").then(
+    (response) => response.chats,
+  );
+}
+
+export async function createRouterChat(): Promise<RouterChatRecord> {
+  return request<{ chat: RouterChatRecord }>("/router/chats", {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((response) => response.chat);
+}
+
+export async function getRouterMessages(
+  chatId: string,
+): Promise<RouterMessageRecord[]> {
+  return request<{ messages: RouterMessageRecord[] }>(
+    `/router/chats/${chatId}/messages`,
+  ).then((response) => response.messages);
+}
+
+export async function sendRouterMessage(input: {
+  chatId: string;
+  text: string;
+  dryRun?: boolean;
+}): Promise<{
+  userMessage: RouterMessageRecord;
+  assistantMessage: RouterMessageRecord;
+  run: RunRecord;
+  heartbeatRuns: RunRecord[];
+}> {
+  return request<{
+    userMessage: RouterMessageRecord;
+    assistantMessage: RouterMessageRecord;
+    run: RunRecord;
+    heartbeatRuns: RunRecord[];
+  }>(`/router/chats/${input.chatId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
+      text: input.text,
+      dryRun: input.dryRun ?? true,
+    }),
   });
 }
 

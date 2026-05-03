@@ -16,6 +16,7 @@ import type {
 } from "../../../src/global/agent-config.js";
 import {
   appendInterjection,
+  createRouterChat,
   createDebate,
   getBranches,
   getMessages,
@@ -23,8 +24,11 @@ import {
   getPortfolio,
   getRunEvents,
   getRuns,
+  getRouterChats,
+  getRouterMessages,
   getTradeIntents,
   triggerHeartbeat,
+  sendRouterMessage,
   updateBranch,
   type AllowedOrderType,
   type BranchRecord,
@@ -34,13 +38,16 @@ import {
   type PortfolioSnapshot,
   type RunEventRecord,
   type RunRecord,
+  type RouterChatRecord,
+  type RouterMessageRecord,
   type TradingMode,
   type TradeIntentRecord,
   type WebBranchConfig,
 } from "./api";
 
-type View = "branches" | "monitoring" | "portfolio" | "runDeepDive" | "config";
+type View = "branches" | "router" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
+type RunMode = "agent" | "dry";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
@@ -48,6 +55,7 @@ const THEME_STORAGE_KEY = "kairos-theme";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
+  { id: "router", label: "Router", icon: "route" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
   { id: "runDeepDive", label: "Run Deep-Dive", icon: "timeline" },
@@ -153,12 +161,19 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [runMode, setRunMode] = useState<RunMode>("agent");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
     useState<LoadState>("loading");
   const [portfolio, setPortfolio] = useState<PortfolioSnapshot>();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [tradeIntents, setTradeIntents] = useState<TradeIntentRecord[]>([]);
+  const [routerChats, setRouterChats] = useState<RouterChatRecord[]>([]);
+  const [selectedRouterChatId, setSelectedRouterChatId] = useState("");
+  const [routerMessages, setRouterMessages] = useState<RouterMessageRecord[]>([]);
+  const [routerLoadState, setRouterLoadState] = useState<LoadState>("loading");
+  const [routerRunning, setRouterRunning] = useState(false);
+  const [lastRouterHeartbeatRuns, setLastRouterHeartbeatRuns] = useState<RunRecord[]>([]);
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -244,6 +259,96 @@ export function App() {
     void refreshPortfolioData();
   }, [view]);
 
+  useEffect(() => {
+    if (view !== "router") return;
+    void refreshRouterChats();
+  }, [view]);
+
+  useEffect(() => {
+    if (!selectedRouterChatId || routerLoadState !== "api") {
+      setRouterMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    getRouterMessages(selectedRouterChatId)
+      .then((nextMessages) => {
+        if (!cancelled) setRouterMessages(nextMessages);
+      })
+      .catch(() => {
+        if (!cancelled) setRouterLoadState("offline");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routerLoadState, selectedRouterChatId]);
+
+  async function refreshRouterChats() {
+    setRouterLoadState("loading");
+
+    try {
+      let chats = await getRouterChats();
+      if (chats.length === 0) {
+        const chat = await createRouterChat();
+        chats = [chat];
+      }
+      setRouterChats(chats);
+      setSelectedRouterChatId((current) => current || chats[0]?.id || "");
+      setRouterLoadState("api");
+    } catch {
+      setRouterLoadState("offline");
+    }
+  }
+
+  async function startRouterChat() {
+    try {
+      const chat = await createRouterChat();
+      setRouterChats((current) => [chat, ...current]);
+      setSelectedRouterChatId(chat.id);
+      setRouterMessages([]);
+      setLastRouterHeartbeatRuns([]);
+      setRouterLoadState("api");
+    } catch {
+      setRouterLoadState("offline");
+    }
+  }
+
+  async function submitRouterMessage(text: string) {
+    if (!selectedRouterChatId || !text.trim()) return;
+    setRouterRunning(true);
+
+    try {
+      const result = await sendRouterMessage({
+        chatId: selectedRouterChatId,
+        text: text.trim(),
+        dryRun: true,
+      });
+      setRouterMessages((current) => [
+        ...current,
+        result.userMessage,
+        result.assistantMessage,
+      ]);
+      setRuns((current) => [
+        result.run,
+        ...result.heartbeatRuns,
+        ...current.filter(
+          (run) =>
+            run.id !== result.run.id &&
+            !result.heartbeatRuns.some((heartbeatRun) => heartbeatRun.id === run.id),
+        ),
+      ]);
+      setSelectedRunId(result.run.id);
+      setLastRouterHeartbeatRuns(result.heartbeatRuns);
+      setRouterLoadState("api");
+      setLoadState("api");
+    } catch {
+      setRouterLoadState("offline");
+    } finally {
+      setRouterRunning(false);
+    }
+  }
+
   async function refreshPortfolioData() {
     setPortfolioLoadState("loading");
 
@@ -267,7 +372,7 @@ export function App() {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: true },
+        { dryRun: runMode === "dry" },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -283,7 +388,7 @@ export function App() {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: true,
+        dryRun: runMode === "dry",
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -382,6 +487,19 @@ export function App() {
             }}
           />
         )}
+        {view === "router" && (
+          <RouterView
+            chats={routerChats}
+            heartbeatRuns={lastRouterHeartbeatRuns}
+            loadState={routerLoadState}
+            messages={routerMessages}
+            running={routerRunning}
+            selectedChatId={selectedRouterChatId}
+            onNewChat={() => void startRouterChat()}
+            onSelectChat={setSelectedRouterChatId}
+            onSend={(text) => void submitRouterMessage(text)}
+          />
+        )}
         {view === "monitoring" && (
           <MonitoringView
             events={events}
@@ -411,8 +529,10 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
+            runMode={runMode}
             onEscalate={() => void startDebate(selectedBranch.id)}
             onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
+            onRunModeChange={setRunMode}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -682,6 +802,175 @@ function BranchList({
         </table>
       </section>
     </main>
+  );
+}
+
+function RouterView({
+  chats,
+  heartbeatRuns,
+  loadState,
+  messages,
+  running,
+  selectedChatId,
+  onNewChat,
+  onSelectChat,
+  onSend,
+}: {
+  chats: RouterChatRecord[];
+  heartbeatRuns: RunRecord[];
+  loadState: LoadState;
+  messages: RouterMessageRecord[];
+  running: boolean;
+  selectedChatId: string;
+  onNewChat: () => void;
+  onSelectChat: (chatId: string) => void;
+  onSend: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function submit() {
+    if (!draft.trim() || running) return;
+    onSend(draft);
+    setDraft("");
+  }
+
+  return (
+    <main className="router-canvas">
+      <aside className="router-chat-list">
+        <PaneHeader
+          icon="route"
+          meta={`${chats.length} CHATS`}
+          title="ROUTER"
+        />
+        <button
+          className="command-button primary router-new-chat"
+          onClick={onNewChat}
+          type="button"
+        >
+          <Icon name="add" /> NEW CHAT
+        </button>
+        <div className="run-list">
+          {chats.length === 0 ? (
+            <EmptyPanel
+              icon="route"
+              message="Create a router chat to send links, notes, and attachments into branch monitoring."
+              title="No Router Chats"
+            />
+          ) : (
+            chats.map((chat) => (
+              <button
+                className={`run-list-item ${chat.id === selectedChatId ? "active" : ""}`}
+                key={chat.id}
+                onClick={() => onSelectChat(chat.id)}
+                type="button"
+              >
+                <span>CHAT</span>
+                <b>{chat.id}</b>
+                <em>{timeOnly(chat.updatedAt)}</em>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
+      <section className="router-chat-pane">
+        <div className="detail-head">
+          <div>
+            <h1>Router Agent</h1>
+            <p>
+              Paste a link or note. The router selects branch IDs and wakes
+              their heartbeat agents with router-origin context.
+            </p>
+          </div>
+          <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
+            {loadState === "loading"
+              ? "SYNCING"
+              : loadState === "api"
+                ? "LOCAL ROUTER"
+                : "ROUTER OFFLINE"}
+          </span>
+        </div>
+        <div className="router-transcript">
+          {messages.length === 0 ? (
+            <EmptyPanel
+              icon="forum"
+              message="Router replies and selected branch IDs will appear here."
+              title="No Messages"
+            />
+          ) : (
+            messages.map((message) => (
+              <RouterMessageBubble message={message} key={message.id} />
+            ))
+          )}
+        </div>
+        <div className="router-composer">
+          <div className="router-drop-zone">
+            <Icon name="attach_file" />
+            <span>Attachment upload reserved for PDF/image extraction.</span>
+          </div>
+          <textarea
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                submit();
+              }
+            }}
+            placeholder="Paste a URL, note, filing excerpt, or source description..."
+            value={draft}
+          />
+          <button
+            className="command-button primary"
+            disabled={!draft.trim() || running || !selectedChatId}
+            onClick={submit}
+            type="button"
+          >
+            <Icon name={running ? "hourglass_top" : "send"} />
+            {running ? "ROUTING" : "SEND"}
+          </button>
+        </div>
+      </section>
+      <aside className="router-side pane">
+        <PaneHeader
+          icon="monitor_heart"
+          meta={`${heartbeatRuns.length} WOKEN`}
+          title="HEARTBEATS"
+        />
+        <div className="portfolio-card-list">
+          {heartbeatRuns.length === 0 ? (
+            <EmptyPanel
+              icon="monitor_heart"
+              message="The latest router run has not woken any heartbeat agents."
+              title="No Wakeups"
+            />
+          ) : (
+            heartbeatRuns.map((run) => (
+              <article className="portfolio-card" key={run.id}>
+                <div className="portfolio-card-head">
+                  <b>{run.branchId ?? "NO_BRANCH"}</b>
+                  <span>{run.status}</span>
+                </div>
+                <p>{readDisplay(run.output?.summary, "Heartbeat run created.")}</p>
+                <div className="portfolio-card-grid">
+                  <span>{run.kind}</span>
+                  <span>{timeOnly(run.createdAt)}</span>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </aside>
+    </main>
+  );
+}
+
+function RouterMessageBubble({ message }: { message: RouterMessageRecord }) {
+  return (
+    <article className={`router-message ${message.role}`}>
+      <div className="router-message-head">
+        <b>{message.role === "user" ? "YOU" : "ROUTER"}</b>
+        <span>{timeOnly(message.createdAt)}</span>
+      </div>
+      <p>{message.text}</p>
+    </article>
   );
 }
 
@@ -1119,17 +1408,51 @@ function RunDeepDive({
   );
 }
 
+function RunModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: RunMode;
+  onChange: (mode: RunMode) => void;
+}) {
+  return (
+    <div
+      className="run-mode-switch"
+      title="Choose whether branch actions run the real agent path or deterministic dry-run fixtures."
+    >
+      <button
+        className={mode === "agent" ? "active" : ""}
+        onClick={() => onChange("agent")}
+        type="button"
+      >
+        AGENT
+      </button>
+      <button
+        className={mode === "dry" ? "active" : ""}
+        onClick={() => onChange("dry")}
+        type="button"
+      >
+        DRY
+      </button>
+    </div>
+  );
+}
+
 function BranchConfig({
   branch,
   openRouterModels,
+  runMode,
   onRunHeartbeat,
   onEscalate,
+  onRunModeChange,
   onSave,
 }: {
   branch: BranchRecord;
   openRouterModels: OpenRouterModelRecord[];
+  runMode: RunMode;
   onRunHeartbeat: () => void;
   onEscalate: () => void;
+  onRunModeChange: (mode: RunMode) => void;
   onSave: (input: {
     config: WebBranchConfig;
     lawText: string;
@@ -1174,11 +1497,12 @@ function BranchConfig({
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
+          <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
           <button className="command-button" onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> DRY HEARTBEAT
+            <Icon name="play_arrow" /> {runMode === "dry" ? "DRY" : "AGENT"} HEARTBEAT
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="warning" /> DRY ESCALATION
+            <Icon name="warning" /> {runMode === "dry" ? "DRY" : "AGENT"} ESCALATION
           </button>
           <button
             className="command-button"

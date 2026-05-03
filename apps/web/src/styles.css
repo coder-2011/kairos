@@ -682,6 +682,7 @@ a {
 
 .canvas,
 .split-canvas,
+.router-canvas,
 .detail-canvas,
 .editor-canvas,
 .config-canvas {
@@ -1166,6 +1167,108 @@ select:focus {
   border-right: 0;
 }
 
+.router-canvas {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 320px;
+}
+
+.router-chat-list,
+.router-chat-pane,
+.router-side {
+  background: var(--surface-low);
+  border-right: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.router-side {
+  border-right: 0;
+}
+
+.router-new-chat {
+  margin: 12px;
+}
+
+.router-chat-pane .detail-head {
+  flex: 0 0 auto;
+}
+
+.router-transcript {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.router-message {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  max-width: 78%;
+  padding: 12px;
+}
+
+.router-message.user {
+  align-self: flex-end;
+  background: var(--surface);
+}
+
+.router-message.assistant {
+  align-self: flex-start;
+}
+
+.router-message-head {
+  color: var(--on-variant);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.router-message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.router-composer {
+  background: var(--surface-lowest);
+  border-top: 1px solid var(--outline-variant);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.router-composer textarea {
+  grid-column: 1 / 2;
+  min-height: 92px;
+}
+
+.router-composer .command-button {
+  align-self: end;
+  min-width: 96px;
+}
+
+.router-drop-zone {
+  align-items: center;
+  border: 1px dashed var(--outline-variant);
+  color: var(--on-variant);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  gap: 8px;
+  grid-column: 1 / -1;
+  min-height: 36px;
+  padding: 8px;
+  text-transform: uppercase;
+}
+
 .pane-head {
   align-items: center;
   background: var(--surface-lowest);
@@ -1497,7 +1600,12 @@ select:focus {
 
 .law-block,
 .recent-runs,
-.side-panel,
+.side-panel {
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  padding: 12px;
+}
+
 .editor-body,
 .config-body {
   padding: 12px;
@@ -1706,6 +1814,34 @@ select:focus {
 
 .editor-canvas {
   grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.run-mode-switch {
+  align-items: center;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(48px, 1fr));
+  min-height: 28px;
+  padding: 2px;
+}
+
+.run-mode-switch button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  min-height: 22px;
+  padding: 3px 8px;
+}
+
+.run-mode-switch button.active {
+  background: var(--surface);
+  border-color: var(--outline-variant);
+  color: var(--on-surface);
 }
 
 .editor-body,
