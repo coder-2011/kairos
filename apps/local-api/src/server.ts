@@ -62,9 +62,11 @@ import {
 import { createRuntimeStore } from "./runtime.js";
 import {
   MemoryKairosStore,
+  buildRouterChatTitle,
   type AppendRunEventInput,
   type BranchRecord,
   type KairosLocalStore,
+  type RouterChatRecord,
   type JsonRecord,
   type RouterAttachmentRecord,
   type RouterMessageRecord,
@@ -135,6 +137,7 @@ type RouterUrlRetrieveInput = {
 
 type MarketSymbolProvider = {
   listMarketSymbols: (input: AlpacaMarketSymbolQuery) => Promise<AlpacaMarketSymbol[]>;
+  getMarketSymbols?: (symbols: string[]) => Promise<AlpacaMarketSymbol[]>;
 };
 
 const fallbackMarketSymbols: AlpacaMarketSymbol[] = [
@@ -179,12 +182,10 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
-  dryRun: z.boolean().optional().default(false),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const debateCreateSchema = z.object({
-  dryRun: z.boolean().optional().default(false),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -202,7 +203,6 @@ const routerChatCreateSchema = z.object({
 
 const routerMessageCreateSchema = z.object({
   text: z.string().optional().default(""),
-  dryRun: z.boolean().optional().default(false),
   attachments: z
     .array(
       z.object({
@@ -438,9 +438,8 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   let completed: RunRecord | undefined;
   try {
     completed = await runHeartbeatForBranch(context, branch, {
-      dryRun: input.dryRun,
       input: input.input,
-      metadataSource: input.dryRun ? "dry_run" : "runtime",
+      metadataSource: "runtime",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -458,7 +457,6 @@ async function runHeartbeatForBranch(
   context: LocalApiContext,
   branch: BranchRecord,
   options: {
-    dryRun: boolean;
     input: JsonRecord;
     metadataSource: string;
   },
@@ -471,7 +469,6 @@ async function runHeartbeatForBranch(
     kind: "heartbeat",
     status: "running",
     branchId: branch.id,
-    dryRun: options.dryRun,
     input: runPayload,
     metadata: { source: options.metadataSource },
   });
@@ -483,7 +480,6 @@ async function runHeartbeatForBranch(
   try {
     result = await context.runHeartbeat({
       branchId: branch.id,
-      dryRun: options.dryRun,
       payload: runPayload,
       branch,
     });
@@ -739,19 +735,17 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     kind: "debate",
     status: "running",
     branchId,
-    dryRun: input.dryRun,
     input: runPayload,
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: "runtime" },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "debate", dryRun: input.dryRun },
+    payload: { kind: "debate" },
   });
 
   let result: DebateCreateResult;
   try {
     result = await context.createDebate({
-      dryRun: input.dryRun,
       payload: runPayload,
       branch,
     });
@@ -807,17 +801,20 @@ async function createRouterMessage(
   if (!input.text.trim() && input.attachments.length === 0) {
     return json({ error: "bad_request", message: "Router message is empty." }, 400);
   }
+  const chatTitle = chat.title
+    ? undefined
+    : await generateRouterChatTitle(input.text.trim(), input.attachments);
 
   const userMessage = await context.store.createRouterMessage({
     chatId,
     role: "user",
     text: input.text.trim() || undefined,
+    chatTitle,
     attachments: input.attachments,
   });
   const run = await context.store.createRun({
     kind: "router",
     status: "running",
-    dryRun: input.dryRun,
     input: {
       chatId,
       messageId: userMessage.id,
@@ -894,7 +891,6 @@ async function createRouterMessage(
       const branch = branches.find((item) => item.id === branchId);
       if (!branch) continue;
       const heartbeatRun = await runHeartbeatForBranch(context, branch, {
-        dryRun: input.dryRun,
         input: {
           origin: "router",
           messageText: userMessage.text,
@@ -949,6 +945,7 @@ async function createRouterMessage(
     });
 
     return json({
+      chat: await context.store.getRouterChat(chatId),
       userMessage,
       assistantMessage,
       run: completed,
@@ -966,6 +963,68 @@ async function createRouterMessage(
     });
     return json({ run: failed, error: "run_failed", message }, 500);
   }
+}
+
+async function generateRouterChatTitle(
+  text: string,
+  attachments: RouterAttachmentRecord[],
+): Promise<string | undefined> {
+  if (!text.trim() && attachments.length === 0) return undefined;
+
+  try {
+    const model = process.env.KAIROS_NOTIFICATION_MODEL ?? "google/gemma-4-31b-it";
+    const title = await callGemmaChatTitleModel(text, model);
+    return title ?? buildRouterChatTitle({ text, attachments });
+  } catch {
+    return buildRouterChatTitle({ text, attachments });
+  }
+}
+
+async function callGemmaChatTitleModel(
+  text: string,
+  model: string,
+): Promise<string | undefined> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || !text.trim()) return undefined;
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 16,
+      messages: [
+        {
+          role: "system",
+          content: "Name this chat. Return 2-5 plain words. No quotes. No punctuation.",
+        },
+        {
+          role: "user",
+          content: text.slice(0, 1200),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) return undefined;
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return cleanRouterChatTitle(payload.choices?.[0]?.message?.content);
+}
+
+function cleanRouterChatTitle(value: string | undefined): string | undefined {
+  const title = value
+    ?.replace(/^["'`]+|["'`.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title) return undefined;
+  return title.length > 48 ? `${title.slice(0, 45).trimEnd()}...` : title;
 }
 
 async function getPortfolio(
@@ -1394,7 +1453,7 @@ async function listMarketSymbols(
       cacheTags: marketSymbolCacheTags(query),
     });
   } catch (error) {
-    const fallback = fallbackSymbols({ query, limit });
+    const fallback = await enrichedFallbackSymbols(context, { query, limit });
     return json({
       symbols: fallback,
       count: fallback.length,
@@ -1447,6 +1506,26 @@ function fallbackSymbols(input: AlpacaMarketSymbolQuery): AlpacaMarketSymbol[] {
     .slice(0, limit);
 }
 
+async function enrichedFallbackSymbols(
+  context: LocalApiContext,
+  input: AlpacaMarketSymbolQuery,
+): Promise<AlpacaMarketSymbol[]> {
+  const fallback = fallbackSymbols(input);
+  const provider = getMarketSymbolProvider(context);
+  if (!provider.getMarketSymbols || fallback.length === 0) return fallback;
+
+  try {
+    const liveSymbols = await withTimeout(
+      provider.getMarketSymbols(fallback.map((symbol) => symbol.symbol)),
+      1500,
+      "Fallback symbol price provider timed out.",
+    );
+    return assembleMarketSymbols(liveSymbols, input).symbols;
+  } catch {
+    return fallback;
+  }
+}
+
 function marketSymbolCacheTags(query: string | undefined): string[] {
   return [
     "market-symbols",
@@ -1491,6 +1570,7 @@ function lazyAlpacaMarketSymbolProvider(): MarketSymbolProvider {
 
   return {
     listMarketSymbols: (input) => current().listMarketSymbols(input),
+    getMarketSymbols: (symbols) => current().getMarketSymbols(symbols),
   };
 }
 

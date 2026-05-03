@@ -225,7 +225,7 @@ export class SupabaseKairosStore implements KairosLocalStore {
     if (chat) {
       await this.client.upsert("router_chats", chat.id, {
         ...chat,
-        title: chat.title ?? buildRouterChatTitle(input),
+        title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
         updatedAt: message.createdAt,
       });
     }

@@ -238,6 +238,24 @@ export class AlpacaTradingClient {
     );
   }
 
+  async getMarketSymbols(symbols: string[]): Promise<AlpacaMarketSymbol[]> {
+    const normalized = [...new Set(
+      symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean),
+    )];
+    const [assets, snapshots] = await Promise.all([
+      Promise.all(
+        normalized.map((symbol) =>
+          this.getAsset(symbol).catch(() => undefined),
+        ),
+      ),
+      this.getStockSnapshots(normalized),
+    ]);
+
+    return assets
+      .filter((asset): asset is AlpacaAsset => Boolean(asset?.symbol))
+      .map((asset) => toMarketSymbol(asset, snapshots[stringValue(asset.symbol) ?? ""]));
+  }
+
   async getStockSnapshots(
     symbols: string[],
   ): Promise<Record<string, AlpacaStockSnapshot>> {

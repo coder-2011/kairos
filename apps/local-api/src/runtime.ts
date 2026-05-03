@@ -130,7 +130,6 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       kind: input.kind,
       status: input.status ?? "pending",
       branchId: input.branchId,
-      dryRun: input.dryRun ?? false,
       input: input.input ?? {},
       output: input.output,
       metadata: input.metadata,
@@ -241,7 +240,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     if (chat) {
       await this.writeRouterJson(this.routerChatPath(input.chatId), {
         ...chat,
-        title: chat.title ?? buildRouterChatTitle(input),
+        title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
         updatedAt: message.createdAt,
       });
     }
@@ -387,7 +386,6 @@ function toRunRecord(run: KairosRun): RunRecord {
         : "heartbeat",
     status: run.status,
     branchId: run.branchId,
-    dryRun: run.dryRun ?? false,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     input: isJsonRecord(run.input) ? run.input : {},
