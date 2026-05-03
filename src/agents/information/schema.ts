@@ -6,6 +6,7 @@ export const informationToolNameSchema = z.enum([
   "exa_search",
   "exa_research",
   "exa_contents",
+  "finnhub_api_request",
   "finnhub_quote",
   "finnhub_company_news",
   "finnhub_stock_candles",

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createGlobalToolRegistry } from "../../global/tools.js";
 import { runInformationAgent } from "./agent.js";
+import { informationToolNameSchema } from "./schema.js";
 import {
   createInformationDebateTools,
   createInformationToolSet,
@@ -98,6 +100,40 @@ function fakeDeps(
 }
 
 describe("information agent", () => {
+  it("exposes every Finnhub method currently implemented by the local API wrapper", () => {
+    const finnhub = {
+      quote: vi.fn(),
+      companyNews: vi.fn(),
+      stockCandles: vi.fn(),
+      aggregateIndicator: vi.fn(),
+      basicFinancials: vi.fn(),
+      companyEarnings: vi.fn(),
+      companyEpsEstimates: vi.fn(),
+      companyPeers: vi.fn(),
+      companyProfile2: vi.fn(),
+      earningsCalendar: vi.fn(),
+      filings: vi.fn(),
+      financialsReported: vi.fn(),
+      insiderTransactions: vi.fn(),
+      newsSentiment: vi.fn(),
+      ownership: vi.fn(),
+      pressReleases: vi.fn(),
+      recommendationTrends: vi.fn(),
+      socialSentiment: vi.fn(),
+      supplyChainRelationships: vi.fn(),
+      upgradeDowngrade: vi.fn(),
+    };
+    const registry = createGlobalToolRegistry({ finnhub });
+    const finnhubToolNames = Object.keys(registry).filter((name) =>
+      name.startsWith("finnhub_"),
+    );
+
+    expect(finnhubToolNames).toHaveLength(20);
+    finnhubToolNames.forEach((toolName) => {
+      expect(informationToolNameSchema.safeParse(toolName).success).toBe(true);
+    });
+  });
+
   it("plans from available providers, calls real dependency methods, and compiles cited output", async () => {
     const deps = fakeDeps();
 

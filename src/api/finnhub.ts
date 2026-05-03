@@ -96,6 +96,11 @@ export type FinnhubConfig = {
   retryAttempts?: number;
 };
 
+export type FinnhubApiRequest = {
+  path: string;
+  params?: Record<string, string | number | boolean | undefined>;
+};
+
 export type FinnhubQuote = {
   c: number;
   d?: number;
@@ -355,6 +360,19 @@ export class FinnhubApi {
       (client, callback) => client.upgradeDowngrade?.(input, callback),
       "/stock/upgrade-downgrade",
       input,
+    );
+  }
+
+  apiRequest(input: FinnhubApiRequest): Promise<unknown> {
+    const path = input.path.startsWith("/") ? input.path : `/${input.path}`;
+    return this.get(
+      path,
+      Object.fromEntries(
+        Object.entries(input.params ?? {}).map(([key, value]) => [
+          key,
+          value === undefined ? undefined : String(value),
+        ]),
+      ),
     );
   }
 

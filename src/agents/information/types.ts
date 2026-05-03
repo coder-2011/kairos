@@ -7,6 +7,7 @@ export type InformationToolName =
   | "exa_search"
   | "exa_research"
   | "exa_contents"
+  | "finnhub_api_request"
   | "finnhub_quote"
   | "finnhub_company_news"
   | "finnhub_stock_candles"
@@ -86,6 +87,7 @@ export type InformationFinnhubClient = Partial<
     | "socialSentiment"
     | "supplyChainRelationships"
     | "upgradeDowngrade"
+    | "apiRequest"
   >
 >;
 export type InformationSupermemoryClient = Pick<GlobalMemoryApi, "search">;
