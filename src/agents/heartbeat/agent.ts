@@ -5,6 +5,7 @@ import {
   type LanguageModel,
   type ToolSet,
 } from "ai";
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
 import {
   getAgentRunId,
@@ -80,6 +81,19 @@ export type HeartbeatRunResult = {
   toolTraces: HeartbeatToolTrace[];
 };
 
+const HeartbeatGraphState = Annotation.Root({
+  branch: Annotation<BranchConfig>(),
+  seedBundle: Annotation<HeartbeatSeedBundle | undefined>(),
+  output: Annotation<HeartbeatOutput | undefined>(),
+  escalationEvent: Annotation<EscalationEvent | null | undefined>(),
+  toolTraces: Annotation<HeartbeatToolTrace[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+});
+
+type HeartbeatState = typeof HeartbeatGraphState.State;
+
 export async function runHeartbeatAgent(
   branch: BranchConfig,
   deps: HeartbeatAgentDependencies,
@@ -100,10 +114,41 @@ export async function runHeartbeatAgent(
   }
 
   try {
+    const graph = createHeartbeatGraph({ ...deps, runId });
+    const result = await graph.invoke({ branch, toolTraces: [] });
+    if (!result.seedBundle || !result.output) {
+      throw new Error("Heartbeat graph completed without required output.");
+    }
+
+    return {
+      output: result.output,
+      seedBundle: result.seedBundle,
+      escalationEvent: result.escalationEvent ?? null,
+      toolTraces: result.toolTraces,
+    };
+  } catch (error) {
+    await observeAgentError(runtime, "run_error", error);
+    throw error;
+  }
+}
+
+export function createHeartbeatGraph(deps: HeartbeatAgentDependencies) {
+  const runId = getAgentRunId("heartbeat", deps.runId);
+
+  const seedNode = async (
+    state: HeartbeatState,
+  ): Promise<{ seedBundle: HeartbeatSeedBundle }> => {
+    const runtime = {
+      agent: "heartbeat" as const,
+      observer: deps.observer,
+      runId,
+      branchId: state.branch.id,
+      now: deps.now,
+    };
     await observeAgentEvent(runtime, "seed_start");
     const seedBundle = heartbeatSeedBundleSchema.parse(
       await buildHeartbeatSeedBundle(
-        branch,
+        state.branch,
         deps.seedProviders,
         deps.now?.() ?? new Date(),
       ),
@@ -122,6 +167,27 @@ export async function runHeartbeatAgent(
     );
     validateSeedBundleCompleteness(seedBundle, deps);
 
+    return { seedBundle };
+  };
+
+  const modelNode = async (
+    state: HeartbeatState,
+  ): Promise<{
+    output: HeartbeatOutput;
+    escalationEvent: EscalationEvent | null;
+    toolTraces: HeartbeatToolTrace[];
+  }> => {
+    if (!state.seedBundle) {
+      throw new Error("Heartbeat seed bundle was not built before model run.");
+    }
+
+    const runtime = {
+      agent: "heartbeat" as const,
+      observer: deps.observer,
+      runId,
+      branchId: state.branch.id,
+      now: deps.now,
+    };
     const runModel = deps.generateText ?? (generateText as HeartbeatGenerateText);
     await observeAgentEvent(
       runtime,
@@ -130,12 +196,12 @@ export async function runHeartbeatAgent(
         maxToolSteps: deps.maxToolSteps ?? 3,
         hasTools: Boolean(deps.tools && Object.keys(deps.tools).length > 0),
       },
-      seedBundle.timestamp,
+      state.seedBundle.timestamp,
     );
     const result = await runModel({
       model: deps.model,
       system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
-      prompt: buildHeartbeatUserMessage(seedBundle),
+      prompt: buildHeartbeatUserMessage(state.seedBundle),
       tools: filterHeartbeatTools(deps.tools, deps.enabledTools),
       stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
       output: Output.object({
@@ -148,10 +214,10 @@ export async function runHeartbeatAgent(
     const parsed = heartbeatOutputSchema.parse(result.output);
     const output = {
       ...parsed,
-      branch_id: seedBundle.branchId,
-      timestamp: seedBundle.timestamp,
+      branch_id: state.seedBundle.branchId,
+      timestamp: state.seedBundle.timestamp,
     };
-    const toolTraces = extractToolTraces(result.steps, seedBundle);
+    const toolTraces = extractToolTraces(result.steps, state.seedBundle);
 
     await observeAgentEvent(
       runtime,
@@ -160,19 +226,23 @@ export async function runHeartbeatAgent(
         output,
         toolTraceCount: toolTraces.length,
       },
-      seedBundle.timestamp,
+      state.seedBundle.timestamp,
     );
 
     return {
       output,
-      seedBundle,
-      escalationEvent: createEscalationEvent(output, seedBundle),
+      escalationEvent: createEscalationEvent(output, state.seedBundle),
       toolTraces,
     };
-  } catch (error) {
-    await observeAgentError(runtime, "run_error", error);
-    throw error;
-  }
+  };
+
+  return new StateGraph(HeartbeatGraphState)
+    .addNode("seed_bundle", seedNode)
+    .addNode("model_triage", modelNode)
+    .addEdge(START, "seed_bundle")
+    .addEdge("seed_bundle", "model_triage")
+    .addEdge("model_triage", END)
+    .compile();
 }
 
 function validateSeedBundleCompleteness(
