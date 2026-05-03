@@ -105,6 +105,13 @@ export type DebateModelSet = {
   final?: StructuredDebateModelProvider;
 };
 
+export type DebatePromptSet = {
+  judgeSystemPrompt?: string;
+  bullSystemPrompt?: string;
+  bearSystemPrompt?: string;
+  finalSystemPrompt?: string;
+};
+
 export type DebateBudgets = {
   maxTurns: number;
   maxToolCalls: number;
@@ -134,6 +141,7 @@ export type DebateRunResult = {
 
 export type DebateGraphDependencies = {
   models?: DebateModelSet;
+  prompts?: DebatePromptSet;
   tools?: DebateTools;
   globalTools?: GlobalToolRegistry;
   now?: () => Date;
