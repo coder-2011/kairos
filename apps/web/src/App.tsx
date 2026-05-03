@@ -2104,21 +2104,6 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel label="Data Packet">
-            <input
-              onChange={(event) =>
-                setConfig((current) => ({
-                  ...current,
-                  research: {
-                    ...current.research,
-                    dataPacket: event.target.value || undefined,
-                  },
-                }))
-              }
-              placeholder="Ticker or sector"
-              value={config.research?.dataPacket ?? ""}
-            />
-          </FieldLabel>
         </div>
         <FieldLabel label="Search & Deep Research Instruction">
           <textarea
