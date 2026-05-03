@@ -26,6 +26,41 @@ describe("local API handler", () => {
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
   });
 
+  it("lists market symbols through the configured symbol provider", async () => {
+    const { requestJson } = makeClient({
+      marketSymbolProvider: {
+        async listMarketSymbols(input) {
+          expect(input).toEqual({ query: "pltr", limit: 25 });
+          return [
+            {
+              symbol: "PLTR",
+              name: "Palantir Technologies Inc.",
+              exchange: "NASDAQ",
+              tradable: true,
+              price: 25.5,
+              dayChangePercent: 2,
+              source: "alpaca",
+            },
+          ];
+        },
+      },
+    });
+
+    const response = await requestJson("GET", "/market/symbols?query=pltr&limit=25");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      count: 1,
+      source: "alpaca",
+      symbols: [
+        {
+          symbol: "PLTR",
+          price: 25.5,
+        },
+      ],
+    });
+  });
+
   it("supports branch create, list, get, update, and delete", async () => {
     const { requestJson } = makeClient();
 
@@ -977,6 +1012,7 @@ function makeClient(options: {
   runHeartbeat?: LocalApiContext["runHeartbeat"];
   createDebate?: LocalApiContext["createDebate"];
   tradingBroker?: PaperTradingBroker;
+  marketSymbolProvider?: LocalApiContext["marketSymbolProvider"];
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
 } = {}) {
@@ -1003,8 +1039,9 @@ function makeClient(options: {
         kind: "webpage",
         ref: url,
         text: url,
-      })),
+    })),
     tradingBroker: options.tradingBroker,
+    marketSymbolProvider: options.marketSymbolProvider,
     notificationSender: options.notificationSender,
     supermemoryMirror: options.supermemoryMirror,
   };
