@@ -2,6 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { z } from "zod";
+import {
+  createAlpacaTradingClient,
+  type AlpacaMarketSymbol,
+  type AlpacaMarketSymbolQuery,
+} from "../../../src/api/alpaca.js";
 import { ExaApi } from "../../../src/api/exa.js";
 import {
   kairosBranchAgentConfigSchema,
@@ -50,6 +55,7 @@ export type LocalApiDependencies = {
   createDebate?: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   retrieveUrlContents?: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: PaperTradingBroker;
+  marketSymbolProvider?: MarketSymbolProvider;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
 };
@@ -65,6 +71,7 @@ export type LocalApiContext = {
   createDebate: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   retrieveUrlContents: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: PaperTradingBroker;
+  marketSymbolProvider?: MarketSymbolProvider;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
 };
@@ -102,6 +109,10 @@ type RouterExtractedSource = {
 type RouterUrlRetrieveInput = {
   urls: string[];
   dryRun: boolean;
+};
+
+type MarketSymbolProvider = {
+  listMarketSymbols: (input: AlpacaMarketSymbolQuery) => Promise<AlpacaMarketSymbol[]>;
 };
 
 type RouterSourceExtractionResult = {
@@ -181,6 +192,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     retrieveUrlContents:
       options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
+    marketSymbolProvider: options.dependencies?.marketSymbolProvider,
     notificationSender:
       options.dependencies?.notificationSender ??
       createTradingSmsNotifierFromEnv(),
@@ -231,6 +243,9 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
             defaults: openRouterModelDefaults(),
           });
         }
+
+        case "listMarketSymbols":
+          return await listMarketSymbols(context, url.searchParams);
 
         case "listBranches":
           return json({ branches: await context.store.listBranches() });
