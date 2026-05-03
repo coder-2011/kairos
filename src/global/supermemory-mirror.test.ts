@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSupermemoryMirror,
+  createSupermemoryObserver,
   formatMirrorRecord,
   redactSecrets,
+  redactText,
   type SupermemoryMirrorTarget,
 } from "./supermemory-mirror.js";
 
@@ -96,12 +98,38 @@ describe("Supermemory mirror", () => {
       token: "[REDACTED]",
       keep: "value",
     });
+    expect(redactText("authorization: Bearer secret-value")).toBe(
+      "authorization=[REDACTED]",
+    );
     expect(formatMirrorRecord({
       type: "branch.updated",
       scope: "branch",
       title: "Branch",
       data: { password: "abc" },
     })).not.toContain("abc");
+  });
+
+  it("can mirror agent observations", async () => {
+    const writes: Array<{ containerTag: string; customId?: string; content: string }> = [];
+    const mirror = createSupermemoryMirror({
+      memory: createMemoryTarget(writes),
+    });
+    const observer = createSupermemoryObserver(mirror);
+
+    await observer.event({
+      agent: "heartbeat",
+      type: "model_complete",
+      runId: "run_3",
+      branchId: "branch_3",
+      timestamp: "2026-05-03T12:00:00.000Z",
+      payload: { summary: "done" },
+    });
+
+    expect(writes.map((write) => write.containerTag).sort()).toEqual([
+      "branch_branch_3",
+      "system_global",
+    ]);
+    expect(writes[0]?.content).toContain("model_complete");
   });
 });
 
