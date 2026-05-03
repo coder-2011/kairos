@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:api": "bun run apps/local-api/src/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
