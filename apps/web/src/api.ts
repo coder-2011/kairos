@@ -6,7 +6,7 @@ import type {
 
 export type JsonRecord = Record<string, unknown>;
 export type TradingMode = "disabled" | "paper";
-export type AllowedOrderType = "market" | "limit" | "bracket";
+export type AllowedOrderType = "market" | "limit";
 
 export type BranchTradingConfig = {
   mode?: TradingMode;
@@ -256,7 +256,7 @@ export async function sendRouterMessage(input: {
     method: "POST",
     body: JSON.stringify({
       text: input.text,
-      dryRun: input.dryRun ?? true,
+      dryRun: input.dryRun ?? false,
     }),
   });
 }
@@ -268,7 +268,7 @@ export async function triggerHeartbeat(
 ): Promise<RunRecord> {
   return request<{ run: RunRecord }>(`/branches/${branchId}/heartbeat-runs`, {
     method: "POST",
-    body: JSON.stringify({ dryRun: options.dryRun ?? true, input }),
+    body: JSON.stringify({ dryRun: options.dryRun ?? false, input }),
   }).then((response) => response.run);
 }
 
@@ -280,7 +280,7 @@ export async function createDebate(input: {
   return request<{ run: RunRecord }>("/debates", {
     method: "POST",
     body: JSON.stringify({
-      dryRun: input.dryRun ?? true,
+      dryRun: input.dryRun ?? false,
       escalation: input.escalation,
       input: { branchId: input.branchId },
     }),

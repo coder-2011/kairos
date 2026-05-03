@@ -49,7 +49,6 @@ import {
 
 type View = "branches" | "router" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
-type RunMode = "agent" | "dry";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
@@ -177,7 +176,7 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
   { label: "Information Agent", key: "information" },
 ];
 
-const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
+const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit"];
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
@@ -205,7 +204,6 @@ export function App() {
   const [selectedRunId, setSelectedRunId] = useState(initialRoute.runId ?? "");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
   const [modelDefaults, setModelDefaults] = useState<ModelRoleDefaults>({});
-  const [runMode, setRunMode] = useState<RunMode>("dry");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
     useState<LoadState>("loading");
@@ -411,7 +409,7 @@ export function App() {
       const result = await sendRouterMessage({
         chatId: selectedRouterChatId,
         text: text.trim(),
-        dryRun: true,
+        dryRun: false,
       });
       setRouterMessages((current) => [
         ...current,
@@ -461,7 +459,7 @@ export function App() {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: runMode === "dry" },
+        { dryRun: false },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -477,7 +475,7 @@ export function App() {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: runMode === "dry",
+        dryRun: false,
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -614,10 +612,8 @@ export function App() {
             branch={selectedBranch}
             modelDefaults={modelDefaults}
             openRouterModels={openRouterModels}
-            runMode={runMode}
             onEscalate={() => void startDebate(selectedBranch.id)}
             onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
-            onRunModeChange={setRunMode}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -1392,7 +1388,6 @@ function RunDeepDive({
               <div className="run-summary-grid">
                 <RunFact label="Status" tone={selectedRun.status === "failed" ? "danger" : "default"} value={selectedRun.status} />
                 <RunFact label="Kind" value={selectedRun.kind} />
-                <RunFact label="Mode" value={selectedRun.dryRun ? "dry run" : "agent run"} />
                 <RunFact label="Branch" value={selectedRunSummary.branchLabel} />
                 <RunFact label="Created" value={formatDateTime(selectedRun.createdAt)} />
                 <RunFact label="Updated" value={formatDateTime(selectedRun.updatedAt)} />
@@ -1479,7 +1474,7 @@ function RunListItem({
       onClick={onSelect}
       type="button"
     >
-      <span>{run.kind.toUpperCase()} · {run.dryRun ? "DRY" : "AGENT"}</span>
+      <span>{run.kind.toUpperCase()}</span>
       <b>{summary.shortId}</b>
       <em>{branchName ?? summary.branchLabel}</em>
       <small>{run.status} · {timeOnly(run.createdAt)}</small>
@@ -1533,7 +1528,6 @@ function summarizeRun(run: RunRecord, branch?: BranchRecord) {
     inputFacts: [
       { label: "Run ID", value: run.id },
       { label: "Branch ID", value: readDisplay(run.branchId, "-") },
-      { label: "Requested Mode", value: run.dryRun ? "Dry run" : "Agent run" },
       { label: "Input Source", value: compactValue(run.metadata?.source ?? run.input.source) },
       { label: "Escalation", value: compactValue(run.input.escalation, "None") },
     ],
@@ -1550,50 +1544,19 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function RunModeSwitch({
-  mode,
-  onChange,
-}: {
-  mode: RunMode;
-  onChange: (mode: RunMode) => void;
-}) {
-  return (
-    <div className="run-mode-switch">
-      <button
-        className={mode === "agent" ? "active" : ""}
-        onClick={() => onChange("agent")}
-        type="button"
-      >
-        AGENT
-      </button>
-      <button
-        className={mode === "dry" ? "active" : ""}
-        onClick={() => onChange("dry")}
-        type="button"
-      >
-        DRY
-      </button>
-    </div>
-  );
-}
-
 function BranchConfig({
   branch,
   modelDefaults,
   openRouterModels,
-  runMode,
   onRunHeartbeat,
   onEscalate,
-  onRunModeChange,
   onSave,
 }: {
   branch: BranchRecord;
   modelDefaults: ModelRoleDefaults;
   openRouterModels: OpenRouterModelRecord[];
-  runMode: RunMode;
   onRunHeartbeat: () => void;
   onEscalate: () => void;
-  onRunModeChange: (mode: RunMode) => void;
   onSave: (input: {
     config: WebBranchConfig;
     branchName: string;
@@ -1608,7 +1571,8 @@ function BranchConfig({
   const [draftVersion, setDraftVersion] = useState(0);
 
   function resetDraft() {
-    setConfig(cloneBranchConfig(normalizeBranchConfig(branch)));
+    const nextConfig = cloneBranchConfig(normalizeBranchConfig(branch));
+    setConfig(nextConfig);
     setBranchName(branch.name);
     setLawText(readLawText(branch));
     setDraftVersion((current) => current + 1);
@@ -1654,15 +1618,14 @@ function BranchConfig({
           <h1>Branch Configuration</h1>
         </div>
         <div className="button-row">
-          <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
           <button className="command-button" onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> {runMode === "dry" ? "DRY" : "AGENT"} HEARTBEAT
+            <Icon name="play_arrow" /> RUN HEARTBEAT
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="forum" /> {runMode === "dry" ? "DRY" : "START"} DEBATE
+            <Icon name="forum" /> START DEBATE
           </button>
           <button
-            className="command-button"
+            className="command-button danger-outline"
             onClick={resetDraft}
             type="button"
           >
@@ -2436,18 +2399,35 @@ function EscalationCard({ runs }: { runs: RunRecord[] }) {
 function EventRecordCard({ event }: { event: RunEventRecord }) {
   const actor =
     event.type.startsWith("human.") ? "HUMAN" : event.type.split(".")[0].toUpperCase();
+  const summary = eventSummary(event);
+  const isFailure = event.type.includes("failed") || Boolean(event.payload.error);
 
   return (
-    <article className="agent-card judge">
+    <article className={`agent-card event-card ${isFailure ? "danger" : ""}`}>
       <div className="agent-card-head">
         <span>
-          <Icon name={event.type.startsWith("human.") ? "person" : "notes"} />
-          EVENT: {actor}
+          <Icon name={isFailure ? "error" : event.type.startsWith("human.") ? "person" : "notes"} />
+          {actor}: {titleize(event.type)}
         </span>
         <b>{timeOnly(event.timestamp)}</b>
       </div>
-      <p>{String(event.payload.summary ?? event.payload.message ?? titleize(event.type))}</p>
+      <p>{summary}</p>
+      <details className="raw-details compact">
+        <summary>Payload</summary>
+        <pre className="event-json">{JSON.stringify(event.payload, null, 2)}</pre>
+      </details>
     </article>
+  );
+}
+
+function eventSummary(event: RunEventRecord): string {
+  return compactValue(
+    event.payload.summary ??
+      event.payload.message ??
+      event.payload.error ??
+      event.payload.decision ??
+      event.payload.status,
+    titleize(event.type),
   );
 }
 
@@ -2887,6 +2867,17 @@ function readDisplay(value: unknown, fallback = "-") {
   return fallback;
 }
 
+function compactValue(value: unknown, fallback = "-") {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length === 0 ? fallback : `${value.length} items`;
+  if (isJsonRecord(value)) {
+    const keys = Object.keys(value);
+    return keys.length === 0 ? fallback : keys.slice(0, 4).join(", ");
+  }
+  return fallback;
+}
+
 function isUnresolvedStatus(value: unknown) {
   if (typeof value !== "string") return false;
   return !["filled", "canceled", "cancelled", "closed", "complete", "completed"].includes(
@@ -2937,6 +2928,17 @@ function timeOnly(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toISOString().slice(11, 23);
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  });
 }
 
 function titleize(value: string) {
