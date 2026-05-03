@@ -988,7 +988,7 @@ function TradeIntentCard({ intent }: { intent: TradeIntentRecord }) {
     <article className="portfolio-card">
       <div className="portfolio-card-head">
         <b>{readDisplay(intent.symbol, "UNKNOWN")}</b>
-        <span>{readDisplay(intent.status, "draft")}</span>
+        <span>{readDisplay(intent.status, "pending")}</span>
       </div>
       <p>{readDisplay(intent.summary ?? intent.rationale, "No rationale supplied.")}</p>
       <div className="portfolio-card-grid">

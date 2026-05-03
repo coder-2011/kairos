@@ -262,16 +262,17 @@ export function createTradeIntentRecord(
   const now = options.now ?? (() => new Date());
   const timestamp = now().toISOString();
   const parsed = createTradeIntentInputSchema.parse(input);
+  const { tradingConfig, ...record } = parsed;
 
   return tradeIntentSchema.parse({
-    ...parsed,
+    ...record,
     id: parsed.id ?? id(),
     createdAt: timestamp,
     updatedAt: timestamp,
     status: parsed.status ?? "paper_ready",
     mode: parsed.mode ?? "paper",
-    orderType: parsed.orderType ?? parsed.tradingConfig?.defaultOrderType ?? "market",
-    timeInForce: parsed.timeInForce ?? parsed.tradingConfig?.defaultTimeInForce ?? "day",
+    orderType: parsed.orderType ?? tradingConfig?.defaultOrderType ?? "market",
+    timeInForce: parsed.timeInForce ?? tradingConfig?.defaultTimeInForce ?? "day",
     approvalsRequired: parsed.approvalsRequired ?? ["human_review"],
   });
 }
