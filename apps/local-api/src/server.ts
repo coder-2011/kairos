@@ -21,7 +21,6 @@ import {
   type TradingSmsNotifier,
 } from "../../../src/notifications/index.js";
 import { createRuntimeStore } from "./runtime.js";
-import { SupabaseKairosStore } from "./supabase-store.js";
 import {
   MemoryKairosStore,
   type AppendRunEventInput,
@@ -112,9 +111,7 @@ const paperSubmitSchema = z.object({
 export async function createLocalApiContext(options: LocalApiOptions = {}): Promise<LocalApiContext> {
   const store =
     options.dependencies?.store ??
-    (process.env.KAIROS_STORE === "supabase"
-      ? new SupabaseKairosStore()
-      : await createRuntimeStore({ dataDir: options.dataDir }));
+    await createRuntimeStore({ dataDir: options.dataDir });
   return {
     store,
     runHeartbeat: options.dependencies?.runHeartbeat ?? deterministicHeartbeat,
