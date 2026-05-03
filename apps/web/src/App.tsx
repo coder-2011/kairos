@@ -150,7 +150,13 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [runMode, setRunMode] = useState<RunMode>("agent");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
+  const [portfolioLoadState, setPortfolioLoadState] =
+    useState<LoadState>("loading");
+  const [portfolio, setPortfolio] = useState<PortfolioSnapshot>();
+  const [messages, setMessages] = useState<MessageRecord[]>([]);
+  const [tradeIntents, setTradeIntents] = useState<TradeIntentRecord[]>([]);
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -231,7 +237,30 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runDryHeartbeat(branchId: string) {
+  useEffect(() => {
+    if (view !== "portfolio") return;
+    void refreshPortfolioData();
+  }, [view]);
+
+  async function refreshPortfolioData() {
+    setPortfolioLoadState("loading");
+
+    try {
+      const [nextPortfolio, nextMessages, nextTradeIntents] = await Promise.all([
+        getPortfolio(),
+        getMessages(),
+        getTradeIntents(),
+      ]);
+      setPortfolio(nextPortfolio);
+      setMessages(nextMessages);
+      setTradeIntents(nextTradeIntents);
+      setPortfolioLoadState("api");
+    } catch {
+      setPortfolioLoadState("offline");
+    }
+  }
+
+  async function runHeartbeat(branchId: string) {
     try {
       const run = await triggerHeartbeat(
         branchId,
@@ -248,7 +277,7 @@ export function App() {
     }
   }
 
-  async function startDryDebate(branchId: string) {
+  async function startDebate(branchId: string) {
     try {
       const run = await createDebate({
         branchId,
