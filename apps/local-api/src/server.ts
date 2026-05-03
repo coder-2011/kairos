@@ -1691,7 +1691,7 @@ function normalizeTradingDecisionAction(
 }
 
 function firstConfiguredSymbol(branch: BranchRecord | undefined): string | undefined {
-  return branch?.config?.assets?.[0];
+  return branch?.config?.trading?.symbol ?? branch?.config?.assets?.[0];
 }
 
 function resolveTradingConfig(

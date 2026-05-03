@@ -52,7 +52,7 @@ export function evaluateTradingThresholdPolicy(
   const tradingMode =
     input.tradingConfig?.mode ??
     branchConfig?.trading?.mode ??
-    "paper";
+    "disabled";
   const paperAutoTradeEnabled =
     input.tradingConfig?.paperAutoBuyEnabled ??
     branchConfig?.trading?.paperAutoBuyEnabled ??
