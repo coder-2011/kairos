@@ -40,6 +40,7 @@ function fakeDeps(
 ): InformationAgentDependencies {
   return {
     now: () => new Date("2026-05-03T12:00:00.000Z"),
+    allowDeterministicFallback: true,
     exa: {
       search: vi.fn(async () => ({
         results: [
@@ -343,7 +344,7 @@ describe("information agent", () => {
 
     const result = await runInformationAgent("PLTR latest news", deps);
 
-    expect(result.summary).toContain("Tool failed");
+    expect(result.summary).toContain("Tool exa_search failed");
     expect("toolResults" in result).toBe(false);
   });
 

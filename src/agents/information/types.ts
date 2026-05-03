@@ -106,4 +106,9 @@ export type InformationAgentDependencies = {
   now?: () => Date;
   observer?: AgentObserver;
   runId?: string;
+  /**
+   * Production default is false. Enable only for tests, fixtures, local dry-runs,
+   * or UI demos where deterministic behavior is explicitly desired.
+   */
+  allowDeterministicFallback?: boolean;
 };

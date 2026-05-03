@@ -9,6 +9,7 @@ import {
   type GlobalToolResult,
   type GlobalToolCitation,
   GLOBAL_MEMORY_CONTAINER_TAG,
+  getAgentRunId,
   hasFinnhubPremiumAccess,
   observe,
 } from "../../global/index.js";
@@ -185,6 +186,21 @@ function deterministicPlan(
   };
 }
 
+function requireDeterministicFallback(
+  deps: InformationAgentDependencies,
+  stage: "planner" | "synthesis",
+): void {
+  if (!deps.allowDeterministicFallback) {
+    throw new Error(
+      [
+        `Information ${stage} model is required.`,
+        "Deterministic fallback is disabled because it does not preserve enough production functionality.",
+        "Pass a model/plannerModel/synthesisModel, or explicitly set allowDeterministicFallback for tests and dry-runs.",
+      ].join(" "),
+    );
+  }
+}
+
 async function invokeStructured<T>(
   model: {
     withStructuredOutput: <U>(schema: unknown) => {
@@ -263,7 +279,12 @@ async function executeToolCall(input: {
     return informationToolResultSchema.parse({
       toolName,
       input: toolInput,
-      summary: `Tool failed: ${error instanceof Error ? error.message : String(error)}`,
+      summary: [
+        `Tool ${toolName} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "Continue with other completed tool results. Do not retry the same call unless a corrected parameter is obvious.",
+      ].join(" "),
       citations: [],
     });
   }
@@ -312,6 +333,9 @@ export function createInformationAgentGraph(
       payload: { query: state.request.query },
     });
     const plannerModel = deps.plannerModel ?? deps.model;
+    if (!plannerModel) {
+      requireDeterministicFallback(deps, "planner");
+    }
     const rawPlan = plannerModel
       ? await invokeStructured<InformationPlan>(
           plannerModel,
@@ -398,6 +422,9 @@ export function createInformationAgentGraph(
       },
     });
     const synthesisModel = deps.synthesisModel ?? deps.model;
+    if (!synthesisModel) {
+      requireDeterministicFallback(deps, "synthesis");
+    }
     const rawResult = synthesisModel
       ? await invokeStructured<InformationResult>(
           synthesisModel,
@@ -444,24 +471,26 @@ export async function runInformationAgent(
   query: string,
   deps: InformationAgentDependencies = {},
 ): Promise<InformationResult> {
+  const runId = getAgentRunId("information", deps.runId);
+  const runDeps = { ...deps, runId };
   const parsedRequest = informationRequestSchema.parse({ query });
-  await observe(deps.observer, {
+  await observe(runDeps.observer, {
     agent: "information",
     type: "run_start",
-    runId: deps.runId,
+    runId,
     payload: { query: parsedRequest.query },
   });
-  const graph = createInformationAgentGraph(deps);
+  const graph = createInformationAgentGraph(runDeps);
   const result = await graph.invoke({
     request: parsedRequest,
     toolResults: [],
   });
 
   const parsedResult = informationResultSchema.parse(result.result);
-  await observe(deps.observer, {
+  await observe(runDeps.observer, {
     agent: "information",
     type: "run_complete",
-    runId: deps.runId,
+    runId,
     payload: {
       summaryLength: parsedResult.summary.length,
       citationCount: parsedResult.citations.length,
