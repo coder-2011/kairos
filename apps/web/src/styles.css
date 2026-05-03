@@ -316,21 +316,21 @@ a {
 }
 
 .premium-access-button.enabled {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #ffffff;
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .premium-access-button.enabled > .material-symbols-outlined {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #0f172a;
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--on-primary);
   font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
 }
 
 .premium-access-button.enabled b,
 .premium-access-button.enabled small {
-  color: #ffffff;
+  color: var(--success);
 }
 
 .theme-toggle {
@@ -500,19 +500,20 @@ a {
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled {
-  background: #263c2b;
-  border-color: #3f6f48;
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled > .material-symbols-outlined {
-  background: #d9f2d7;
-  border-color: #d9f2d7;
-  color: #122016;
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--on-primary);
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled b,
 .shell[data-theme="dark"] .premium-access-button.enabled small {
-  color: #efffed;
+  color: var(--success);
 }
 
 .shell[data-theme="dark"] .divider {
@@ -892,8 +893,8 @@ select:focus {
 }
 
 .status-badge.running {
-  background: var(--success-soft);
-  border-color: var(--success-border);
+  background: var(--success-tint);
+  border-color: color-mix(in srgb, var(--success-border) 70%, var(--outline-variant));
   color: var(--success);
 }
 
@@ -1038,7 +1039,8 @@ select:focus {
 }
 
 .portfolio-card.message-card {
-  border-left-color: var(--secondary);
+  background: var(--success-tint);
+  border-left-color: var(--success);
 }
 
 .portfolio-card-head {
@@ -1128,8 +1130,9 @@ select:focus {
 }
 
 .run-list-item.active {
-  border-color: var(--primary);
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: var(--success-tint);
+  border-color: color-mix(in srgb, var(--success-border) 75%, var(--outline-variant));
+  box-shadow: inset 3px 0 0 var(--success);
 }
 
 .run-list-item.failed {
@@ -2173,7 +2176,7 @@ select:focus {
 
 .simulation-panel {
   align-items: center;
-  background: var(--surface-lowest);
+  background: var(--success-tint);
   border-top: 1px solid var(--outline-variant);
   display: flex;
   flex: 1;
@@ -2354,9 +2357,26 @@ select:focus {
 
 .trading-grid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  grid-template-columns: 1fr;
   padding: 16px;
+}
+
+.trading-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trading-section.full {
+  grid-column: 1 / -1;
+}
+
+.trading-card-row,
+.trading-fields-row {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .checkbox-card {
@@ -2367,7 +2387,7 @@ select:focus {
   display: flex;
   gap: 10px;
   min-height: 62px;
-  padding: 10px;
+  padding: 12px;
 }
 
 .checkbox-card input {
