@@ -3,7 +3,8 @@ import type {
   InformationToolName,
   InformationToolResult,
 } from "./types.js";
-import { finnhubCatalogForAccess } from "../../global/finnhub-catalog.js";
+import { finnhubEndpointCatalogForAccess } from "../../global/finnhub-catalog.js";
+import { informationToolCatalogForAccess } from "./tool-catalog.js";
 
 const BASE_AVAILABLE_TOOLS = [
   "exa_search",
@@ -75,10 +76,27 @@ export function buildInformationPlannerMessage(
     {
       query: request.query,
       availableTools: options.availableTools ?? defaultTools,
+      toolCatalog: informationToolCatalogForAccess({
+        finnhubPremiumAccess: options.finnhubPremiumAccess,
+        availableTools: options.availableTools ?? defaultTools,
+      }),
       finnhubPremiumAccess: options.finnhubPremiumAccess ?? false,
-      finnhubRestEndpointCatalog: finnhubCatalogForAccess({
+      finnhubApiRequestEndpointCatalog: finnhubEndpointCatalogForAccess({
         premiumAccess: options.finnhubPremiumAccess ?? false,
       }),
+      frontendConfigurationGuidance: {
+        configureInFrontend: [
+          "which named tools are enabled",
+          "whether Finnhub premium access is enabled",
+          "max information tool calls per request",
+          "branch-specific research/seeding instructions",
+        ],
+        doNotConfigureInFrontend: [
+          "raw Finnhub endpoint parameter shapes",
+          "secret API keys",
+          "agent-internal retry behavior",
+        ],
+      },
     },
     null,
     2,
