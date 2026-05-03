@@ -438,6 +438,7 @@ describe("debate agent", () => {
       "debate-events-1",
       {
         summary: "Final summary.",
+        action: "watch",
         confidence: 0.75,
         citations: [{ url: "https://example.com/source" }],
       },

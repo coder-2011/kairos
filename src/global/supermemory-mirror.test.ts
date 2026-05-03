@@ -91,6 +91,7 @@ describe("Supermemory mirror", () => {
         ],
         finalDecision: {
           summary: "Notify but do not trade yet.",
+          action: "watch",
           confidence: 0.65,
           citations: [],
         },

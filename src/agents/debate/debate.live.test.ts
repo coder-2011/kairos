@@ -97,6 +97,7 @@ describe("debate live integrations", () => {
             final: fakeStructuredModel<DebateDecision>({
               summary:
                 "Live Exa search completed; this test validates debate-to-tool wiring, not investment quality.",
+              action: "research",
               confidence: 0.5,
               citations: [],
             }),
