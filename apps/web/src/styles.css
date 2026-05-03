@@ -3164,6 +3164,66 @@ select:focus:hover {
     padding: 8px;
   }
 
+  .branch-canvas .data-panel {
+    overflow: visible;
+  }
+
+  .branch-canvas .branch-table {
+    display: block;
+    min-width: 0;
+  }
+
+  .branch-canvas .branch-table thead {
+    display: none;
+  }
+
+  .branch-canvas .branch-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .branch-canvas .branch-table tr {
+    background: var(--surface-low);
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-md);
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .branch-canvas .branch-table td {
+    border-bottom: 0;
+    display: grid;
+    grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
+    height: auto;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .branch-canvas .branch-table td::before {
+    color: var(--on-variant);
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .branch-canvas .branch-table td.right {
+    text-align: left;
+  }
+
+  .branch-canvas .branch-table .empty-table-cell {
+    display: block;
+    height: auto !important;
+    padding: 24px 10px;
+    text-align: center;
+  }
+
+  .branch-canvas .branch-table .empty-table-cell::before {
+    content: "";
+  }
+
   .top-bar {
     align-items: flex-start;
     flex-direction: column;

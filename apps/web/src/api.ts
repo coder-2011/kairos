@@ -289,6 +289,7 @@ export async function sendRouterMessage(input: {
   assistantMessage: RouterMessageRecord;
   run: RunRecord;
   heartbeatRuns: RunRecord[];
+  heartbeatAttemptRuns?: RunRecord[];
 }> {
   return request<{
     chat?: RouterChatRecord;
@@ -296,6 +297,7 @@ export async function sendRouterMessage(input: {
     assistantMessage: RouterMessageRecord;
     run: RunRecord;
     heartbeatRuns: RunRecord[];
+    heartbeatAttemptRuns?: RunRecord[];
   }>(`/router/chats/${input.chatId}/messages`, {
     method: "POST",
     body: JSON.stringify({

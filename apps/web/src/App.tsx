@@ -468,17 +468,19 @@ export function App() {
         result.userMessage,
         result.assistantMessage,
       ]);
+      const heartbeatAttemptRuns =
+        result.heartbeatAttemptRuns ?? result.heartbeatRuns;
       setRuns((current) => [
         result.run,
-        ...result.heartbeatRuns,
+        ...heartbeatAttemptRuns,
         ...current.filter(
           (run) =>
             run.id !== result.run.id &&
-            !result.heartbeatRuns.some((heartbeatRun) => heartbeatRun.id === run.id),
+            !heartbeatAttemptRuns.some((heartbeatRun) => heartbeatRun.id === run.id),
         ),
       ]);
       setSelectedRunId(result.run.id);
-      setLastRouterHeartbeatRuns(result.heartbeatRuns);
+      setLastRouterHeartbeatRuns(heartbeatAttemptRuns);
       setRouterLoadState("api");
       setLoadState("api");
     } catch {
@@ -864,14 +866,15 @@ function BranchList({
             ) : (
               branches.map((branch) => (
                 <tr key={branch.id} onClick={() => onSelect(branch)}>
-                  <td>{branch.id}</td>
-                  <td className="muted truncate-cell">{branch.name}</td>
-                  <td className="muted">{formatHeartbeat(branch)}</td>
-                  <td>
+                  <td data-label="Branch ID">{branch.id}</td>
+                  <td className="muted truncate-cell" data-label="Linked Law">{branch.name}</td>
+                  <td className="muted" data-label="Heartbeat">{formatHeartbeat(branch)}</td>
+                  <td data-label="Last Run">
                     {String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}
                   </td>
                   <td
                     className={`right ${getEscalations(branch, runs) > 0 ? "danger-text" : ""}`}
+                    data-label="Escalations"
                   >
                     {getEscalations(branch, runs)}
                   </td>
@@ -1035,7 +1038,12 @@ function RouterView({
                   <b>{run.branchId ?? "UNASSIGNED"}</b>
                   <span>{run.status}</span>
                 </div>
-                <p>{readDisplay(run.output?.summary, "Heartbeat created.")}</p>
+                <p>
+                  {readDisplay(
+                    run.output?.summary ?? run.output?.error,
+                    "Heartbeat created.",
+                  )}
+                </p>
                 <div className="portfolio-card-grid">
                   <span>{run.kind}</span>
                   <span>{timeOnly(run.createdAt)}</span>
@@ -1950,7 +1958,22 @@ function summarizeRun(run: RunRecord, branch?: BranchRecord) {
     : undefined;
   const action = readDisplay(finalDecision?.action ?? output.action, "");
   const confidence = formatConfidenceValue(finalDecision?.confidence ?? output.confidence);
-  const outcome = error || summary || decision || action || "No output recorded.";
+  const routerResponse = run.kind === "router" ? readDisplay(output.response, "") : "";
+  const routedBranches = Array.isArray(output.branchIds)
+    ? output.branchIds.filter((branchId): branchId is string => typeof branchId === "string")
+    : [];
+  const heartbeatFailures = Array.isArray(output.heartbeatFailures)
+    ? output.heartbeatFailures.length
+    : 0;
+  const outcome =
+    error ||
+    summary ||
+    routerResponse ||
+    decision ||
+    action ||
+    (run.kind === "router" && routedBranches.length > 0
+      ? `Routed to ${routedBranches.length} branch${routedBranches.length === 1 ? "" : "es"}.`
+      : "No output recorded.");
 
   return {
     branchLabel,
@@ -1968,7 +1991,13 @@ function summarizeRun(run: RunRecord, branch?: BranchRecord) {
     outputFacts: [
       { label: "Decision", value: decision || action || "-" },
       { label: "Confidence", value: confidence },
-      { label: "Summary", value: summary || "-" },
+      { label: "Summary", value: summary || routerResponse || "-" },
+      ...(run.kind === "router"
+        ? [
+            { label: "Branches Routed", value: String(routedBranches.length) },
+            { label: "Heartbeat Failures", value: String(heartbeatFailures) },
+          ]
+        : []),
       { label: "Error", value: error || "-" },
     ],
   };
