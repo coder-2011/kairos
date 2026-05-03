@@ -8,9 +8,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@langchain/core": "^1.0.0",
     "@langchain/langgraph": "^1.0.0",
     "@langchain/openrouter": "^0.2.4",
+    "ai": "^6.0.174",
+    "exa-js": "^2.12.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {

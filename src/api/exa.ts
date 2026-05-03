@@ -1,13 +1,16 @@
+import { Exa } from "exa-js";
+
 export type ExaConfig = {
   apiKey?: string;
-  baseUrl?: string;
-  fetchImpl?: typeof fetch;
+  client?: ExaSdkClient;
 };
 
 export type ExaSearchRequest = {
   query: string;
   numResults?: number;
   category?: "news" | "company" | "research paper" | "github" | "tweet";
+  startPublishedDate?: string;
+  endPublishedDate?: string;
 };
 
 export type ExaSearchResult = {
@@ -46,48 +49,56 @@ export type ExaContentsResponse = {
   results: ExaContentsResult[];
 };
 
+export type ExaSdkClient = {
+  search: (
+    query: string,
+    options?: Record<string, unknown>,
+  ) => Promise<ExaSearchResponse>;
+  getContents: (
+    urls: string[] | string,
+    options?: Record<string, unknown>,
+  ) => Promise<ExaContentsResponse | { contents: ExaContentsResult[] }>;
+  answer?: (
+    query: string,
+    options?: Record<string, unknown>,
+  ) => Promise<ExaAnswerResponse>;
+};
+
 export class ExaApi {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly fetchImpl: typeof fetch;
+  private readonly client: ExaSdkClient;
 
   constructor(config: ExaConfig = {}) {
-    this.apiKey = config.apiKey ?? process.env.EXA_API_KEY ?? "";
-    this.baseUrl = config.baseUrl ?? "https://api.exa.ai";
-    this.fetchImpl = config.fetchImpl ?? fetch;
-
-    if (!this.apiKey) {
+    const apiKey = config.apiKey ?? process.env.EXA_API_KEY;
+    if (!config.client && !apiKey) {
       throw new Error("EXA_API_KEY is required.");
     }
+
+    this.client = config.client ?? new Exa(apiKey) as ExaSdkClient;
   }
 
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
-    const response = await this.fetchImpl(`${this.baseUrl}/search`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query: request.query,
-        type: "auto",
-        num_results: request.numResults ?? 10,
-        category: request.category ?? "news",
-        contents: {
-          highlights: {
-            max_characters: 2000,
-          },
+    const data = await this.client.search(request.query, {
+      type: "auto",
+      numResults: request.numResults ?? 10,
+      category: request.category ?? "news",
+      startPublishedDate: request.startPublishedDate,
+      endPublishedDate: request.endPublishedDate,
+      contents: {
+        highlights: {
+          query: "market-moving facts, dates, numbers, guidance, and management quotes",
+          maxCharacters: 1000,
         },
-      }),
+        summary: {
+          query: "Summarize the market-relevant headline and catalyst in 1-2 sentences.",
+        },
+        text: {
+          maxCharacters: 2000,
+        },
+      },
     });
 
-    if (!response.ok) {
-      throw new Error(`Exa ${response.status}: ${await response.text()}`);
-    }
-
-    const data = (await response.json()) as ExaSearchResponse;
     return {
-      results: data.results.map((result) => ({
+      results: data.results.map((result: ExaSearchResult) => ({
         title: result.title,
         url: result.url,
         publishedDate: result.publishedDate,
@@ -102,47 +113,27 @@ export class ExaApi {
     query: string;
     text?: boolean;
   }): Promise<ExaAnswerResponse> {
-    const response = await this.fetchImpl(`${this.baseUrl}/answer`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query: input.query,
-        text: input.text ?? true,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Exa answer ${response.status}: ${await response.text()}`);
+    if (!this.client.answer) {
+      throw new Error("Exa SDK client does not expose answer().");
     }
 
-    return response.json() as Promise<ExaAnswerResponse>;
+    return this.client.answer(input.query, { text: input.text ?? true });
   }
 
   async contents(input: {
     urls: string[];
     maxCharacters?: number;
   }): Promise<ExaContentsResponse> {
-    const response = await this.fetchImpl(`${this.baseUrl}/contents`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
+    const data = await this.client.getContents(input.urls, {
+      text: {
+        maxCharacters: input.maxCharacters ?? 10_000,
       },
-      body: JSON.stringify({
-        urls: input.urls,
-        text: {
-          max_characters: input.maxCharacters ?? 10_000,
-        },
-      }),
+      highlights: true,
+      summary: true,
     });
 
-    if (!response.ok) {
-      throw new Error(`Exa contents ${response.status}: ${await response.text()}`);
-    }
-
-    return response.json() as Promise<ExaContentsResponse>;
+    return {
+      results: "contents" in data ? data.contents : data.results,
+    };
   }
 }

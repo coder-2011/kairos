@@ -1,3 +1,9 @@
+import type {
+  EscalationEvent,
+  HeartbeatOutput,
+  HeartbeatSeedBundle,
+} from "../agents/heartbeat/types.js";
+
 export type SupermemoryConfig = {
   apiKey?: string;
   baseUrl?: string;
@@ -5,6 +11,48 @@ export type SupermemoryConfig = {
 };
 
 export type SupermemorySearchMode = "memories" | "documents" | "hybrid";
+export type SupermemoryMetadata = Record<string, string | number | boolean>;
+
+export type SupermemoryAddContentRequest = {
+  content: string;
+  containerTag: string;
+  customId?: string;
+  metadata?: SupermemoryMetadata;
+  entityContext?: string;
+};
+
+export type SupermemoryAddContentResponse = {
+  id: string;
+  status: "queued" | "processing" | "done" | "failed" | string;
+};
+
+export type SupermemoryCreateMemory = {
+  content: string;
+  isStatic?: boolean;
+  metadata?: SupermemoryMetadata;
+};
+
+export type SupermemoryCreateMemoriesRequest = {
+  containerTag: string;
+  memories: SupermemoryCreateMemory[];
+};
+
+export type SupermemoryCreateMemoriesResponse = {
+  documentId: string | null;
+  memories: Array<{
+    id: string;
+    memory: string;
+    isStatic: boolean;
+    createdAt: string;
+  }>;
+};
+
+export type SupermemoryUpdateMemoryRequest = {
+  id?: string;
+  content?: string;
+  newContent: string;
+  metadata?: SupermemoryMetadata;
+};
 
 export type SupermemorySearchRequest = {
   q: string;
@@ -93,6 +141,26 @@ export class SupermemoryApi {
     return this.post("/v4/profile", request);
   }
 
+  addContent(
+    request: SupermemoryAddContentRequest,
+  ): Promise<SupermemoryAddContentResponse> {
+    return this.post("/v3/documents", request);
+  }
+
+  createMemories(
+    request: SupermemoryCreateMemoriesRequest,
+  ): Promise<SupermemoryCreateMemoriesResponse> {
+    return this.post("/v4/memories", request);
+  }
+
+  updateMemory(request: SupermemoryUpdateMemoryRequest): Promise<unknown> {
+    return this.request("PATCH", "/v4/memories", request);
+  }
+
+  forgetMemory(memoryId: string): Promise<unknown> {
+    return this.request("POST", `/v4/memories/${encodeURIComponent(memoryId)}/forget`);
+  }
+
   async getHeartbeatContext(input: {
     containerTag: string;
     query: string;
@@ -119,14 +187,105 @@ export class SupermemoryApi {
     return { ...profile, search };
   }
 
+  writeHeartbeatOutput(input: {
+    containerTag: string;
+    output: HeartbeatOutput;
+    seedBundle?: HeartbeatSeedBundle;
+    metadata?: SupermemoryMetadata;
+  }): Promise<SupermemoryCreateMemoriesResponse> {
+    const { containerTag, output, seedBundle, metadata } = input;
+
+    return this.createMemories({
+      containerTag,
+      memories: [
+        {
+          content: `Heartbeat for branch ${output.branch_id} returned ${output.decision}: ${output.summary}`,
+          isStatic: false,
+          metadata: compactMetadata({
+            type: "heartbeat_output",
+            branch_id: output.branch_id,
+            timestamp: output.timestamp,
+            decision: output.decision,
+            asset_count: seedBundle?.assets.length,
+            ...metadata,
+          }),
+        },
+      ],
+    });
+  }
+
+  writeEscalationEvent(input: {
+    containerTag: string;
+    event: EscalationEvent;
+    metadata?: SupermemoryMetadata;
+  }): Promise<SupermemoryAddContentResponse> {
+    const { containerTag, event, metadata } = input;
+
+    return this.addContent({
+      containerTag,
+      customId: `heartbeat-escalation:${event.branchId}:${event.timestamp}`,
+      content: JSON.stringify(
+        {
+          type: "heartbeat_escalation",
+          branchId: event.branchId,
+          timestamp: event.timestamp,
+          heartbeatOutput: event.heartbeatOutput,
+          seedBundle: event.seedBundle,
+        },
+        null,
+        2,
+      ),
+      metadata: compactMetadata({
+        type: "heartbeat_escalation",
+        branch_id: event.branchId,
+        timestamp: event.timestamp,
+        ...metadata,
+      }),
+    });
+  }
+
+  writeConversation(input: {
+    containerTag: string;
+    customId: string;
+    content?: string;
+    messages?: Array<{
+      role: string;
+      content: string;
+      name?: string;
+      timestamp?: string;
+    }>;
+    metadata?: SupermemoryMetadata;
+  }): Promise<SupermemoryAddContentResponse> {
+    const { containerTag, customId, content, messages, metadata } = input;
+
+    return this.addContent({
+      containerTag,
+      customId,
+      content: content ?? formatConversation(messages ?? []),
+      metadata: compactMetadata({
+        type: "conversation",
+        message_count: messages?.length,
+        ...metadata,
+      }),
+    });
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
+    return this.request("POST", path, body);
+  }
+
+  private async request<T>(
+    method: "POST" | "PATCH",
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -135,4 +294,26 @@ export class SupermemoryApi {
 
     return response.json() as Promise<T>;
   }
+}
+
+function formatConversation(
+  messages: Array<{ role: string; content: string; name?: string; timestamp?: string }>,
+): string {
+  return messages
+    .map(({ role, content, name, timestamp }) => {
+      const speaker = name ? `${role}:${name}` : role;
+      const prefix = timestamp ? `[${timestamp}] ${speaker}` : speaker;
+      return `${prefix}: ${content}`;
+    })
+    .join("\n");
+}
+
+function compactMetadata(
+  metadata: Record<string, string | number | boolean | undefined>,
+): SupermemoryMetadata {
+  return Object.fromEntries(
+    Object.entries(metadata).filter((entry): entry is [string, string | number | boolean] => {
+      return entry[1] !== undefined;
+    }),
+  );
 }
