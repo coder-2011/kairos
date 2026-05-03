@@ -84,11 +84,18 @@ function toolCallSafe<T extends GlobalToolResult>(
   toolName: string,
   action: () => Promise<T>,
   suggestion?: string,
+  required = false,
 ): Promise<T> {
   return withRetry(action, {
     attempts: TOOL_RETRY_ATTEMPTS,
     delayMs: TOOL_RETRY_DELAY_MS,
-  }).catch((error) => toolFailureResult(toolName, error, suggestion) as T);
+  }).catch((error) => {
+    if (required) {
+      throw error;
+    }
+
+    return toolFailureResult(toolName, error, suggestion) as T;
+  });
 }
 
 function summarizeUnknown(value: unknown, maxLength = MAX_SUMMARY_TEXT): string {
@@ -212,6 +219,7 @@ export type GlobalToolDependencies = {
     >
   >;
   finnhubPremiumAccess?: boolean;
+  requiredTools?: Partial<Record<GlobalToolName, boolean>>;
   memory?: Pick<GlobalMemoryApi, "search"> & Partial<Pick<GlobalMemoryApi, "profile">>;
   memoryContainerTag?: string;
   now?: () => Date;
@@ -227,7 +235,12 @@ export function createGlobalToolRegistry(
     suggestion?: string,
   ): void => {
     registry[name] = (input, context) =>
-      toolCallSafe(name, () => handler(input, context), suggestion);
+      toolCallSafe(
+        name,
+        () => handler(input, context),
+        suggestion,
+        deps.requiredTools?.[name] === true,
+      );
   };
   const summarizeFinnhubResult = (
     label: string,
