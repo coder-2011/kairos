@@ -880,4 +880,29 @@ describe("API clients", () => {
       buildHeartbeatSeedBundle(branch, providers, fixedNow),
     ).rejects.toThrow("Finnhub stock candle request failed for PLTR");
   });
+
+  it("rejects unknown optional Finnhub seed source keys", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}));
+    const finnhub = new FinnhubApi({
+      apiKey: "fh_key",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      retryAttempts: 1,
+    });
+    const providers = createFinnhubHeartbeatSeedProviders(finnhub);
+    const branch = branchConfig({
+      id: "pltr",
+      assets: ["PLTR"],
+      seededData: {
+        optionalSources: {
+          definitelyNotARealFinnhubSource: true,
+        },
+      },
+    });
+
+    await expect(
+      buildHeartbeatSeedBundle(branch, providers, fixedNow),
+    ).rejects.toThrow(
+      'Unknown Finnhub optional seed source "definitelyNotARealFinnhubSource".',
+    );
+  });
 });
