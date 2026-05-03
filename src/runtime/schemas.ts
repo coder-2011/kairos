@@ -22,6 +22,20 @@ export const kairosRunStatusSchema = z.enum([
   "canceled",
 ]);
 
+export const kairosRunLifecycleSchema = z
+  .object({
+    stage: z.string().min(1),
+    lastEventAt: isoTimestampSchema.optional(),
+    elapsedMs: z.number().nonnegative(),
+    currentOperation: z.string().min(1).optional(),
+    childRunIds: z.array(z.string().min(1)).default([]),
+    parentRunId: z.string().min(1).optional(),
+    blockingExternalService: z.string().min(1).optional(),
+    retryable: z.boolean(),
+    cancelable: z.boolean(),
+  })
+  .strict();
+
 export const kairosEventScopeSchema = z.enum([
   "system",
   "branch",
@@ -118,6 +132,7 @@ export const kairosRunSchema = z
     input: z.unknown().optional(),
     output: z.unknown().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    lifecycle: kairosRunLifecycleSchema.optional(),
   })
   .strict();
 
@@ -173,6 +188,7 @@ export const updateKairosRunInputSchema = kairosRunSchema
 
 export type KairosRunKind = z.infer<typeof kairosRunKindSchema>;
 export type KairosRunStatus = z.infer<typeof kairosRunStatusSchema>;
+export type KairosRunLifecycle = z.infer<typeof kairosRunLifecycleSchema>;
 export type KairosEventScope = z.infer<typeof kairosEventScopeSchema>;
 export type KairosSourceKind = z.infer<typeof kairosSourceKindSchema>;
 export type KairosArtifactKind = z.infer<typeof kairosArtifactKindSchema>;

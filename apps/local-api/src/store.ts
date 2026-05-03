@@ -101,23 +101,6 @@ export type RouterToolCallRecord = {
   createdAt: string;
 };
 
-export type DeepResearchChatRecord = {
-  id: string;
-  title?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type DeepResearchMessageRecord = {
-  id: string;
-  chatId: string;
-  role: "user" | "assistant";
-  createdAt: string;
-  text?: string;
-  model?: string;
-  toolCalls?: RouterToolCallRecord[];
-};
-
 export type CreateBranchInput = {
   id?: string;
   lawId?: string;
@@ -165,21 +148,6 @@ export type CreateRouterMessageInput = {
   toolCalls?: RouterToolCallRecord[];
 };
 
-export type CreateDeepResearchChatInput = {
-  id?: string;
-  title?: string;
-};
-
-export type CreateDeepResearchMessageInput = {
-  id?: string;
-  chatId: string;
-  role: "user" | "assistant";
-  text?: string;
-  chatTitle?: string;
-  model?: string;
-  toolCalls?: RouterToolCallRecord[];
-};
-
 export type RunEventSubscriber = (event: RunEventRecord) => void;
 
 export type KairosLocalStore = {
@@ -200,11 +168,6 @@ export type KairosLocalStore = {
   getRouterChat(id: string): Promise<RouterChatRecord | undefined>;
   listRouterMessages(chatId: string): Promise<RouterMessageRecord[]>;
   createRouterMessage(input: CreateRouterMessageInput): Promise<RouterMessageRecord>;
-  listDeepResearchChats(): Promise<DeepResearchChatRecord[]>;
-  createDeepResearchChat(input?: CreateDeepResearchChatInput): Promise<DeepResearchChatRecord>;
-  getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined>;
-  listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]>;
-  createDeepResearchMessage(input: CreateDeepResearchMessageInput): Promise<DeepResearchMessageRecord>;
   listMessages(): Promise<TradingMessage[]>;
   createMessage(input: CreateTradingMessageInput): Promise<TradingMessage>;
   listTradeIntents(): Promise<TradeIntent[]>;
@@ -224,8 +187,6 @@ export class MemoryKairosStore implements KairosLocalStore {
   private events = new Map<string, RunEventRecord[]>();
   private routerChats = new Map<string, RouterChatRecord>();
   private routerMessages = new Map<string, RouterMessageRecord[]>();
-  private deepResearchChats = new Map<string, DeepResearchChatRecord>();
-  private deepResearchMessages = new Map<string, DeepResearchMessageRecord[]>();
   private messages = new Map<string, TradingMessage>();
   private tradeIntents = new Map<string, TradeIntent>();
   private brokerOrders = new Map<string, BrokerOrder>();
@@ -431,66 +392,6 @@ export class MemoryKairosStore implements KairosLocalStore {
     return message;
   }
 
-  async listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
-    return sortByCreatedAt(
-      [...this.deepResearchChats.values()].map((chat) => ({
-        ...chat,
-        title: chat.title ?? buildRouterChatTitle(
-          firstUserMessage(this.deepResearchMessages.get(chat.id)) ?? {},
-        ),
-      })),
-    );
-  }
-
-  async createDeepResearchChat(
-    input: CreateDeepResearchChatInput = {},
-  ): Promise<DeepResearchChatRecord> {
-    const now = new Date().toISOString();
-    const chat: DeepResearchChatRecord = {
-      id: input.id ?? this.nextId("deep_research_chat"),
-      title: input.title,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.deepResearchChats.set(chat.id, chat);
-    return chat;
-  }
-
-  async getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
-    return this.deepResearchChats.get(id);
-  }
-
-  async listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
-    return [...(this.deepResearchMessages.get(chatId) ?? [])];
-  }
-
-  async createDeepResearchMessage(
-    input: CreateDeepResearchMessageInput,
-  ): Promise<DeepResearchMessageRecord> {
-    const message: DeepResearchMessageRecord = {
-      id: input.id ?? this.nextId("deep_research_message"),
-      chatId: input.chatId,
-      role: input.role,
-      text: input.text,
-      model: input.model,
-      toolCalls: input.toolCalls,
-      createdAt: new Date().toISOString(),
-    };
-    const messages = this.deepResearchMessages.get(input.chatId) ?? [];
-    messages.push(message);
-    this.deepResearchMessages.set(input.chatId, messages);
-
-    const chat = this.deepResearchChats.get(input.chatId);
-    if (chat) {
-      this.deepResearchChats.set(input.chatId, {
-        ...chat,
-        title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
-        updatedAt: message.createdAt,
-      });
-    }
-    return message;
-  }
-
   async listMessages(): Promise<TradingMessage[]> {
     return sortByCreatedAt([...this.messages.values()]);
   }
@@ -624,6 +525,150 @@ export class MemoryKairosStore implements KairosLocalStore {
 
 function definedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as Partial<T>;
+}
+
+export function normalizeRunLifecycle(
+  lifecycle: Partial<RunLifecycle> | undefined,
+  run: Pick<RunRecord, "createdAt" | "updatedAt" | "kind" | "status">,
+): RunLifecycle {
+  const baseStage = run.status === "running" ? "running" : run.status;
+  return {
+    stage: lifecycle?.stage ?? baseStage,
+    lastEventAt: lifecycle?.lastEventAt,
+    elapsedMs: Math.max(
+      0,
+      Date.parse(lifecycle?.lastEventAt ?? run.updatedAt) - Date.parse(run.createdAt),
+    ),
+    currentOperation:
+      lifecycle?.currentOperation ??
+      defaultCurrentOperation(run.kind, lifecycle?.stage ?? baseStage),
+    childRunIds: uniqueStrings(lifecycle?.childRunIds ?? []),
+    parentRunId: lifecycle?.parentRunId,
+    blockingExternalService: lifecycle?.blockingExternalService,
+    retryable: lifecycle?.retryable ?? run.status === "failed",
+    cancelable: lifecycle?.cancelable ?? run.status === "running",
+  };
+}
+
+export function lifecyclePatchForEvent(
+  event: Pick<RunEventRecord, "type" | "payload">,
+): Partial<RunLifecycle> {
+  const service = blockingExternalServiceForEvent(event);
+  const patch = lifecycleStageForEvent(event.type);
+  return {
+    ...patch,
+    ...(service ? { blockingExternalService: service } : {}),
+  };
+}
+
+export function lifecyclePatchForStatus(status: RunStatus): Partial<RunLifecycle> {
+  if (status === "succeeded") {
+    return {
+      stage: "completed",
+      currentOperation: "Run completed.",
+      blockingExternalService: undefined,
+      retryable: false,
+      cancelable: false,
+    };
+  }
+  if (status === "failed") {
+    return {
+      stage: "failed",
+      currentOperation: "Run failed.",
+      retryable: true,
+      cancelable: false,
+    };
+  }
+  if (status === "canceled") {
+    return {
+      stage: "canceled",
+      currentOperation: "Run canceled.",
+      retryable: true,
+      cancelable: false,
+    };
+  }
+  if (status === "running") {
+    return { stage: "running", retryable: false, cancelable: true };
+  }
+  return { stage: "pending", retryable: false, cancelable: false };
+}
+
+export function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function lifecycleStageForEvent(type: string): Partial<RunLifecycle> {
+  const stages: Record<string, Partial<RunLifecycle>> = {
+    "run.started": { stage: "started", currentOperation: "Run started." },
+    "run.completed": { stage: "completed", currentOperation: "Run completed.", retryable: false, cancelable: false },
+    "run.failed": { stage: "failed", currentOperation: "Run failed.", retryable: true, cancelable: false },
+    "heartbeat.seeded": { stage: "seeded", currentOperation: "Built heartbeat seed bundle." },
+    "heartbeat.tool.completed": { stage: "tool_step", currentOperation: "Heartbeat tool call completed." },
+    "heartbeat.tool.failed": { stage: "tool_step_failed", currentOperation: "Heartbeat tool call failed.", retryable: true },
+    "heartbeat.decision": { stage: "decision", currentOperation: "Heartbeat decision recorded." },
+    "router.message.received": { stage: "input_received", currentOperation: "Router received the source packet." },
+    "router.sources.extracted": { stage: "sources_extracted", currentOperation: "Router extracted source text." },
+    "router.sources.mirrored": { stage: "memory_mirrored", currentOperation: "Router mirrored sources to memory." },
+    "router.route.selected": { stage: "branches_selected", currentOperation: "Router selected matching branches." },
+    "router.heartbeat_triggered": { stage: "heartbeat_wakeup", currentOperation: "Router woke a branch heartbeat." },
+    "router.heartbeat_failed": { stage: "heartbeat_wakeup_failed", currentOperation: "Router heartbeat wakeup failed.", retryable: true },
+    "router.response.created": { stage: "response_created", currentOperation: "Router response created." },
+    "debate.created": { stage: "debate_created", currentOperation: "Debate run packet created." },
+    "debate.started": { stage: "debate_started", currentOperation: "Debate started." },
+    "debate.message": { stage: "debate_turn", currentOperation: "Debate participant responded." },
+    "debate.tool.completed": { stage: "debate_tool", currentOperation: "Debate tool call completed." },
+    "debate.tool.failed": { stage: "debate_tool_failed", currentOperation: "Debate tool call failed.", retryable: true },
+    "debate.judge.plan": { stage: "judge_plan", currentOperation: "Judge selected the next debate step." },
+    "debate.judge.summary": { stage: "judge_summary", currentOperation: "Judge produced final synthesis." },
+    "debate.output": { stage: "debate_output", currentOperation: "Debate output recorded." },
+    "trading.policy.skipped": { stage: "trading_policy_skipped", currentOperation: "Trading policy did not create an action." },
+    "trading.intent.created": { stage: "trade_intent_created", currentOperation: "Paper trade intent created." },
+    "trading.intent.submitted": { stage: "paper_order_submitted", currentOperation: "Paper order submitted." },
+    "trading.intent.failed": { stage: "paper_order_failed", currentOperation: "Paper order failed.", retryable: true },
+    "human.interjection": { stage: "human_context_added", currentOperation: "Human context added." },
+  };
+
+  if (type === "router.tool_call.completed") {
+    return { stage: "router_tool", currentOperation: "Router tool call completed." };
+  }
+  if (type === "router.tool_call.failed") {
+    return { stage: "router_tool_failed", currentOperation: "Router tool call failed.", retryable: true };
+  }
+
+  return stages[type] ?? {
+    stage: type.replaceAll(".", "_"),
+    currentOperation: humanizeEventType(type),
+  };
+}
+
+function blockingExternalServiceForEvent(
+  event: Pick<RunEventRecord, "type" | "payload">,
+): string | undefined {
+  const errorText = JSON.stringify(event.payload).toLowerCase();
+  if (event.type.includes("supermemory") || errorText.includes("supermemory")) return "supermemory";
+  if (event.type.includes("exa") || errorText.includes("exa")) return "exa";
+  if (event.type.includes("alpaca") || errorText.includes("alpaca")) return "alpaca";
+  if (event.type.includes("finnhub") || errorText.includes("finnhub")) return "finnhub";
+  if (event.type.includes("twilio") || errorText.includes("twilio")) return "twilio";
+  if (event.type.includes("tool.failed") || event.type.includes("tool_call.failed")) return "external_tool";
+  if (errorText.includes("openrouter") || errorText.includes("model")) return "openrouter";
+  return undefined;
+}
+
+function defaultCurrentOperation(kind: RunKind, stage: string): string {
+  if (stage === "pending") return "Waiting to start.";
+  if (stage === "running") return `${kind} workflow is running.`;
+  return humanizeEventType(stage);
+}
+
+function humanizeEventType(type: string): string {
+  return `${type.replace(/[._-]+/g, " ")}.`;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function sortByCreatedAt<T extends { createdAt: string }>(records: T[]): T[] {

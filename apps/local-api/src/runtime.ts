@@ -25,15 +25,14 @@ import {
 } from "../../../src/global/agent-config.js";
 import {
   buildRouterChatTitle,
+  lifecyclePatchForEvent,
+  lifecyclePatchForStatus,
+  normalizeRunLifecycle,
   type AppendRunEventInput,
   type BranchRecord,
   type CreateBranchInput,
-  type CreateDeepResearchChatInput,
-  type CreateDeepResearchMessageInput,
   type CreateRunInput,
   type KairosLocalStore,
-  type DeepResearchChatRecord,
-  type DeepResearchMessageRecord,
   type RunEventRecord,
   type RunRecord,
   type RouterChatRecord,
@@ -137,20 +136,55 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       input: input.input ?? {},
       output: input.output,
       metadata: input.metadata,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...input.lifecycle,
+          parentRunId:
+            input.lifecycle?.parentRunId ??
+            readString(input.metadata?.parentRunId) ??
+            readString(input.input?.sourceRunId),
+        },
+        {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          kind: input.kind,
+          status: input.status ?? "pending",
+        },
+      ),
       startedAt:
         input.status === "running" ? new Date().toISOString() : undefined,
     });
+    await this.linkParentRun(run.runId, run.lifecycle?.parentRunId);
     return toRunRecord(run);
   }
 
   async updateRun(
     id: string,
-    input: Partial<Pick<RunRecord, "status" | "output" | "metadata">>,
+    input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>,
   ): Promise<RunRecord | undefined> {
+    const existing = await this.store.getRun(id);
+    if (!existing) return undefined;
+    const status = input.status ?? existing.status;
     const run = await this.store.updateRun(id, {
       status: input.status,
       output: input.output,
       metadata: input.metadata,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...toRunRecord(existing).lifecycle,
+          ...input.lifecycle,
+          ...lifecyclePatchForStatus(status),
+        },
+        {
+          createdAt: existing.createdAt,
+          updatedAt: new Date().toISOString(),
+          kind:
+            existing.kind === "debate" || existing.kind === "router"
+              ? existing.kind
+              : "heartbeat",
+          status,
+        },
+      ),
       completedAt:
         input.status === "succeeded" || input.status === "failed"
           ? new Date().toISOString()
@@ -182,6 +216,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       ...(input.id ? { eventId: input.id } : {}),
       ...(input.timestamp ? { timestamp: input.timestamp } : {}),
     });
+    await this.updateRunLifecycleFromEvent(runId, toRunEventRecord(event));
     return toRunEventRecord(event);
   }
 
@@ -251,71 +286,6 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return message;
   }
 
-  async listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
-    const chats = await this.readJsonFiles<DeepResearchChatRecord>(this.deepResearchDir, "chats");
-    const titledChats = await Promise.all(
-      chats.map(async (chat) => ({
-        ...chat,
-        title: chat.title ?? buildRouterChatTitle(
-          (await this.listDeepResearchMessages(chat.id)).find((message) => message.role === "user") ?? {},
-        ),
-      })),
-    );
-    return sortByCreatedAt(titledChats);
-  }
-
-  async createDeepResearchChat(
-    input: CreateDeepResearchChatInput = {},
-  ): Promise<DeepResearchChatRecord> {
-    const now = new Date().toISOString();
-    const chat: DeepResearchChatRecord = {
-      id: input.id ?? randomUUID(),
-      title: input.title,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.writeJson(this.deepResearchChatPath(chat.id), chat);
-    return chat;
-  }
-
-  async getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
-    return toUndefined(await this.readJson<DeepResearchChatRecord>(this.deepResearchChatPath(id)));
-  }
-
-  async listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
-    return this.readJsonl<DeepResearchMessageRecord>(this.deepResearchMessagesPath(chatId));
-  }
-
-  async createDeepResearchMessage(
-    input: CreateDeepResearchMessageInput,
-  ): Promise<DeepResearchMessageRecord> {
-    const message: DeepResearchMessageRecord = {
-      id: input.id ?? randomUUID(),
-      chatId: input.chatId,
-      role: input.role,
-      text: input.text,
-      model: input.model,
-      toolCalls: input.toolCalls,
-      createdAt: new Date().toISOString(),
-    };
-    await mkdir(dirname(this.deepResearchMessagesPath(input.chatId)), { recursive: true });
-    await writeFile(
-      this.deepResearchMessagesPath(input.chatId),
-      `${JSON.stringify(message)}\n`,
-      { flag: "a" },
-    );
-
-    const chat = await this.getDeepResearchChat(input.chatId);
-    if (chat) {
-      await this.writeJson(this.deepResearchChatPath(input.chatId), {
-        ...chat,
-        title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
-        updatedAt: message.createdAt,
-      });
-    }
-    return message;
-  }
-
   listMessages(): Promise<TradingMessage[]> {
     return this.tradingStore.listMessages();
   }
@@ -372,10 +342,6 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return join(this.store.rootDir, "router");
   }
 
-  private get deepResearchDir(): string {
-    return join(this.store.rootDir, "deep-research");
-  }
-
   private routerChatPath(chatId: string): string {
     return join(this.routerDir, "chats", `${encodeFileSegment(chatId)}.json`);
   }
@@ -384,19 +350,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return join(this.routerDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
   }
 
-  private deepResearchChatPath(chatId: string): string {
-    return join(this.deepResearchDir, "chats", `${encodeFileSegment(chatId)}.json`);
-  }
-
-  private deepResearchMessagesPath(chatId: string): string {
-    return join(this.deepResearchDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
-  }
-
   private async writeRouterJson(path: string, value: unknown): Promise<void> {
-    return this.writeJson(path, value);
-  }
-
-  private async writeJson(path: string, value: unknown): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -404,10 +358,6 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   }
 
   private async readRouterJson<T>(path: string): Promise<T | null> {
-    return this.readJson<T>(path);
-  }
-
-  private async readJson<T>(path: string): Promise<T | null> {
     try {
       return JSON.parse(await readFile(path, "utf8")) as T;
     } catch (error) {
@@ -417,11 +367,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   }
 
   private async readRouterJsonFiles<T>(subdir: string): Promise<T[]> {
-    return this.readJsonFiles<T>(this.routerDir, subdir);
-  }
-
-  private async readJsonFiles<T>(rootDir: string, subdir: string): Promise<T[]> {
-    const dir = join(rootDir, subdir);
+    const dir = join(this.routerDir, subdir);
     let fileNames: string[];
     try {
       fileNames = await readdir(dir);
@@ -441,10 +387,6 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   }
 
   private async readRouterJsonl<T>(path: string): Promise<T[]> {
-    return this.readJsonl<T>(path);
-  }
-
-  private async readJsonl<T>(path: string): Promise<T[]> {
     try {
       const text = await readFile(path, "utf8");
       return text
