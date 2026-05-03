@@ -4,9 +4,12 @@ import { Readable } from "node:stream";
 import { z } from "zod";
 import {
   createAlpacaTradingClient,
-  type AlpacaMarketSymbol,
-  type AlpacaMarketSymbolQuery,
 } from "../../../src/api/alpaca.js";
+import {
+  createMarketSymbolDirectoryProvider,
+  type MarketSymbolQuery,
+  type MarketSymbolRecord,
+} from "../../../src/api/market-symbols.js";
 import { ExaApi } from "../../../src/api/exa.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
 import {
