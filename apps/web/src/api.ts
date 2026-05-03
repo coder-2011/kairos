@@ -308,6 +308,7 @@ export async function triggerHeartbeat(
 ): Promise<RunRecord> {
   return request<{ run: RunRecord }>(`/branches/${branchId}/heartbeat-runs`, {
     method: "POST",
+    body: JSON.stringify({ input }),
   }).then((response) => response.run);
 }
 
