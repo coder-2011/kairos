@@ -235,6 +235,25 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         case "listRuns":
           return json({ runs: await context.store.listRuns() });
 
+        case "listRouterChats":
+          return json({ chats: await context.store.listRouterChats() });
+
+        case "createRouterChat":
+          return json({
+            chat: await context.store.createRouterChat(
+              routerChatCreateSchema.parse(await readJson(request)),
+            ),
+          }, 201);
+
+        case "listRouterMessages": {
+          const chat = await context.store.getRouterChat(route.params.chatId);
+          if (!chat) return json({ error: "not_found", message: "Router chat not found." }, 404);
+          return json({ messages: await context.store.listRouterMessages(route.params.chatId) });
+        }
+
+        case "createRouterMessage":
+          return await createRouterMessage(context, route.params.chatId, await readJson(request));
+
         case "getRun": {
           const run = await context.store.getRun(route.params.runId);
           return run ? json({ run }) : json({ error: "not_found", message: "Run not found." }, 404);
