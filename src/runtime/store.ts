@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -77,6 +77,18 @@ export class LocalKairosStore {
   async getBranch(branchId: string): Promise<KairosBranch | null> {
     const branch = await this.readJson(this.branchPath(branchId));
     return branch === null ? null : kairosBranchSchema.parse(branch);
+  }
+
+  async deleteBranch(branchId: string): Promise<boolean> {
+    try {
+      await unlink(this.branchPath(branchId));
+      return true;
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async createRun(input: CreateKairosRunInput): Promise<KairosRun> {

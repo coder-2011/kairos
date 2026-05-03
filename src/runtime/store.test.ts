@@ -70,6 +70,21 @@ describe("LocalKairosStore branches", () => {
     );
     await expect(store.listBranches()).resolves.toEqual([updated]);
   });
+
+  it("deletes branch records", async () => {
+    const store = await createTempStore();
+
+    await store.upsertBranch({
+      branchId: "pltr-enterprise-deals",
+      name: "PLTR enterprise deals",
+      status: "enabled",
+      assets: ["PLTR"],
+    });
+
+    await expect(store.deleteBranch("pltr-enterprise-deals")).resolves.toBe(true);
+    await expect(store.getBranch("pltr-enterprise-deals")).resolves.toBeNull();
+    await expect(store.deleteBranch("pltr-enterprise-deals")).resolves.toBe(false);
+  });
 });
 
 describe("LocalKairosStore runs", () => {
