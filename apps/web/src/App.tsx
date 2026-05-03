@@ -1104,9 +1104,11 @@ function MonitoringView({
   run?: RunRecord;
   runs: RunRecord[];
   onStartDebateFromEscalation: (branchId: string, escalation: JsonRecord) => void;
-  onInject: (message: string, metadata?: JsonRecord) => void;
+  onInject: (message: string, metadata?: JsonRecord) => void | Promise<void>;
 }) {
   const [message, setMessage] = useState("");
+  const [feedbackPending, setFeedbackPending] = useState<"wrong" | "stale" | "useful" | null>(null);
+  const [lastFeedback, setLastFeedback] = useState<"wrong" | "stale" | "useful" | null>(null);
   const [showEvidence, setShowEvidence] = useState(true);
   const heartbeatEscalation = getHeartbeatEscalation(run);
   const runSummary = run ? summarizeRun(run, branches.find((branch) => branch.id === run.branchId)) : undefined;
@@ -1122,11 +1124,19 @@ function MonitoringView({
     exportedAt: new Date().toISOString(),
   };
 
-  function injectFeedback(label: "wrong" | "stale" | "useful") {
-    onInject(`Feedback: marked this run as ${label}.`, {
-      feedback: label,
-      source: "monitoring_decision_control",
-    });
+  async function injectFeedback(label: "wrong" | "stale" | "useful") {
+    if (!run || feedbackPending) return;
+
+    setFeedbackPending(label);
+    try {
+      await onInject(`Feedback: marked this run as ${label}.`, {
+        feedback: label,
+        source: "monitoring_decision_control",
+      });
+      setLastFeedback(label);
+    } finally {
+      setFeedbackPending(null);
+    }
   }
 
   async function exportRun() {
@@ -1278,28 +1288,28 @@ function MonitoringView({
             <span>DECISION CONTROL</span>
             <div>
               <button
-                className="command-button compact"
-                disabled={!run}
-                onClick={() => injectFeedback("wrong")}
+                className={`command-button compact feedback-button danger-outline ${lastFeedback === "wrong" ? "active" : ""}`}
+                disabled={!run || feedbackPending !== null}
+                onClick={() => void injectFeedback("wrong")}
                 type="button"
               >
-                <Icon name="thumb_down" /> WRONG
+                <Icon name={feedbackPending === "wrong" ? "progress_activity" : "thumb_down"} /> WRONG
               </button>
               <button
-                className="command-button compact"
-                disabled={!run}
-                onClick={() => injectFeedback("stale")}
+                className={`command-button compact feedback-button warning-outline ${lastFeedback === "stale" ? "active" : ""}`}
+                disabled={!run || feedbackPending !== null}
+                onClick={() => void injectFeedback("stale")}
                 type="button"
               >
-                <Icon name="update" /> STALE
+                <Icon name={feedbackPending === "stale" ? "progress_activity" : "update"} /> STALE
               </button>
               <button
-                className="command-button compact primary-outline"
-                disabled={!run}
-                onClick={() => injectFeedback("useful")}
+                className={`command-button compact feedback-button success-outline ${lastFeedback === "useful" ? "active" : ""}`}
+                disabled={!run || feedbackPending !== null}
+                onClick={() => void injectFeedback("useful")}
                 type="button"
               >
-                <Icon name="thumb_up" /> USEFUL
+                <Icon name={feedbackPending === "useful" ? "progress_activity" : "thumb_up"} /> USEFUL
               </button>
             </div>
           </div>
