@@ -40,6 +40,7 @@ import {
   type RunRecord,
   type RouterChatRecord,
   type RouterMessageRecord,
+  type RouterToolCallRecord,
   type TradingMode,
   type TradeIntentRecord,
   type WebBranchConfig,
@@ -177,7 +178,7 @@ export function App() {
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
-  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const selectedRun = runs.find((run) => run.id === selectedRunId);
   const premiumAccessEnabled = branches.some(
     (branch) => normalizeBranchConfig(branch).tools?.finnhubPremiumAccess === true,
   );
@@ -202,7 +203,9 @@ export function App() {
         setBranches(apiBranches);
         setRuns(apiRuns);
         setSelectedBranchId(apiBranches[0]?.id ?? "");
-        setSelectedRunId(apiRuns[0]?.id ?? "");
+        setSelectedRunId((current) =>
+          current && apiRuns.some((run) => run.id === current) ? current : "",
+        );
         setLoadState("api");
       } catch {
         if (cancelled) return;
@@ -288,13 +291,13 @@ export function App() {
     setRouterLoadState("loading");
 
     try {
-      let chats = await getRouterChats();
-      if (chats.length === 0) {
-        const chat = await createRouterChat();
-        chats = [chat];
-      }
+      const chats = await getRouterChats();
       setRouterChats(chats);
-      setSelectedRouterChatId((current) => current || chats[0]?.id || "");
+      setSelectedRouterChatId((current) =>
+        current && chats.some((chat) => chat.id === current)
+          ? current
+          : chats[0]?.id || "",
+      );
       setRouterLoadState("api");
     } catch {
       setRouterLoadState("offline");
