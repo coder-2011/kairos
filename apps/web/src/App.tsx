@@ -19,6 +19,7 @@ import {
   createBranch,
   createRouterChat,
   createDebate,
+  deleteBranch,
   getBranches,
   getMessages,
   getOpenRouterModels,
@@ -582,6 +583,25 @@ export function App() {
     }
   }
 
+  async function discardBranch(branchId: string) {
+    const branch = branches.find((item) => item.id === branchId);
+    const confirmed = window.confirm(
+      `Discard branch "${branch?.name ?? branchId}"? This removes the branch configuration.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteBranch(branchId);
+      const nextBranches = await getBranches();
+      setBranches(nextBranches);
+      setSelectedBranchId(nextBranches[0]?.id ?? "");
+      navigate("branches");
+      setLoadState("api");
+    } catch {
+      setLoadState("offline");
+    }
+  }
+
   return (
     <div className="shell" data-theme={themeMode}>
       <SideNav
@@ -650,6 +670,7 @@ export function App() {
             tradeSymbolLoadState={tradeSymbolLoadState}
             tradeSymbols={tradeSymbols}
             onEscalate={() => void startDebate(selectedBranch.id)}
+            onDiscard={() => void discardBranch(selectedBranch.id)}
             onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
@@ -938,7 +959,8 @@ function RouterView({
           <textarea
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
                 submit();
               }
             }}
@@ -1608,6 +1630,7 @@ function BranchConfig({
   tradeSymbols,
   onRunHeartbeat,
   onEscalate,
+  onDiscard,
   onSave,
 }: {
   branch: BranchRecord;
@@ -1617,6 +1640,7 @@ function BranchConfig({
   tradeSymbols: TradeSymbolRecord[];
   onRunHeartbeat: () => void;
   onEscalate: () => void;
+  onDiscard: () => void;
   onSave: (input: {
     config: WebBranchConfig;
     branchName: string;
@@ -1689,7 +1713,7 @@ function BranchConfig({
           </button>
           <button
             className="command-button danger-outline"
-            onClick={resetDraft}
+            onClick={onDiscard}
             type="button"
           >
             DISCARD
