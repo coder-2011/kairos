@@ -27,6 +27,7 @@ import {
   getRuns,
   getRouterChats,
   getRouterMessages,
+  getTradeSymbols,
   getTradeIntents,
   triggerHeartbeat,
   sendRouterMessage,
@@ -44,6 +45,7 @@ import {
   type RouterMessageRecord,
   type RouterToolCallRecord,
   type TradeIntentRecord,
+  type TradeSymbolRecord,
   type WebBranchConfig,
 } from "./api";
 
@@ -155,7 +157,6 @@ const informationToolFields: Array<{
   purpose: string;
 }> = INFORMATION_TOOL_CATALOG.filter((tool) => {
   if (tool.name === "supermemory_search") return false;
-  if (tool.provider === "finnhub") return tool.name === "finnhub_api_request";
   return true;
 }).map((tool) => ({
   label: humanizeToolName(tool.name),
@@ -210,6 +211,9 @@ export function App() {
   const [portfolio, setPortfolio] = useState<PortfolioSnapshot>();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [tradeIntents, setTradeIntents] = useState<TradeIntentRecord[]>([]);
+  const [tradeSymbols, setTradeSymbols] = useState<TradeSymbolRecord[]>([]);
+  const [tradeSymbolLoadState, setTradeSymbolLoadState] =
+    useState<LoadState>("loading");
   const [routerChats, setRouterChats] = useState<RouterChatRecord[]>([]);
   const [selectedRouterChatId, setSelectedRouterChatId] = useState("");
   const [routerMessages, setRouterMessages] = useState<RouterMessageRecord[]>([]);
@@ -322,6 +326,28 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setTradeSymbolLoadState("loading");
+    getTradeSymbols({ limit: 500 })
+      .then((symbols) => {
+        if (!cancelled) {
+          setTradeSymbols(symbols);
+          setTradeSymbolLoadState("api");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTradeSymbols([]);
+          setTradeSymbolLoadState("offline");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedRun?.id || loadState !== "api") {
       setEvents([]);
       return;
@@ -409,7 +435,6 @@ export function App() {
       const result = await sendRouterMessage({
         chatId: selectedRouterChatId,
         text: text.trim(),
-        dryRun: false,
       });
       setRouterMessages((current) => [
         ...current,
@@ -459,7 +484,6 @@ export function App() {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: false },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -475,7 +499,6 @@ export function App() {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: false,
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -1548,6 +1571,8 @@ function BranchConfig({
   branch,
   modelDefaults,
   openRouterModels,
+  tradeSymbolLoadState,
+  tradeSymbols,
   onRunHeartbeat,
   onEscalate,
   onSave,
@@ -1555,6 +1580,8 @@ function BranchConfig({
   branch: BranchRecord;
   modelDefaults: ModelRoleDefaults;
   openRouterModels: OpenRouterModelRecord[];
+  tradeSymbolLoadState: LoadState;
+  tradeSymbols: TradeSymbolRecord[];
   onRunHeartbeat: () => void;
   onEscalate: () => void;
   onSave: (input: {
@@ -1592,11 +1619,14 @@ function BranchConfig({
   const tradingConfig = config.trading ?? {};
   const tradingMode = tradingConfig.mode ?? "disabled";
   const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
-  const notifyOnBuySignal = tradingConfig.notifyOnBuySignal ?? true;
+  const tradeSymbolUniverse = mergeSymbolSelection(
+    branchAssets,
+    tradeSymbols.map((symbol) => symbol.symbol),
+  );
   const selectedTradeSymbols = normalizeSymbolSelection(
     tradingConfig.symbols ??
       (tradingConfig.symbol ? [tradingConfig.symbol] : branchAssets.slice(0, 1)),
-    branchAssets,
+    tradeSymbolUniverse,
   );
   const maxNotionalPerOrder = tradingConfig.maxNotionalPerOrder ?? 500;
   const maxOpenPositionNotionalPerSymbol =
@@ -1711,136 +1741,137 @@ function BranchConfig({
             </div>
           </div>
           <div className="trading-grid">
-            <FieldLabel label="Trade Symbols">
-              <TradeSymbolDropdown
-                assets={branchAssets}
-                selected={selectedTradeSymbols}
-                onChange={(symbols) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      symbols,
-                      symbol: symbols[0],
-                    },
-                  }))
-                }
-              />
-            </FieldLabel>
-            <label className="checkbox-card">
-              <input
-                checked={tradingMode === "paper"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      mode: event.target.checked ? "paper" : "disabled",
-                      paperAutoBuyEnabled: event.target.checked
-                        ? current.trading?.paperAutoBuyEnabled ?? false
-                        : false,
-                    },
-                  }))
-                }
-                type="checkbox"
-              />
-              <span>
-                <b>Paper trading enabled</b>
-              </span>
-            </label>
-            <label className="checkbox-card">
-              <input
-                checked={paperAutoBuyEnabled}
-                disabled={tradingMode !== "paper"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      paperAutoBuyEnabled: event.target.checked,
-                      mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
-                    },
-                  }))
-                }
-                type="checkbox"
-              />
-              <span>
-                <b>Submit paper orders automatically</b>
-              </span>
-            </label>
-            <label className="checkbox-card">
-              <input
-                checked={notifyOnBuySignal}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      notifyOnBuySignal: event.target.checked,
-                    },
-                  }))
-                }
-                type="checkbox"
-              />
-              <span>
-                <b>Notify on buy signal</b>
-              </span>
-            </label>
-            <FieldLabel label="Max Paper Order Size">
-              <input
-                min="0"
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      maxNotionalPerOrder: Number(event.target.value),
-                    },
-                  }))
-                }
-                type="number"
-                value={maxNotionalPerOrder}
-              />
-            </FieldLabel>
-            <FieldLabel label="Max Paper Position Size">
-              <input
-                min="0"
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      maxOpenPositionNotionalPerSymbol: Number(event.target.value),
-                    },
-                  }))
-                }
-                type="number"
-                value={maxOpenPositionNotionalPerSymbol}
-              />
-            </FieldLabel>
-            <FieldLabel label="Paper Order Type">
-              <select
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      allowedOrderType: event.target.value as AllowedOrderType,
-                    },
-                  }))
-                }
-                value={allowedOrderType}
-              >
-                {allowedOrderTypeOptions.map((orderType) => (
-                  <option key={orderType} value={orderType}>
-                    {orderType.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </FieldLabel>
+            <div className="trading-section full">
+              <div className="field-label">Mode</div>
+              <div className="trading-card-row">
+                <label className="checkbox-card">
+                  <input
+                    checked={tradingMode === "paper"}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          mode: event.target.checked ? "paper" : "disabled",
+                          paperAutoBuyEnabled: event.target.checked
+                            ? current.trading?.paperAutoBuyEnabled ?? false
+                            : false,
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <b>Enable paper trading</b>
+                    <small>Allows Kairos to create paper trade intents.</small>
+                  </span>
+                </label>
+                <label className="checkbox-card">
+                  <input
+                    checked={paperAutoBuyEnabled}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          paperAutoBuyEnabled: event.target.checked,
+                          mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <b>Auto-submit paper orders</b>
+                    <small>Enables paper mode when switched on.</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div className="trading-section full">
+              <div className="field-label">Execution</div>
+              <div className="trading-fields-row">
+                <FieldLabel label="Symbols">
+                  <TradeSymbolDropdown
+                    assets={branchAssets}
+                    catalog={tradeSymbols}
+                    loadState={tradeSymbolLoadState}
+                    selected={selectedTradeSymbols}
+                    onChange={(symbols) =>
+                      setConfig((current) => ({
+                        ...current,
+                        assets: mergeSymbolSelection(current.assets ?? [], symbols),
+                        trading: {
+                          ...current.trading,
+                          symbols,
+                          symbol: symbols[0],
+                        },
+                      }))
+                    }
+                  />
+                </FieldLabel>
+                <FieldLabel label="Order Type">
+                  <select
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          allowedOrderType: event.target.value as AllowedOrderType,
+                        },
+                      }))
+                    }
+                    value={allowedOrderType}
+                  >
+                    {allowedOrderTypeOptions.map((orderType) => (
+                      <option key={orderType} value={orderType}>
+                        {orderType.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </FieldLabel>
+              </div>
+            </div>
+            <div className="trading-section full">
+              <div className="field-label">Limits</div>
+              <div className="trading-fields-row">
+                <FieldLabel label="Max Order">
+                  <input
+                    min="0"
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          maxNotionalPerOrder: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    type="number"
+                    value={maxNotionalPerOrder}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Max Position">
+                  <input
+                    min="0"
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          maxOpenPositionNotionalPerSymbol: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    type="number"
+                    value={maxOpenPositionNotionalPerSymbol}
+                  />
+                </FieldLabel>
+              </div>
+            </div>
             <div className="threshold-inline">
               <Slider
-                label="Buy Signal Threshold"
+                label="Paper Trade Threshold"
                 onChange={(value) =>
                   setConfig((current) => ({
                     ...current,
