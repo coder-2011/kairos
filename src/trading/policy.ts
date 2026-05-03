@@ -9,7 +9,7 @@ export type ThresholdActionResult =
 export type PermittedTradingAction =
   | "record_only"
   | "message_human"
-  | "paper_buy_intent"
+  | "paper_trade_intent"
   | "paper_order";
 
 export type ThresholdPolicyResult = {
@@ -18,6 +18,7 @@ export type ThresholdPolicyResult = {
   paperThreshold: number;
   thresholdResult: ThresholdActionResult;
   permittedAction: PermittedTradingAction;
+  paperAutoTradeEnabled: boolean;
   paperAutoBuyEnabled: boolean;
   rationale: string;
 };
@@ -52,11 +53,11 @@ export function evaluateTradingThresholdPolicy(
     input.tradingConfig?.mode ??
     branchConfig?.trading?.mode ??
     "paper";
-  const paperAutoBuyEnabled =
+  const paperAutoTradeEnabled =
     input.tradingConfig?.paperAutoBuyEnabled ??
     branchConfig?.trading?.paperAutoBuyEnabled ??
     false;
-  const notifyOnBuySignal =
+  const notifyOnTradeSignal =
     input.tradingConfig?.notifyOnBuySignal ??
     branchConfig?.trading?.notifyOnBuySignal ??
     true;
@@ -68,7 +69,8 @@ export function evaluateTradingThresholdPolicy(
         notifyThreshold,
         paperThreshold,
         thresholdResult: "paper_trade_candidate",
-        permittedAction: notifyOnBuySignal ? "message_human" : "record_only",
+        permittedAction: notifyOnTradeSignal ? "message_human" : "record_only",
+        paperAutoTradeEnabled: false,
         paperAutoBuyEnabled: false,
         rationale: "Confidence crossed the paper threshold, but paper trading is disabled.",
       };
@@ -79,11 +81,12 @@ export function evaluateTradingThresholdPolicy(
       notifyThreshold,
       paperThreshold,
       thresholdResult: "paper_trade_candidate",
-      permittedAction: paperAutoBuyEnabled ? "paper_order" : "paper_buy_intent",
-      paperAutoBuyEnabled,
-      rationale: paperAutoBuyEnabled
-        ? "Confidence crossed the paper threshold and branch trading config allows paper auto-buy."
-        : "Confidence crossed the paper threshold, but paper auto-buy is disabled.",
+      permittedAction: paperAutoTradeEnabled ? "paper_order" : "paper_trade_intent",
+      paperAutoTradeEnabled,
+      paperAutoBuyEnabled: paperAutoTradeEnabled,
+      rationale: paperAutoTradeEnabled
+        ? "Confidence crossed the paper threshold and branch trading config allows paper auto-trading."
+        : "Confidence crossed the paper threshold, but paper auto-trading is disabled.",
     };
   }
 
@@ -93,9 +96,10 @@ export function evaluateTradingThresholdPolicy(
       notifyThreshold,
       paperThreshold,
       thresholdResult: "message_human",
-      permittedAction: notifyOnBuySignal ? "message_human" : "record_only",
-      paperAutoBuyEnabled,
-      rationale: notifyOnBuySignal
+      permittedAction: notifyOnTradeSignal ? "message_human" : "record_only",
+      paperAutoTradeEnabled,
+      paperAutoBuyEnabled: paperAutoTradeEnabled,
+      rationale: notifyOnTradeSignal
         ? "Confidence crossed the notify threshold but stayed below the paper threshold."
         : "Confidence crossed the notify threshold, but branch notifications are disabled.",
     };
@@ -107,7 +111,8 @@ export function evaluateTradingThresholdPolicy(
     paperThreshold,
     thresholdResult: "below_thresholds",
     permittedAction: "record_only",
-    paperAutoBuyEnabled,
+    paperAutoTradeEnabled,
+    paperAutoBuyEnabled: paperAutoTradeEnabled,
     rationale: "Confidence stayed below configured action thresholds.",
   };
 }

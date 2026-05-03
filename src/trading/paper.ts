@@ -42,9 +42,6 @@ export async function preflightPaperOrder(
   if (intent.mode !== "paper") {
     reasons.push("Only paper trade intents can be submitted.");
   }
-  if (intent.side !== "buy") {
-    reasons.push("This backend slice only supports paper buy orders.");
-  }
   if (config.allowedSymbols && !config.allowedSymbols.includes(intent.symbol)) {
     reasons.push(`${intent.symbol} is not in the configured allowedSymbols list.`);
   }
@@ -67,10 +64,26 @@ export async function preflightPaperOrder(
     reasons.push(`${intent.symbol} is not tradable on Alpaca.`);
   }
 
-  const buyingPower = portfolio.account.buyingPower;
   const notional = estimatedNotional(intent);
-  if (buyingPower !== undefined && notional > buyingPower) {
-    reasons.push(`Insufficient buying power: need ${notional}, have ${buyingPower}.`);
+  if (intent.side === "buy") {
+    const buyingPower = portfolio.account.buyingPower;
+    if (buyingPower !== undefined && notional > buyingPower) {
+      reasons.push(`Insufficient buying power: need ${notional}, have ${buyingPower}.`);
+    }
+  }
+  if (intent.side === "sell") {
+    const position = portfolio.positions.find(
+      (item) => item.symbol.toUpperCase() === intent.symbol.toUpperCase(),
+    );
+    const heldQty = position?.qty ?? 0;
+    const requestedQty = estimatedSellQuantity(intent, position?.currentPrice);
+    if (heldQty <= 0) {
+      reasons.push(`No known ${intent.symbol} position is available to sell.`);
+    } else if (requestedQty === undefined) {
+      reasons.push(`Cannot verify ${intent.symbol} sell quantity from the trade intent.`);
+    } else if (requestedQty > heldQty) {
+      reasons.push(`Sell quantity ${requestedQty} exceeds known ${intent.symbol} position ${heldQty}.`);
+    }
   }
   if (
     intent.side === "buy" &&
@@ -124,4 +137,15 @@ function estimatedNotional(intent: TradeIntent): number {
     return intent.qty * intent.limitPrice;
   }
   return 0;
+}
+
+function estimatedSellQuantity(
+  intent: TradeIntent,
+  currentPrice: number | undefined,
+): number | undefined {
+  if (intent.qty !== undefined) return intent.qty;
+  if (intent.notional !== undefined && currentPrice !== undefined && currentPrice > 0) {
+    return intent.notional / currentPrice;
+  }
+  return undefined;
 }
