@@ -1134,6 +1134,7 @@ function MonitoringView({
   const runSummary = run ? summarizeRun(run, branches.find((branch) => branch.id === run.branchId)) : undefined;
   const branchName = run ? selectedBranchName(branches, run.branchId) : undefined;
   const branchBreakdowns = createBranchRunBreakdowns(branches, runs);
+  const monitoringStats = createMonitoringStats(runs, branchBreakdowns);
   const transcriptEvents = events.filter(
     (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
@@ -1164,12 +1165,12 @@ function MonitoringView({
     <main className={`split-canvas ${showEvidence ? "" : "evidence-closed"}`}>
       <section className="event-stream pane narrow">
         <PaneHeader
-          icon="stream"
-          meta={run ? run.status.toUpperCase() : ""}
-          title="EVENTS"
+          icon="receipt_long"
+          meta={`${runs.length} TOTAL`}
+          title="RUNS"
         />
         <div className="monitoring-run-strip">
-          <div className="section-title">RECENT RUNS <b>{runs.length}</b></div>
+          <div className="section-title">RECENT ACTIVITY</div>
           {runs.length === 0 ? (
             <EmptyPanel
               icon="history"
@@ -1187,39 +1188,15 @@ function MonitoringView({
                 >
                   <span>{item.kind}</span>
                   <b>{summarizeRun(item).outcome}</b>
-                  <small>{selectedBranchName(branches, item.branchId) ?? item.branchId ?? "No branch"} · {timeOnly(item.createdAt)}</small>
+                  <small>{selectedBranchName(branches, item.branchId) ?? item.branchId ?? "No branch"} / {timeOnly(item.createdAt)}</small>
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className="monitoring-run-strip">
-          <div className="section-title">BRANCH BREAKDOWN <b>{branchBreakdowns.length}</b></div>
-          {branchBreakdowns.length === 0 ? (
-            <EmptyPanel
-              icon="account_tree"
-              message="Branch activity appears here once runs exist."
-              title="No Branch Activity"
-            />
-          ) : (
-            <div className="monitoring-run-list">
-              {branchBreakdowns.map((item) => (
-                <button
-                  className={`monitoring-run-item ${item.latestRun?.id === run?.id ? "active" : ""}`}
-                  disabled={!item.latestRun}
-                  key={item.branchId}
-                  onClick={() => {
-                    if (item.latestRun) onSelectRun(item.latestRun.id);
-                  }}
-                  type="button"
-                >
-                  <span>{item.branchLabel}</span>
-                  <b>{item.runningCount > 0 ? `${item.runningCount} running` : `${item.totalCount} run${item.totalCount === 1 ? "" : "s"}`}</b>
-                  <small>{item.heartbeatCount} heartbeat · {item.debateCount} debate</small>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="monitoring-timeline-head">
+          <span>EVENT TIMELINE</span>
+          <b>{run ? `${events.length} EVENTS` : "NO RUN"}</b>
         </div>
         <div className="timeline-scroll">
           {!run ? (
@@ -1254,9 +1231,14 @@ function MonitoringView({
           onActionClick={() => void exportRun()}
           icon="forum"
           meta={branchName ?? runSummary?.branchLabel ?? ""}
-          title={run ? "RUN MONITOR" : "MONITORING"}
+          title={run ? "RUN DETAIL" : "MONITORING"}
         />
         <div className="transcript-scroll">
+          <MonitoringSummaryBar
+            branchBreakdowns={branchBreakdowns}
+            stats={monitoringStats}
+            onSelectRun={onSelectRun}
+          />
           {run && runSummary && (
             <RunOverviewPanel
               eventCount={events.length}
@@ -1352,6 +1334,45 @@ function MonitoringView({
         />
       )}
     </main>
+  );
+}
+
+function MonitoringSummaryBar({
+  branchBreakdowns,
+  stats,
+  onSelectRun,
+}: {
+  branchBreakdowns: ReturnType<typeof createBranchRunBreakdowns>;
+  stats: ReturnType<typeof createMonitoringStats>;
+  onSelectRun: (runId: string) => void;
+}) {
+  return (
+    <section className="monitoring-summary">
+      <div className="monitoring-health-grid">
+        <RunFact label="Runs" value={String(stats.totalRuns)} />
+        <RunFact label="Branches" value={String(stats.activeBranches)} />
+        <RunFact label="Debates" value={String(stats.debateRuns)} />
+        <RunFact label="Failures" tone={stats.failedRuns > 0 ? "danger" : "default"} value={String(stats.failedRuns)} />
+      </div>
+      {branchBreakdowns.length > 0 && (
+        <div className="monitoring-branch-row">
+          {branchBreakdowns.slice(0, 5).map((item) => (
+            <button
+              className="monitoring-branch-chip"
+              disabled={!item.latestRun}
+              key={item.branchId}
+              onClick={() => {
+                if (item.latestRun) onSelectRun(item.latestRun.id);
+              }}
+              type="button"
+            >
+              <span>{item.branchLabel}</span>
+              <b>{item.totalCount}</b>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -3101,6 +3122,18 @@ function createBranchRunBreakdowns(branches: BranchRecord[], runs: RunRecord[]) 
           Date.parse(left.latestRun?.createdAt ?? "0") ||
         left.branchLabel.localeCompare(right.branchLabel),
     );
+}
+
+function createMonitoringStats(
+  runs: RunRecord[],
+  branchBreakdowns: ReturnType<typeof createBranchRunBreakdowns>,
+) {
+  return {
+    totalRuns: runs.length,
+    activeBranches: branchBreakdowns.length,
+    debateRuns: runs.filter((run) => run.kind === "debate").length,
+    failedRuns: runs.filter((run) => run.status === "failed").length,
+  };
 }
 
 function defaultBranchConfig(): WebBranchConfig {
