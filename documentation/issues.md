@@ -27,12 +27,12 @@ Scope: cleared local branch/run/router runtime state, created one branch named `
 - Observed: After a successful router run, Monitoring shows a router run card and event stream, but the run detail panel says `No output recorded`.
 - Impact: The router result is harder to audit from Monitoring even though the run has meaningful routing output.
 
-### 4. Manual debate start can leave a run stuck in `running`
+### 4. Manual debate start can sit in `running` without visible progress
 
 - Severity: High
 - Evidence: observed during manual debate QA after clicking `START MANUAL DEBATE`.
-- Observed: A debate run was created and remained in `running` state instead of resolving to succeeded or failed during the QA window.
-- Impact: Monitoring can accumulate misleading in-progress debate runs, and the UI does not clearly tell the user whether the manual debate is waiting on model credentials, an external API, or a runtime failure.
+- Observed: A debate run was created and remained in `running` state for the QA window with no clear progress indicator or explanation.
+- Impact: The UI does not clearly tell the user whether the manual debate is waiting on model credentials, an external API, or a runtime failure.
 
 ### 5. Supermemory mirror quota errors spam runtime logs during ordinary UI actions
 
