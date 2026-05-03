@@ -1187,15 +1187,6 @@ function PortfolioView({
           </div>
         </div>
         <div className="portfolio-scroll">
-          <div className="portfolio-safety-strip">
-            <Icon name="verified_user" />
-            <div>
-              <b>Paper Mode</b>
-              <span>
-                Live orders are blocked. Paper intents and submitted paper orders are saved.
-              </span>
-            </div>
-          </div>
           <div className="portfolio-metrics">
             <Metric
               label="PORTFOLIO VALUE"

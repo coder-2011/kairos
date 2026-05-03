@@ -978,37 +978,6 @@ select:focus:hover {
   padding: 16px;
 }
 
-.portfolio-safety-strip {
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-md);
-  color: var(--on-variant);
-  display: flex;
-  gap: 12px;
-  padding: 10px 12px;
-}
-
-.portfolio-safety-strip b,
-.portfolio-safety-strip span {
-  display: block;
-}
-
-.portfolio-safety-strip b {
-  color: var(--on-surface);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  line-height: 14px;
-  text-transform: uppercase;
-}
-
-.portfolio-safety-strip span {
-  color: var(--on-variant);
-  font-size: 12px;
-  line-height: 16px;
-}
-
 .portfolio-metrics {
   display: grid;
   gap: 8px;
