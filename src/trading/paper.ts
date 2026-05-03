@@ -38,6 +38,7 @@ export async function preflightPaperOrder(
   config: TradingConfig = {},
 ): Promise<PaperOrderPreflightResult> {
   const reasons: string[] = [];
+  const notional = estimatedNotional(intent);
 
   if (intent.mode !== "paper") {
     reasons.push("Only paper trade intents can be submitted.");
@@ -45,8 +46,14 @@ export async function preflightPaperOrder(
   if (config.allowedSymbols && !config.allowedSymbols.includes(intent.symbol)) {
     reasons.push(`${intent.symbol} is not in the configured allowedSymbols list.`);
   }
-  if (config.maxNotionalUsd && estimatedNotional(intent) > config.maxNotionalUsd) {
-    reasons.push(`Intent exceeds maxNotionalUsd ${config.maxNotionalUsd}.`);
+  const maxOrderNotional = config.maxNotionalPerOrder ?? config.maxNotionalUsd;
+  if (maxOrderNotional !== undefined && notional > maxOrderNotional) {
+    reasons.push(`Intent exceeds configured max order notional ${maxOrderNotional}.`);
+  }
+  if (config.allowedOrderType === "bracket") {
+    reasons.push("Bracket paper orders are not implemented for Alpaca submission yet.");
+  } else if (config.allowedOrderType !== undefined && intent.orderType !== config.allowedOrderType) {
+    reasons.push(`Intent order type ${intent.orderType} does not match configured allowedOrderType ${config.allowedOrderType}.`);
   }
 
   const [clock, asset, portfolio] = await Promise.all([
@@ -55,7 +62,7 @@ export async function preflightPaperOrder(
     broker.getPortfolioSnapshot(),
   ]);
 
-  if (clock.is_open !== true) {
+  if (clock.is_open !== true && config.allowQueuedOrdersWhenMarketClosed !== true) {
     reasons.push(clock.next_open
       ? `Market is closed. Next open: ${clock.next_open}.`
       : "Market is closed.");
@@ -64,17 +71,24 @@ export async function preflightPaperOrder(
     reasons.push(`${intent.symbol} is not tradable on Alpaca.`);
   }
 
-  const notional = estimatedNotional(intent);
   if (intent.side === "buy") {
     const buyingPower = portfolio.account.buyingPower;
     if (buyingPower !== undefined && notional > buyingPower) {
       reasons.push(`Insufficient buying power: need ${notional}, have ${buyingPower}.`);
     }
+    const maxPositionNotional = config.maxOpenPositionNotionalPerSymbol;
+    if (maxPositionNotional !== undefined) {
+      const position = findPortfolioPosition(portfolio, intent.symbol);
+      const currentPositionNotional = estimatedPositionNotional(position);
+      if (currentPositionNotional + notional > maxPositionNotional) {
+        reasons.push(
+          `Intent would exceed configured max open position notional ${maxPositionNotional} for ${intent.symbol}.`,
+        );
+      }
+    }
   }
   if (intent.side === "sell") {
-    const position = portfolio.positions.find(
-      (item) => item.symbol.toUpperCase() === intent.symbol.toUpperCase(),
-    );
+    const position = findPortfolioPosition(portfolio, intent.symbol);
     const heldQty = position?.qty ?? 0;
     const requestedQty = estimatedSellQuantity(intent, position?.currentPrice);
     if (heldQty <= 0) {
@@ -98,6 +112,24 @@ export async function preflightPaperOrder(
     ok: reasons.length === 0,
     reasons,
   };
+}
+
+function findPortfolioPosition(
+  portfolio: PortfolioSnapshot,
+  symbol: string,
+): PortfolioSnapshot["positions"][number] | undefined {
+  return portfolio.positions.find(
+    (item) => item.symbol.toUpperCase() === symbol.toUpperCase(),
+  );
+}
+
+function estimatedPositionNotional(
+  position: PortfolioSnapshot["positions"][number] | undefined,
+): number {
+  if (!position) return 0;
+  if (position.marketValue !== undefined) return Math.abs(position.marketValue);
+  if (position.currentPrice !== undefined) return Math.abs(position.qty * position.currentPrice);
+  return 0;
 }
 
 export async function submitPaperOrder(
