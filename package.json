@@ -9,7 +9,7 @@
     "build:web": "vite build --config apps/web/vite.config.ts",
     "preview:web": "vite preview --config apps/web/vite.config.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web/tsconfig.json"
   },
   "dependencies": {
     "@langchain/core": "^1.0.0",
