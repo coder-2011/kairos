@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import { ExaApi } from "../../../src/api/exa.js";
@@ -35,6 +36,7 @@ import {
   type JsonRecord,
   type RouterAttachmentRecord,
   type RouterMessageRecord,
+  type RouterToolCallRecord,
   type RunRecord,
 } from "./store.js";
 import { SupabaseKairosStore } from "./supabase-store.js";
@@ -98,6 +100,11 @@ type RouterExtractedSource = {
 type RouterUrlRetrieveInput = {
   urls: string[];
   dryRun: boolean;
+};
+
+type RouterSourceExtractionResult = {
+  sources: RouterExtractedSource[];
+  toolCalls: RouterToolCallRecord[];
 };
 
 const branchCreateSchema = z.object({
