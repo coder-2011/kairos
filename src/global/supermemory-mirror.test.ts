@@ -10,7 +10,7 @@ import {
 } from "./supermemory-mirror.js";
 
 describe("Supermemory mirror", () => {
-  it("writes redacted records to global and branch containers", async () => {
+  it("writes redacted branch records to global, branch document, and branch profile containers", async () => {
     const writes: Array<{
       kind?: string;
       containerTag: string;
@@ -41,12 +41,16 @@ describe("Supermemory mirror", () => {
     expect(writes.map((write) => write.containerTag).sort()).toEqual([
       "branch_branch_1",
       "branch_branch_1",
+      "branch_profile_branch_1",
+      "branch_profile_branch_1",
       "system_global",
       "system_global",
     ]);
     expect(writes.map((write) => write.kind).sort()).toEqual([
       "document",
       "document",
+      "document",
+      "memory",
       "memory",
       "memory",
     ]);
@@ -98,12 +102,15 @@ describe("Supermemory mirror", () => {
       },
     });
 
-    expect(writes).toHaveLength(4);
+    expect(writes).toHaveLength(6);
     const conversationWrite = writes.find((write) => write.kind === "conversation");
     expect(conversationWrite?.customId).toBe("kairos:debate:debate_1:transcript");
     expect(conversationWrite?.content).toContain("The catalyst may be underpriced.");
     expect(conversationWrite?.content).toContain("Notify but do not trade yet.");
-    expect(writes.filter((write) => write.kind === "memory")).toHaveLength(2);
+    expect(writes.filter((write) => write.kind === "memory")).toHaveLength(3);
+    expect(writes.map((write) => write.containerTag)).toEqual(
+      expect.arrayContaining(["branch_branch_2", "branch_profile_branch_2", "system_global"]),
+    );
   });
 
   it("keeps formatter redaction available independently", () => {
@@ -141,6 +148,8 @@ describe("Supermemory mirror", () => {
     expect(writes.map((write) => write.containerTag).sort()).toEqual([
       "branch_branch_3",
       "branch_branch_3",
+      "branch_profile_branch_3",
+      "branch_profile_branch_3",
       "system_global",
       "system_global",
     ]);

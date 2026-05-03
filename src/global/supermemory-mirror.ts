@@ -331,6 +331,10 @@ function containerTagsForRecord(
       scopeId: record.branchId,
       prefix: "branch",
     }));
+    tags.add(getMemoryContainerTag({
+      scopeId: record.branchId,
+      prefix: "branch_profile",
+    }));
   }
   return [...tags];
 }

@@ -16,6 +16,7 @@ import type {
   EscalationEvent,
   HeartbeatOutput,
   HeartbeatSeedBundle,
+  HeartbeatToolTrace,
 } from "../agents/heartbeat/types.js";
 
 export const GLOBAL_MEMORY_CONTAINER_TAG = "system_global";
@@ -62,6 +63,11 @@ export type GlobalMemoryApi = {
     }>;
     metadata?: Record<string, string | number | boolean>;
   }): Promise<SupermemoryAddContentResponse>;
+  writeToolTraces(input: {
+    containerTag: string;
+    traces: HeartbeatToolTrace[];
+    metadata?: Record<string, string | number | boolean>;
+  }): Promise<SupermemoryCreateMemoriesResponse>;
 };
 
 export function createSupermemoryMemoryApi(
@@ -99,5 +105,13 @@ export function getBranchMemoryContainerTag(branch: BranchConfig): string {
     configuredContainerTag: branch.memory?.supermemoryContainerTag,
     scopeId: branch.id,
     prefix: "branch",
+  });
+}
+
+export function getBranchProfileContainerTag(branch: BranchConfig): string {
+  return getMemoryContainerTag({
+    configuredContainerTag: branch.memory?.supermemoryProfileContainerTag,
+    scopeId: branch.id,
+    prefix: "branch_profile",
   });
 }

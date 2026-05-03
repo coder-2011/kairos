@@ -37,7 +37,7 @@ const IGNORED_TICKER_TOKENS = new Set([
 const supermemoryProfileInputSchema = z.object({
   containerTag: z
     .string()
-    .describe("Branch-scoped memory container tag, for example branch_pltr_deals."),
+    .describe("Branch-scoped Supermemory profile container tag, for example branch_profile_pltr_deals."),
   query: z
     .string()
     .describe("Plain-language query describing the branch law, catalyst, or memory context to retrieve."),
@@ -51,7 +51,7 @@ const supermemoryProfileInputSchema = z.object({
 const supermemorySearchInputSchema = z.object({
   containerTag: z
     .string()
-    .describe("Branch-scoped memory container tag, for example branch_pltr_deals."),
+    .describe("Branch-scoped Supermemory profile container tag, for example branch_profile_pltr_deals."),
   query: z
     .string()
     .describe("Plain-language search query for prior events, human corrections, false positives, or branch preferences."),

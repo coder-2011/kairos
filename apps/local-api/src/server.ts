@@ -1294,8 +1294,11 @@ async function mirrorRouterSources(
   if (!context.supermemoryMirror) return false;
 
   const containerTags = input.branchIds.map((branchId) =>
-    getMemoryContainerTag({ scopeId: branchId, prefix: "branch" }),
-  );
+    [
+      getMemoryContainerTag({ scopeId: branchId, prefix: "branch" }),
+      getMemoryContainerTag({ scopeId: branchId, prefix: "branch_profile" }),
+    ],
+  ).flat();
 
   await Promise.all(
     input.sources.map((source) =>

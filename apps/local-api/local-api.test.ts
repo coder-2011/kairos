@@ -370,6 +370,12 @@ describe("local API handler", () => {
       ],
       branchIds: ["branch_pltr_contracts"],
     });
+    expect(routerSources.at(-1)?.containerTags).toEqual(
+      expect.arrayContaining([
+        "branch_branch_pltr_contracts",
+        "branch_profile_branch_pltr_contracts",
+      ]),
+    );
   });
 
   it("appends human interjections to run events", async () => {
@@ -566,6 +572,14 @@ describe("local API handler", () => {
     ).toMatchObject({
       scope: "router",
       actor: "human",
+    });
+    expect(
+      mirrored.find((record) => record.type === "router.source.ingested"),
+    ).toMatchObject({
+      containerTags: expect.arrayContaining([
+        "branch_branch_memory",
+        "branch_profile_branch_memory",
+      ]),
     });
   });
 
