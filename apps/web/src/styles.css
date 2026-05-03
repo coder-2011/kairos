@@ -1455,7 +1455,6 @@ select:focus {
     padding: 10px 12px;
   }
 
-  .top-actions,
   .toolbar,
   .decision-row,
   .detail-head,
@@ -1463,6 +1462,25 @@ select:focus {
   .footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .top-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .top-actions .divider {
+    display: none;
+  }
+
+  .top-actions .command-button {
+    min-width: 100px;
+  }
+
+  .status-cluster {
+    flex-wrap: wrap;
   }
 
   .filters,
