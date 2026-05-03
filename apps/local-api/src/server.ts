@@ -232,8 +232,8 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
   });
   return {
     store,
-    runHeartbeat: options.dependencies?.runHeartbeat ?? runConfiguredHeartbeat,
-    createDebate: options.dependencies?.createDebate ?? runConfiguredDebate,
+    runHeartbeat: options.dependencies?.runHeartbeat ?? runHeartbeatRuntime,
+    createDebate: options.dependencies?.createDebate ?? createDebateRuntime,
     retrieveUrlContents:
       options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
@@ -735,16 +735,14 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     kind: "debate",
     status: "running",
     branchId,
-    dryRun: input.dryRun,
     input: runPayload,
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: "runtime" },
   });
-  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate", dryRun: input.dryRun } });
+  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate" } });
 
   let result: DebateCreateResult;
   try {
     result = await context.createDebate({
-      dryRun: input.dryRun,
       payload: runPayload,
       branch,
     });
@@ -810,14 +808,13 @@ async function createRouterMessage(
   const run = await context.store.createRun({
     kind: "router",
     status: "running",
-    dryRun: input.dryRun,
     input: {
       chatId,
       messageId: userMessage.id,
       text: userMessage.text,
       attachments: userMessage.attachments ?? [],
     },
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: "runtime" },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
@@ -889,7 +886,6 @@ async function createRouterMessage(
       const branch = branches.find((item) => item.id === branchId);
       if (!branch) continue;
       const heartbeatRun = await runHeartbeatForBranch(context, branch, {
-        dryRun: input.dryRun,
         input: {
           origin: "router",
           messageText: userMessage.text,
@@ -1626,7 +1622,6 @@ async function extractRouterSources(
     try {
       const webpageSources = await context.retrieveUrlContents({
         urls,
-        dryRun: input.dryRun,
       });
       sources.push(...webpageSources);
       const toolCall = createRouterToolCall({
