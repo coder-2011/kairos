@@ -41,6 +41,7 @@ export const tradingConfigSchema = z
   .object({
     mode: z.enum(["disabled", "paper"]).optional(),
     symbol: z.string().min(1).optional(),
+    symbols: z.array(z.string().min(1)).optional(),
     paperAutoBuyEnabled: z.boolean().optional(),
     notifyOnBuySignal: z.boolean().optional(),
     maxNotionalPerOrder: moneySchema.optional(),

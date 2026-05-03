@@ -806,7 +806,31 @@ describe("local API handler", () => {
   });
 
   it("refreshes and persists portfolio snapshots through the trading broker", async () => {
-    const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
+    const { requestJson } = makeClient({
+      tradingBroker: {
+        ...createMockTradingBroker(),
+        async listPaperOrders() {
+          return [
+            {
+              id: "external_broker_order_1",
+              createdAt: "2026-05-03T12:00:00.000Z",
+              updatedAt: "2026-05-03T12:00:00.000Z",
+              provider: "alpaca",
+              environment: "paper",
+              alpacaOrderId: "external_alpaca_order_1",
+              clientOrderId: "manual_alpaca_paper_order",
+              status: "accepted",
+              symbol: "PLTR",
+              side: "buy",
+              orderType: "market",
+              timeInForce: "day",
+              notional: 250,
+              submittedAt: "2026-05-03T12:00:00.000Z",
+            },
+          ];
+        },
+      },
+    });
 
     const initial = await requestJson("GET", "/portfolio");
     expect(initial.body.snapshot).toBeNull();
@@ -819,9 +843,17 @@ describe("local API handler", () => {
       account: { buyingPower: 100000 },
       positions: [{ symbol: "PLTR" }],
     });
+    expect(refreshed.body.portfolio.orders).toHaveLength(1);
+    expect(refreshed.body.portfolio.storage).toMatchObject({
+      persistent: true,
+      mode: "paper",
+      brokerOrderCount: 1,
+      tradeIntentCount: 0,
+    });
 
     const listed = await requestJson("GET", "/portfolio");
     expect(listed.body.snapshots).toHaveLength(1);
+    expect(listed.body.brokerOrders).toHaveLength(1);
   });
 
   it("rejects invalid payloads with 400", async () => {

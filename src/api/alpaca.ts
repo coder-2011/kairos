@@ -161,6 +161,11 @@ export class AlpacaTradingClient {
     );
   }
 
+  async listPaperOrders(input: ListOrdersInput = {}): Promise<BrokerOrder[]> {
+    const orders = await this.listOrders(input);
+    return orders.map((order) => toBrokerOrder(order));
+  }
+
   async submitOrder(order: AlpacaLegacyOrderRequest): Promise<Record<string, unknown>> {
     return this.request<Record<string, unknown>>("POST", "/v2/orders", {
       symbol: order.symbol,
@@ -186,28 +191,16 @@ export class AlpacaTradingClient {
       client_order_id: input.clientOrderId,
     });
 
-    return {
-      id: stringValue(order.id) ?? input.clientOrderId ?? randomUUID(),
-      createdAt: stringValue(order.created_at) ?? new Date().toISOString(),
-      updatedAt:
-        stringValue(order.updated_at) ??
-        stringValue(order.created_at) ??
-        new Date().toISOString(),
-      provider: "alpaca",
-      environment: "paper",
-      alpacaOrderId: stringValue(order.id),
-      clientOrderId: stringValue(order.client_order_id) ?? input.clientOrderId ?? "",
-      status: normalizeOrderStatus(order.status),
-      symbol: stringValue(order.symbol) ?? input.symbol,
-      side: normalizeSide(order.side) ?? input.side,
-      orderType: normalizeOrderType(order.type) ?? input.type,
-      timeInForce: normalizeTimeInForce(order.time_in_force) ?? input.timeInForce,
-      qty: numberValue(order.qty) ?? input.qty,
-      notional: numberValue(order.notional) ?? input.notional,
-      limitPrice: numberValue(order.limit_price) ?? input.limitPrice,
-      submittedAt: stringValue(order.submitted_at) ?? stringValue(order.created_at),
-      raw: order,
-    };
+    return toBrokerOrder(order, {
+      symbol: input.symbol,
+      side: input.side,
+      orderType: input.type,
+      timeInForce: input.timeInForce,
+      qty: input.qty,
+      notional: input.notional,
+      limitPrice: input.limitPrice,
+      clientOrderId: input.clientOrderId,
+    });
   }
 
   private async request<T>(
@@ -328,6 +321,44 @@ function normalizeTimeInForce(value: unknown): BrokerTimeInForce | undefined {
   )
     ? (value as BrokerTimeInForce)
     : undefined;
+}
+
+function toBrokerOrder(
+  order: AlpacaOrder,
+  fallback: Partial<BrokerOrder> = {},
+): BrokerOrder {
+  const alpacaOrderId = stringValue(order.id);
+  const createdAt = stringValue(order.created_at) ?? fallback.createdAt ?? new Date().toISOString();
+  const updatedAt =
+    stringValue(order.updated_at) ??
+    fallback.updatedAt ??
+    createdAt;
+  const clientOrderId =
+    stringValue(order.client_order_id) ??
+    fallback.clientOrderId ??
+    alpacaOrderId ??
+    randomUUID();
+
+  return {
+    id: fallback.id ?? alpacaOrderId ?? clientOrderId,
+    createdAt,
+    updatedAt,
+    provider: "alpaca",
+    environment: "paper",
+    alpacaOrderId,
+    clientOrderId,
+    status: normalizeOrderStatus(order.status),
+    symbol: stringValue(order.symbol) ?? fallback.symbol ?? "UNKNOWN",
+    side: normalizeSide(order.side) ?? fallback.side ?? "buy",
+    orderType: normalizeOrderType(order.type) ?? fallback.orderType ?? "market",
+    timeInForce: normalizeTimeInForce(order.time_in_force) ?? fallback.timeInForce ?? "day",
+    qty: numberValue(order.qty) ?? fallback.qty,
+    notional: numberValue(order.notional) ?? fallback.notional,
+    limitPrice: numberValue(order.limit_price) ?? fallback.limitPrice,
+    submittedAt: stringValue(order.submitted_at) ?? fallback.submittedAt ?? createdAt,
+    raw: order,
+    metadata: fallback.metadata,
+  };
 }
 
 function randomUUID(): string {

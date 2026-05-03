@@ -10,6 +10,7 @@ import {
   getMemoryContainerTag,
   listOpenRouterModels,
   resolveKairosModelConfig,
+  type KairosModelRole,
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
 import {
@@ -935,6 +936,7 @@ async function portfolioSnapshotResponse(
       context.store.listTradeIntents(),
       context.store.listMessages(),
     ]);
+  const storage = portfolioStorageStatus({ brokerOrders, tradeIntents, messages });
 
   return json({
     portfolio: {
@@ -948,6 +950,7 @@ async function portfolioSnapshotResponse(
       orders: brokerOrders,
       tradeIntents,
       messages,
+      storage,
       paper: true,
       status: portfolioError ? "offline" : "ok",
       updatedAt: latestSnapshot?.capturedAt,
@@ -957,18 +960,23 @@ async function portfolioSnapshotResponse(
     brokerOrders,
     tradeIntents,
     messages,
+    storage,
     error: portfolioError,
   });
 }
 
 async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
-  const snapshot = await getTradingBroker(context).getPortfolioSnapshot();
+  const broker = getTradingBroker(context);
+  const snapshot = await broker.getPortfolioSnapshot();
   const stored = await context.store.createPortfolioSnapshot(snapshot);
+  await syncPaperBrokerOrders(context, broker);
   const [brokerOrders, tradeIntents, messages] = await Promise.all([
     context.store.listBrokerOrders(),
     context.store.listTradeIntents(),
     context.store.listMessages(),
   ]);
+  const storage = portfolioStorageStatus({ brokerOrders, tradeIntents, messages });
+
   return json({
     portfolio: {
       ...stored,
@@ -976,6 +984,7 @@ async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
       orders: brokerOrders,
       tradeIntents,
       messages,
+      storage,
       paper: true,
       status: "ok",
       updatedAt: stored.capturedAt,
@@ -984,7 +993,38 @@ async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
     brokerOrders,
     tradeIntents,
     messages,
+    storage,
   }, 201);
+}
+
+async function syncPaperBrokerOrders(
+  context: LocalApiContext,
+  broker: PaperTradingBroker,
+): Promise<void> {
+  if (!broker.listPaperOrders) {
+    return;
+  }
+
+  const orders = await broker.listPaperOrders({ status: "all", limit: 100 });
+  await Promise.all(orders.map((order) => context.store.createBrokerOrder(order)));
+}
+
+function portfolioStorageStatus(input: {
+  brokerOrders: unknown[];
+  tradeIntents: unknown[];
+  messages: unknown[];
+}): JsonRecord {
+  return {
+    persistent: true,
+    mode: "paper",
+    store: "kairos_runtime_store",
+    scope: "paper_trading_audit",
+    detail:
+      "Kairos stores paper trade intents, submitted paper broker orders, trading messages, and portfolio snapshots in the configured runtime store.",
+    brokerOrderCount: input.brokerOrders.length,
+    tradeIntentCount: input.tradeIntents.length,
+    messageCount: input.messages.length,
+  };
 }
 
 async function createTradeIntent(context: LocalApiContext, body: unknown): Promise<Response> {
@@ -1704,17 +1744,19 @@ function firstConfiguredSymbol(branch: BranchRecord | undefined): string | undef
 }
 
 function openRouterModelDefaults(): JsonRecord {
+  const roles: KairosModelRole[] = [
+    "heartbeat",
+    "informationPlanner",
+    "informationSynthesis",
+    "debateJudge",
+    "debateBull",
+    "debateBear",
+    "debateFinal",
+  ];
+
   return Object.fromEntries(
-    [
-      "heartbeat",
-      "informationPlanner",
-      "informationSynthesis",
-      "debateJudge",
-      "debateBull",
-      "debateBear",
-      "debateFinal",
-    ].map((role) => {
-      const config = resolveKairosModelConfig(role as never);
+    roles.map((role) => {
+      const config = resolveKairosModelConfig(role);
       return [
         role,
         {

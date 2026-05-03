@@ -11,6 +11,10 @@ export type PaperTradingBroker = {
   getPortfolioSnapshot(): Promise<PortfolioSnapshot>;
   getClock(): Promise<{ is_open?: boolean; next_open?: string }>;
   getAsset(symbol: string): Promise<{ tradable?: boolean; status?: string }>;
+  listPaperOrders?(input?: {
+    status?: "open" | "closed" | "all";
+    limit?: number;
+  }): Promise<BrokerOrder[]>;
   submitPaperOrder(input: {
     symbol: string;
     side: TradeIntent["side"];

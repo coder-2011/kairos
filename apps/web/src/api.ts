@@ -80,6 +80,7 @@ export type PortfolioSnapshot = {
   account?: JsonRecord;
   positions: JsonRecord[];
   orders: JsonRecord[];
+  storage?: JsonRecord;
   updatedAt?: string;
   paper?: boolean;
   status?: string;
@@ -346,6 +347,11 @@ function normalizePortfolioResponse(response: JsonRecord): PortfolioSnapshot {
     account: isJsonRecord(portfolio.account) ? portfolio.account : undefined,
     positions: readRecordArray(portfolio, "positions") ?? [],
     orders: readRecordArray(portfolio, "orders") ?? [],
+    storage: isJsonRecord(portfolio.storage)
+      ? portfolio.storage
+      : isJsonRecord(response.storage)
+        ? response.storage
+        : undefined,
     updatedAt: readString(portfolio.updatedAt) ?? readString(response.updatedAt),
     paper: readBoolean(portfolio.paper) ?? readBoolean(response.paper),
     status: readString(portfolio.status) ?? readString(response.status),
