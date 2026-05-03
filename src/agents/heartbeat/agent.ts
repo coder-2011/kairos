@@ -3,7 +3,6 @@ import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
 import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
 import {
-  branchConfigSchema,
   heartbeatOutputSchema,
   heartbeatSeedBundleSchema,
 } from "./schema.js";

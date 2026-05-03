@@ -4,7 +4,11 @@ import { createEscalationEvent } from "./escalation.js";
 import { getSupermemoryContainerTag } from "./memory.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import { runHeartbeatAgent } from "./agent.js";
-import type { BranchConfig, HeartbeatOutput } from "./types.js";
+import type {
+  BranchConfig,
+  HeartbeatOutput,
+  HeartbeatSeedBundle,
+} from "./types.js";
 
 function branchConfig(overrides: Partial<BranchConfig> = {}): BranchConfig {
   return {
@@ -23,6 +27,24 @@ function branchConfig(overrides: Partial<BranchConfig> = {}): BranchConfig {
 }
 
 const fixedNow = new Date("2026-05-03T12:00:00.000Z");
+
+function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
+  return {
+    branchId: output.branch_id,
+    timestamp: output.timestamp,
+    law: "law",
+    assets: ["PLTR"],
+    seedWindowDays: 30,
+    defaultSources: {
+      currentPrice: null,
+      recentVolume: null,
+      tickerMovement: null,
+      supermemoryContext: null,
+      newsHeadlinesAndSummaries: null,
+    },
+    optionalData: {},
+  };
+}
 
 describe("heartbeat seed bundle", () => {
   it("builds the default seed bundle and passes Supermemory scope to providers", async () => {
@@ -156,21 +178,7 @@ describe("heartbeat agent", () => {
     };
 
     expect(
-      createEscalationEvent(output, {
-        branchId: output.branch_id,
-        timestamp: output.timestamp,
-        law: "law",
-        assets: ["PLTR"],
-        seedWindowDays: 30,
-        defaultSources: {
-          currentPrice: null,
-          recentVolume: null,
-          tickerMovement: null,
-          supermemoryContext: null,
-          newsHeadlinesAndSummaries: null,
-        },
-        optionalData: {},
-      }),
+      createEscalationEvent(output, emptySeedBundle(output)),
     ).toBeNull();
   });
 

@@ -34,15 +34,13 @@ export async function buildHeartbeatSeedBundle(
   ]);
 
   const optionalData: Record<string, unknown> = {};
-  const optionalSources = branch.seededData?.optionalSources ?? {};
+  const enabledOptionalSources = Object.entries(
+    branch.seededData?.optionalSources ?? {},
+  ).filter(([, enabled]) => enabled);
 
-  if (providers.getOptionalData) {
+  if (providers.getOptionalData && enabledOptionalSources.length > 0) {
     await Promise.all(
-      Object.entries(optionalSources).map(async ([sourceKey, enabled]) => {
-        if (!enabled) {
-          return;
-        }
-
+      enabledOptionalSources.map(async ([sourceKey]) => {
         optionalData[sourceKey] = await providers.getOptionalData?.({
           ...request,
           sourceKey,
