@@ -2465,13 +2465,16 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
+      symbol: "",
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
       maxOpenPositionNotionalPerSymbol: 1_500,
       allowedOrderType: "market",
     },
-    research: {},
+    research: {
+      dataPacketType: "ticker",
+    },
   };
 }
 
@@ -2516,6 +2519,10 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       information: {
         ...defaultInformationToolPolicies,
         ...config.tools?.information,
+        supermemory_search: {
+          ...config.tools?.information?.supermemory_search,
+          enabled: true,
+        },
       },
       finnhubPremiumAccess: config.tools?.finnhubPremiumAccess ?? false,
     },
@@ -2532,6 +2539,7 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
+      symbol: config.trading?.symbol ?? config.assets?.[0] ?? readAssets(branch)[0],
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
@@ -2540,20 +2548,8 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       ...config.trading,
     },
     research: {
+      dataPacketType: "ticker",
       ...config.research,
-    },
-  };
-}
-
-function withFinnhubPremiumAccess(
-  config: WebBranchConfig,
-  enabled: boolean,
-): WebBranchConfig {
-  return {
-    ...config,
-    tools: {
-      ...config.tools,
-      finnhubPremiumAccess: enabled,
     },
   };
 }
@@ -2565,10 +2561,46 @@ function readLawText(branch: BranchRecord): string {
 }
 
 function humanizeToolName(toolName: InformationConfigToolName): string {
+  const labels: Partial<Record<InformationConfigToolName, string>> = {
+    exa_search: "Search",
+    exa_research: "Deep Research",
+    exa_contents: "Read URL Contents",
+    finnhub_api_request: "Finnhub API Request",
+    finnhub_quote: "Quote",
+    finnhub_company_news: "News",
+    finnhub_stock_candles: "Candles",
+    finnhub_aggregate_indicator: "Aggregate Indicator",
+    finnhub_basic_financials: "Basic Financials",
+    finnhub_company_earnings: "Earnings",
+    finnhub_company_eps_estimates: "EPS Estimates",
+    finnhub_company_peers: "Peers",
+    finnhub_company_profile: "Profile",
+    finnhub_earnings_calendar: "Earnings Calendar",
+    finnhub_filings: "Filings",
+    finnhub_financials_reported: "Financials Reported",
+    finnhub_insider_transactions: "Insider Transactions",
+    finnhub_news_sentiment: "News Sentiment",
+    finnhub_ownership: "Ownership",
+    finnhub_press_releases: "Press Releases",
+    finnhub_recommendation_trends: "Recommendation Trends",
+    finnhub_social_sentiment: "Social Sentiment",
+    finnhub_supply_chain_relationships: "Supply Chain Relationships",
+    finnhub_upgrade_downgrade: "Upgrade Downgrade",
+    supermemory_search: "Memory Search",
+  };
+
+  if (labels[toolName]) return labels[toolName];
+
   return toolName
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function toolAccessLabel(tool: (typeof informationToolFields)[number]): string {
+  return tool.key === "finnhub_api_request"
+    ? `${tool.label} (${tool.access})`
+    : tool.label;
 }
 
 function humanizeRouterToolName(toolName: string): string {
@@ -2677,6 +2709,17 @@ function readAssets(branch: BranchRecord): string[] {
   return Array.isArray(assets)
     ? assets.filter((asset): asset is string => typeof asset === "string")
     : [];
+}
+
+function parseAssetList(value: string): string[] {
+  return value
+    .split(/[,\s]+/)
+    .map(normalizeTickerInput)
+    .filter(Boolean);
+}
+
+function normalizeTickerInput(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
 }
 
 function parseHeartbeatIntervalMinutes(value: string): number | undefined {

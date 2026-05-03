@@ -192,6 +192,7 @@ describe("local API handler", () => {
       config: {
         assets: ["PLTR"],
         trading: {
+          mode: "paper",
           notifyConfidenceThreshold: 0.65,
           paperTradeConfidenceThreshold: 0.85,
           paperAutoBuyEnabled: false,
@@ -668,6 +669,7 @@ describe("local API handler", () => {
     const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
       confidence: 0.9,
       tradingConfig: {
+        mode: "paper",
         notifyConfidenceThreshold: 0.65,
         paperTradeConfidenceThreshold: 0.85,
         paperAutoBuyEnabled: false,
@@ -739,6 +741,7 @@ describe("local API handler", () => {
     const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
       confidence: 0.91,
       tradingConfig: {
+        mode: "paper",
         notifyConfidenceThreshold: 0.65,
         paperTradeConfidenceThreshold: 0.85,
         paperAutoBuyEnabled: true,
@@ -768,6 +771,7 @@ describe("local API handler", () => {
       notional: undefined,
       confidence: 0.91,
       tradingConfig: {
+        mode: "paper",
         notifyConfidenceThreshold: 0.65,
         paperTradeConfidenceThreshold: 0.85,
         paperAutoBuyEnabled: true,
