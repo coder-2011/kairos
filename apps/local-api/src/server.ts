@@ -1979,7 +1979,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
   };
 }
 
-function debateResultOutput(result: DebateRunResult): JsonRecord {
+function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecord {
   return {
     debateId: result.debateId,
     status: result.status,
@@ -1990,6 +1990,7 @@ function debateResultOutput(result: DebateRunResult): JsonRecord {
     toolEvents: result.toolEvents,
     humanInterjections: result.humanInterjections,
     currentPlan: result.currentPlan,
+    dryRun,
   };
 }
 
@@ -2009,7 +2010,7 @@ function debateResultEvents(result: DebateRunResult, payload: JsonRecord): Appen
       ? [{ type: "debate.judge.plan", payload: result.currentPlan as unknown as JsonRecord }]
       : []),
     { type: "debate.judge.summary", payload: result.finalDecision as unknown as JsonRecord },
-    { type: "debate.output", payload: debateResultOutput(result) },
+    { type: "debate.output", payload: debateResultOutput(result, false) },
   ];
 }
 
