@@ -17,22 +17,6 @@ import {
   type UpdateKairosRunInput,
   type UpsertKairosBranchInput,
 } from "./schemas.js";
-import {
-  brokerOrderSchema,
-  createBrokerOrderRecord,
-  createTradeIntentRecord,
-  createTradingMessageRecord,
-  tradeIntentSchema,
-  tradingMessageSchema,
-  updateTradeIntentInputSchema,
-  type BrokerOrder,
-  type CreateBrokerOrderInput,
-  type CreateTradeIntentInput,
-  type CreateTradingMessageInput,
-  type TradeIntent,
-  type TradingMessage,
-  type UpdateTradeIntentInput,
-} from "../trading/schemas.js";
 
 export type LocalKairosStoreOptions = {
   rootDir?: string;
@@ -194,76 +178,6 @@ export class LocalKairosStore {
     });
   }
 
-  async createTradingMessage(input: CreateTradingMessageInput): Promise<TradingMessage> {
-    const message = createTradingMessageRecord(input, {
-      id: this.id,
-      now: this.now,
-    });
-    await this.writeJson(this.tradingMessagePath(message.id), message);
-    return message;
-  }
-
-  async listTradingMessages(): Promise<TradingMessage[]> {
-    return this.readJsonFiles(this.tradingMessagesDir, (value) =>
-      tradingMessageSchema.parse(value),
-    );
-  }
-
-  async createTradeIntent(input: CreateTradeIntentInput): Promise<TradeIntent> {
-    const intent = createTradeIntentRecord(input, {
-      id: this.id,
-      now: this.now,
-    });
-    await this.writeJson(this.tradeIntentPath(intent.id), intent);
-    return intent;
-  }
-
-  async updateTradeIntent(
-    intentId: string,
-    input: UpdateTradeIntentInput,
-  ): Promise<TradeIntent> {
-    const existing = await this.getTradeIntent(intentId);
-    if (existing === null) {
-      throw new Error(`Trade intent not found: ${intentId}`);
-    }
-    const patch = updateTradeIntentInputSchema.parse(input);
-    const intent = tradeIntentSchema.parse({
-      ...existing,
-      ...patch,
-      id: existing.id,
-      createdAt: existing.createdAt,
-      updatedAt: this.now().toISOString(),
-    });
-    await this.writeJson(this.tradeIntentPath(intent.id), intent);
-    return intent;
-  }
-
-  async getTradeIntent(intentId: string): Promise<TradeIntent | null> {
-    const intent = await this.readJson(this.tradeIntentPath(intentId));
-    return intent === null ? null : tradeIntentSchema.parse(intent);
-  }
-
-  async listTradeIntents(): Promise<TradeIntent[]> {
-    return this.readJsonFiles(this.tradeIntentsDir, (value) =>
-      tradeIntentSchema.parse(value),
-    );
-  }
-
-  async createBrokerOrder(input: CreateBrokerOrderInput): Promise<BrokerOrder> {
-    const order = createBrokerOrderRecord(input, {
-      id: this.id,
-      now: this.now,
-    });
-    await this.writeJson(this.brokerOrderPath(order.id), order);
-    return order;
-  }
-
-  async listBrokerOrders(): Promise<BrokerOrder[]> {
-    return this.readJsonFiles(this.brokerOrdersDir, (value) =>
-      brokerOrderSchema.parse(value),
-    );
-  }
-
   private get branchesDir(): string {
     return join(this.rootDir, "branches");
   }
@@ -276,18 +190,6 @@ export class LocalKairosStore {
     return join(this.rootDir, "events");
   }
 
-  private get tradingMessagesDir(): string {
-    return join(this.rootDir, "trading", "messages");
-  }
-
-  private get tradeIntentsDir(): string {
-    return join(this.rootDir, "trading", "trade-intents");
-  }
-
-  private get brokerOrdersDir(): string {
-    return join(this.rootDir, "trading", "broker-orders");
-  }
-
   private branchPath(branchId: string): string {
     return join(this.branchesDir, `${encodeFileSegment(branchId)}.json`);
   }
@@ -298,18 +200,6 @@ export class LocalKairosStore {
 
   private eventsPath(runId: string): string {
     return join(this.eventsDir, `${encodeFileSegment(runId)}.jsonl`);
-  }
-
-  private tradingMessagePath(messageId: string): string {
-    return join(this.tradingMessagesDir, `${encodeFileSegment(messageId)}.json`);
-  }
-
-  private tradeIntentPath(intentId: string): string {
-    return join(this.tradeIntentsDir, `${encodeFileSegment(intentId)}.json`);
-  }
-
-  private brokerOrderPath(orderId: string): string {
-    return join(this.brokerOrdersDir, `${encodeFileSegment(orderId)}.json`);
   }
 
   private async writeJson(path: string, value: unknown): Promise<void> {
