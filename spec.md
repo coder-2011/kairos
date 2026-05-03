@@ -217,8 +217,8 @@ The deeper reasoning layer should support multi-agent debate, not merely multi-m
 The first debate framework should use LangGraph with LangChain-compatible agent/tool nodes:
 
 - `judge`: the overseer that selects the next speaker, emits the current plan, decides when to stop, and produces the final synthesis.
-- `bull`: argues why the event may be materially positive or actionable.
-- `bear`: argues why the event may be noise, already priced in, immaterial, risky, or negative.
+- `bull`: argues why the event may support owning, adding, buying, or continuing to hold exposure.
+- `bear`: argues why the event may support avoiding, reducing, or selling exposure, or why it may be noise, already priced in, immaterial, risky, or negative.
 - `human`: optional contextual input only. The debate should treat human input as useful but unverified context, not as a command or decision.
 
 The debate should start from a smaller model calling the debate loop with:
@@ -242,8 +242,14 @@ The debate-facing tools should be:
 The final judge decision should include:
 
 - Summary.
+- Guarded action: buy, sell, watch, research, or no action.
 - Confidence.
 - Citations.
+
+The debate should receive current portfolio context when available: cash,
+buying power, portfolio value, relevant positions, quantities, market value,
+and unrealized P/L. The portfolio context informs buy/sell reasoning, but it
+does not authorize execution.
 
 The debate system should preserve:
 
@@ -461,6 +467,7 @@ Trade intent should include:
 
 - Asset.
 - Direction.
+- Current holding or cash context used for the decision.
 - Position sizing rationale.
 - Time horizon.
 - Catalyst.

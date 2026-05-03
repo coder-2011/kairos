@@ -436,12 +436,15 @@ The final decision should be structured.
 ```ts
 type DebateDecision = {
   summary: string;
+  action: "buy" | "sell" | "watch" | "research" | "no_action";
   confidence: number;
   citations: Citation[];
 };
 ```
 
-The final action policy can be applied after this decision using the user's message and buy thresholds. Threshold state does not need to be part of the final decision schema.
+The final action policy can be applied after this decision using the user's
+message, portfolio context, and trade thresholds. Threshold state does not need
+to be part of the final decision schema.
 
 ## 10.1 Thresholded Action Policy
 
@@ -450,12 +453,12 @@ The judge must output a normalized confidence score that can drive user-configur
 There should be two primary user-configurable thresholds:
 
 - `messageThreshold`: if the judge confidence is at or above this value, notify or message the human.
-- `buyThreshold`: if the judge confidence is at or above this value, create a buy-side action according to the branch's permissions.
+- `tradeThreshold`: if the judge confidence is at or above this value and the final action is `buy` or `sell`, create a guarded paper trade intent according to the branch's permissions.
 
-The buy threshold should be higher than the message threshold by default. Example defaults:
+The trade threshold should be higher than the message threshold by default. Example defaults:
 
 - `messageThreshold`: `0.65`
-- `buyThreshold`: `0.85`
+- `tradeThreshold`: `0.85`
 
 The threshold policy should be applied after the final decision.
 
@@ -463,9 +466,9 @@ The threshold policy should be applied after the final decision.
 type ThresholdActionPolicy = {
   confidenceScore: number;
   messageThreshold: number;
-  buyThreshold: number;
-  thresholdResult: "below_thresholds" | "message_human" | "buy_candidate";
-  permittedAction: "record_only" | "message_human" | "paper_buy_intent" | "live_buy_intent_draft";
+  tradeThreshold: number;
+  thresholdResult: "below_thresholds" | "message_human" | "paper_trade_candidate";
+  permittedAction: "record_only" | "message_human" | "paper_trade_intent" | "paper_order";
   liveTradingEnabled: boolean;
   rationale: string;
 };
@@ -475,10 +478,11 @@ Rules:
 
 - Confidence must represent the judge's belief that the event is actionable under the relevant law, not just confidence that the event happened.
 - If `confidenceScore < messageThreshold`, the default action is record/watch only.
-- If `messageThreshold <= confidenceScore < buyThreshold`, the default action is message the human.
-- If `confidenceScore >= buyThreshold`, the system may create a buy candidate.
-- A buy candidate should become a paper buy intent unless the branch, user, and environment have explicitly enabled live trading.
-- A live buy threshold hit is still not an executed order. In this phase it can only create a `live_buy_intent_draft` requiring later approval and safety checks.
+- If `messageThreshold <= confidenceScore < tradeThreshold`, the default action is message the human.
+- If `confidenceScore >= tradeThreshold` and the final action is `buy` or `sell`, the system may create a guarded paper trade candidate.
+- A sell candidate requires current portfolio context showing an existing holding. If holdings are missing or stale, block the sell intent and ask for a portfolio refresh or human review.
+- Live trading remains out of scope unless explicitly enabled later.
+- Live trading is still not an executed order path in this phase. Buy and sell outcomes can only create guarded paper intents unless a later live-trading design adds explicit approval and safety checks.
 - Thresholds should be configurable globally and overrideable per law or branch.
 - The UI should show the confidence score, thresholds, and selected action together so the human can see why the system chose to message, watch, or create a buy candidate.
 

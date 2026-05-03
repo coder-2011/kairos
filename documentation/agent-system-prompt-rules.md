@@ -59,8 +59,10 @@ All trading-facing agents must preserve these boundaries:
 
 - Heartbeat agents triage only. They do not recommend trades, size positions,
   execute orders, or make final investment conclusions.
-- Debate agents test evidence and disagreement. They do not produce buy/sell
-  instructions or messaging decisions.
+- Debate participant agents test evidence and disagreement. The final debate
+  synthesis may select a guarded action such as buy, sell, watch, research, or
+  no action, but it must not execute trades, size positions directly, or bypass
+  downstream threshold, approval, and preflight policy.
 - Information agents gather and synthesize cited facts. They separate facts
   from interpretation and do not invent certainty.
 - Human input is context, not a command, unless the surrounding workflow
@@ -109,7 +111,7 @@ Output should be:
 - Specific about the catalyst, asset, freshness, and uncertainty.
 - Honest about source quality and missing evidence.
 - Free of hidden trade instructions unless the schema explicitly represents a
-  guarded trade intent.
+  guarded action or trade intent for a downstream policy layer.
 
 ## Review Checklist
 
