@@ -16,6 +16,7 @@ import type {
 } from "../../../src/global/agent-config.js";
 import {
   appendInterjection,
+  createBranch,
   createRouterChat,
   createDebate,
   getBranches,
@@ -59,7 +60,7 @@ const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "router", label: "Router", icon: "route" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
-  { id: "runDeepDive", label: "Run Deep-Dive", icon: "timeline" },
+  { id: "runDeepDive", label: "Runs", icon: "timeline" },
   { id: "config", label: "Branch Configuration", icon: "settings" },
 ];
 
@@ -423,12 +424,14 @@ export function App() {
     branchId: string,
     input: {
       config: WebBranchConfig;
+      branchName: string;
       lawText: string;
     },
   ) {
     try {
       const currentBranch = branches.find((branch) => branch.id === branchId);
       const branch = await updateBranch(branchId, {
+        name: input.branchName.trim() || currentBranch?.name || "Untitled Branch",
         description: input.lawText,
         law: {
           ...currentBranch?.law,
@@ -439,6 +442,26 @@ export function App() {
       setBranches((current) =>
         current.map((item) => (item.id === branch.id ? branch : item)),
       );
+      setLoadState("api");
+    } catch {
+      setLoadState("offline");
+    }
+  }
+
+  async function createNewBranch() {
+    try {
+      const name = nextBranchName(branches);
+      const branch = await createBranch({
+        id: createBranchId(),
+        name,
+        description: "",
+        enabled: true,
+        law: { thesis: "" },
+        config: defaultBranchConfig(),
+      });
+      setBranches((current) => [branch, ...current.filter((item) => item.id !== branch.id)]);
+      setSelectedBranchId(branch.id);
+      setView("config");
       setLoadState("api");
     } catch {
       setLoadState("offline");
@@ -487,7 +510,7 @@ export function App() {
           <BranchList
             branches={branches}
             runs={runs}
-            onCreate={() => setView("config")}
+            onCreate={() => void createNewBranch()}
             onSelect={(branch) => {
               setSelectedBranchId(branch.id);
               setView("config");
@@ -496,6 +519,7 @@ export function App() {
         )}
         {view === "router" && (
           <RouterView
+            branchCount={branches.length}
             chats={routerChats}
             heartbeatRuns={lastRouterHeartbeatRuns}
             loadState={routerLoadState}
@@ -610,8 +634,8 @@ function SideNav({
         onClick={() => onPremiumAccessChange(!premiumAccessEnabled)}
         title={
           premiumAccessEnabled
-            ? "Finnhub premium endpoints are enabled"
-            : "Enable Finnhub premium endpoint access"
+            ? "Premium data is enabled"
+            : "Enable premium data"
         }
         type="button"
       >
@@ -620,7 +644,7 @@ function SideNav({
           <b>{premiumAccessEnabled ? "Premium User" : "Free User"}</b>
           <small>
             {premiumAccessEnabled
-              ? "Premium endpoints enabled"
+              ? "Premium data enabled"
               : "I'm a premium user"}
           </small>
         </span>
@@ -729,8 +753,8 @@ function BranchList({
             onClick={onCreate}
             type="button"
           >
-            <Icon name="settings" />
-            OPEN BRANCH CONFIG
+            <Icon name="add" />
+            CREATE NEW BRANCH
           </button>
         </div>
       </section>
@@ -750,7 +774,7 @@ function BranchList({
             {branches.length === 0 ? (
               <tr>
                 <td className="empty-table-cell" colSpan={6}>
-                  No branches returned.
+                  No branches yet. Create a branch to define the first law.
                 </td>
               </tr>
             ) : (
@@ -781,6 +805,7 @@ function BranchList({
 }
 
 function RouterView({
+  branchCount,
   chats,
   heartbeatRuns,
   loadState,
@@ -791,6 +816,7 @@ function RouterView({
   onSelectChat,
   onSend,
 }: {
+  branchCount: number;
   chats: RouterChatRecord[];
   heartbeatRuns: RunRecord[];
   loadState: LoadState;
@@ -860,11 +886,23 @@ function RouterView({
                 : "ROUTER OFFLINE"}
           </span>
         </div>
+        {branchCount === 0 && (
+          <div className="router-branch-warning">
+            <Icon name="account_tree" />
+            <span>
+              No branches exist yet. The router can save this chat, but it cannot wake any heartbeat agents until a branch is created.
+            </span>
+          </div>
+        )}
         <div className="router-transcript">
           {messages.length === 0 ? (
             <EmptyPanel
               icon="forum"
-              message="No messages yet."
+              message={
+                branchCount === 0
+                  ? "Messages will be recorded, but routing needs at least one branch."
+                  : "No messages yet."
+              }
               title="No Messages"
             />
           ) : (
@@ -898,7 +936,7 @@ function RouterView({
       <aside className="router-side pane">
         <PaneHeader
           icon="monitor_heart"
-          meta={`${heartbeatRuns.length} WOKEN`}
+          meta={`${heartbeatRuns.length} RUNS`}
           title="HEARTBEATS"
         />
         <div className="portfolio-card-list">
@@ -906,13 +944,13 @@ function RouterView({
             <EmptyPanel
               icon="monitor_heart"
               message="No heartbeat runs yet."
-              title="No Wakeups"
+              title="No Runs"
             />
           ) : (
             heartbeatRuns.map((run) => (
               <article className="portfolio-card" key={run.id}>
                 <div className="portfolio-card-head">
-                  <b>{run.branchId ?? "NO_BRANCH"}</b>
+                  <b>{run.branchId ?? "UNASSIGNED"}</b>
                   <span>{run.status}</span>
                 </div>
                 <p>{readDisplay(run.output?.summary, "Heartbeat created.")}</p>
@@ -988,7 +1026,7 @@ function MonitoringView({
       <section className="event-stream pane narrow">
         <PaneHeader
           icon="stream"
-          meta={run ? run.status.toUpperCase() : "NO RUN"}
+          meta={run ? run.status.toUpperCase() : ""}
           title="EVENTS"
         />
         <div className="timeline-scroll">
@@ -1108,7 +1146,7 @@ function PortfolioView({
                 ? "SYNCING"
                 : loadState === "api"
                   ? "PAPER ONLINE"
-                  : "ENDPOINTS OFFLINE"}
+                  : "PORTFOLIO OFFLINE"}
             </span>
             <button className="command-button" onClick={onRefresh} type="button">
               <Icon name="refresh" /> REFRESH
@@ -1320,7 +1358,7 @@ function RunDeepDive({
             <EmptyPanel
               icon="history"
               message="No runs yet."
-              title="No Recorded Runs"
+              title="No Runs"
             />
           ) : (
             runs.map((run) => (
@@ -1344,7 +1382,7 @@ function RunDeepDive({
       <section className="run-trace-pane">
         <div className="detail-head">
           <div>
-            <h1>{selectedRun ? selectedRun.id : "Run Deep-Dive"}</h1>
+            <h1>{selectedRun ? selectedRun.id : "Runs"}</h1>
             <p>
               {selectedRun
                 ? `${selectedRun.kind.toUpperCase()} | ${selectedRun.status} | ${selectedBranch?.name ?? "No branch"}`
@@ -1378,7 +1416,7 @@ function RunDeepDive({
                 <EmptyPanel
                   icon="stream"
                   message="No events yet."
-                  title="No Trace Events"
+                  title="No Events"
                 />
               ) : (
                 <div className="trace-event-list">
@@ -1440,18 +1478,21 @@ function BranchConfig({
   onRunModeChange: (mode: RunMode) => void;
   onSave: (input: {
     config: WebBranchConfig;
+    branchName: string;
     lawText: string;
   }) => void;
 }) {
   const [config, setConfig] = useState<WebBranchConfig>(() =>
     normalizeBranchConfig(branch),
   );
+  const [branchName, setBranchName] = useState(branch.name);
   const [lawText, setLawText] = useState(readLawText(branch));
 
   useEffect(() => {
     setConfig(normalizeBranchConfig(branch));
+    setBranchName(branch.name);
     setLawText(readLawText(branch));
-  }, [branch.id, branch.config, branch.description, branch.law]);
+  }, [branch.id, branch.name, branch.config, branch.description, branch.law]);
 
   const heartbeatInterval = config.heartbeat?.intervalMinutes ?? 5;
   const seedWindowDays = config.heartbeat?.seedWindowDays ?? 30;
@@ -1495,6 +1536,7 @@ function BranchConfig({
             className="command-button"
             onClick={() => {
               setConfig(normalizeBranchConfig(branch));
+              setBranchName(branch.name);
               setLawText(readLawText(branch));
             }}
             type="button"
@@ -1503,7 +1545,7 @@ function BranchConfig({
           </button>
           <button
             className="command-button primary"
-            onClick={() => onSave({ config, lawText })}
+            onClick={() => onSave({ branchName, config, lawText })}
             type="button"
           >
             SAVE CONFIGURATION
@@ -1511,6 +1553,13 @@ function BranchConfig({
         </div>
       </div>
       <div className="config-body">
+        <FieldLabel label="Branch Name">
+          <input
+            onChange={(event) => setBranchName(event.target.value)}
+            placeholder="Name this monitoring branch."
+            value={branchName}
+          />
+        </FieldLabel>
         <FieldLabel label="The Law (Primary Thesis)">
           <textarea
             onChange={(event) => setLawText(event.target.value)}
@@ -1535,7 +1584,7 @@ function BranchConfig({
                       },
                     }))
                   }
-                  placeholder={field.description}
+                  placeholder=""
                   value={config.prompts?.[field.key] ?? field.defaultText}
                 />
               </FieldLabel>
@@ -1714,7 +1763,7 @@ function BranchConfig({
                       },
                     }))
                   }
-                  placeholder="OpenRouter model ID"
+                  placeholder="Model"
                   value={config.models?.[field.key]?.model ?? ""}
                 />
                 <select
@@ -1785,7 +1834,7 @@ function BranchConfig({
                   tool.access === "premium" && !finnhubPremiumAccess;
 
                 return (
-                  <label key={tool.key} title={tool.purpose}>
+                  <label key={tool.key}>
                     <input
                       checked={
                         !gatedByPremium &&
@@ -2122,12 +2171,12 @@ function EvidencePane({
 
   return (
     <section className="evidence pane medium">
-      <PaneHeader icon="database" title="EVIDENCE & SOURCE" meta="" actionIcon="close" />
+      <PaneHeader icon="database" title="EVIDENCE" meta="" actionIcon="close" />
       <div className="evidence-scroll">
         {!snapshot ? (
           <EmptyPanel
             icon="database"
-            title="No Evidence Payload"
+            title="No Evidence"
             message="No evidence yet."
           />
         ) : (
@@ -2229,7 +2278,6 @@ function EventRecordCard({ event }: { event: RunEventRecord }) {
         <b>{timeOnly(event.timestamp)}</b>
       </div>
       <p>{String(event.payload.summary ?? event.payload.message ?? titleize(event.type))}</p>
-      <pre className="event-json">{JSON.stringify(event.payload, null, 2)}</pre>
     </article>
   );
 }
@@ -2402,6 +2450,64 @@ function IconButton({ icon, label }: { icon: string; label: string }) {
 
 function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
+}
+
+function createBranchId(): string {
+  return `branch_${Date.now().toString(36)}`;
+}
+
+function nextBranchName(branches: BranchRecord[]): string {
+  const existingNames = new Set(branches.map((branch) => branch.name));
+  let index = branches.length + 1;
+  let name = `Untitled Branch ${index}`;
+
+  while (existingNames.has(name)) {
+    index += 1;
+    name = `Untitled Branch ${index}`;
+  }
+
+  return name;
+}
+
+function defaultBranchConfig(): WebBranchConfig {
+  return {
+    assets: [],
+    heartbeat: {
+      intervalMinutes: 5,
+      seedWindowDays: 30,
+      maxToolSteps: 3,
+    },
+    prompts: {
+      heartbeatSystemPrompt: HEARTBEAT_SYSTEM_PROMPT,
+      debateJudgeSystemPrompt: JUDGE_SYSTEM_PROMPT,
+      debateBullSystemPrompt: BULL_SYSTEM_PROMPT,
+      debateBearSystemPrompt: BEAR_SYSTEM_PROMPT,
+    },
+    tools: {
+      heartbeat: defaultHeartbeatToolPolicies,
+      debate: defaultDebateToolPolicies,
+      information: defaultInformationToolPolicies,
+      finnhubPremiumAccess: false,
+    },
+    budgets: {
+      debateMaxTurns: 6,
+      debateMaxToolCalls: 3,
+      informationMaxToolCalls: 5,
+    },
+    thresholds: {
+      notifyConfidence: 0.75,
+      paperTradeDraftConfidence: 0.9,
+    },
+    trading: {
+      mode: "disabled",
+      paperAutoBuyEnabled: false,
+      notifyOnBuySignal: true,
+      maxNotionalPerOrder: 500,
+      maxOpenPositionNotionalPerSymbol: 1_500,
+      allowedOrderType: "market",
+    },
+    research: {},
+  };
 }
 
 function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {

@@ -140,6 +140,22 @@ export async function getBranches(): Promise<BranchRecord[]> {
   );
 }
 
+export async function createBranch(input: {
+  id?: string;
+  lawId?: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  law?: JsonRecord;
+  config?: WebBranchConfig;
+  metadata?: JsonRecord;
+}): Promise<BranchRecord> {
+  return request<{ branch: BranchRecord }>("/branches", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }).then((response) => response.branch);
+}
+
 export async function getRuns(): Promise<RunRecord[]> {
   return request<{ runs: RunRecord[] }>("/runs").then((response) => response.runs);
 }
@@ -267,9 +283,12 @@ export async function updateBranchConfig(
 export async function updateBranch(
   branchId: string,
   input: {
+    name?: string;
+    enabled?: boolean;
     description?: string;
     law?: JsonRecord;
     config?: WebBranchConfig;
+    metadata?: JsonRecord;
   },
 ): Promise<BranchRecord> {
   return request<{ branch: BranchRecord }>(`/branches/${branchId}`, {

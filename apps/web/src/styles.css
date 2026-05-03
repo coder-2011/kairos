@@ -1202,6 +1202,22 @@ select:focus {
   flex: 0 0 auto;
 }
 
+.router-branch-warning {
+  align-items: center;
+  background: var(--error-container);
+  border-bottom: 1px solid rgba(186, 26, 26, 0.2);
+  color: var(--on-error-container);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  line-height: 16px;
+  padding: 8px 12px;
+}
+
+.router-branch-warning .material-symbols-outlined {
+  font-size: 16px;
+}
+
 .router-transcript {
   display: flex;
   flex: 1;
