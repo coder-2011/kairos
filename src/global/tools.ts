@@ -103,7 +103,7 @@ export function createGlobalToolRegistry(
       return {
         summary: response?.answer ?? "",
         citations:
-          response?.citations.map((item) => ({
+          response?.citations.filter((item) => item.url).map((item) => ({
             title: item.title,
             url: item.url,
             source: item.author,
@@ -127,7 +127,7 @@ export function createGlobalToolRegistry(
             )
             .join("\n\n") ?? "",
         citations:
-          response?.results.map((item) => ({
+          response?.results.filter((item) => item.url).map((item) => ({
             title: item.title,
             url: item.url,
             source: item.author,
@@ -336,7 +336,7 @@ function summarizeExaResults(response: Awaited<ReturnType<ExaApi["search"]>> | u
         )
         .join("\n") ?? "",
     citations:
-      response?.results.map((item) => ({
+      response?.results.filter((item) => item.url).map((item) => ({
         title: item.title,
         url: item.url,
         source: item.author,

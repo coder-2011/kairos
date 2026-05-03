@@ -173,11 +173,13 @@ async function executeToolCall(input: {
 }
 
 function normalizeCitations(citations: GlobalToolCitation[]) {
-  return citations.map((item) => ({
-    title: item.title,
-    url: item.url,
-    source: item.source,
-  }));
+  return citations
+    .filter((item) => item.url.trim().length > 0)
+    .map((item) => ({
+      title: item.title,
+      url: item.url,
+      source: item.source,
+    }));
 }
 
 function deterministicSynthesis(toolResults: InformationToolResult[]): InformationResult {

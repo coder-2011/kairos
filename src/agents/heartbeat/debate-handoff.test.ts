@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HeartbeatRunResult } from "./agent.js";
 import {
   createDebateConfigFromEscalation,
   createDebateStartInputFromEscalation,
   runDebateForHeartbeatResult,
+  runHeartbeatThenDebate,
 } from "./debate-handoff.js";
 import { createEscalationEvent } from "./escalation.js";
-import type { HeartbeatOutput, HeartbeatSeedBundle } from "./types.js";
+import type { BranchConfig, HeartbeatOutput, HeartbeatSeedBundle } from "./types.js";
 
 describe("heartbeat debate handoff", () => {
   it("converts an escalation event into a debate config", () => {
@@ -64,6 +65,53 @@ describe("heartbeat debate handoff", () => {
     expect(debate?.messages.length).toBeGreaterThan(0);
   });
 
+  it("runs the smaller heartbeat model result into the multi-agent debate", async () => {
+    const information = vi.fn(async () => ({
+      summary: "Information check completed for heartbeat escalation.",
+      citations: [{ url: "https://example.com/escalation" }],
+    }));
+
+    const result = await runHeartbeatThenDebate(
+      branchConfig(),
+      {
+        model: {} as never,
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+        seedProviders: {
+          getCurrentPrice: async () => ({ AAPL: 100, MSFT: 200 }),
+          getNewsHeadlinesAndSummaries: async () => [
+            {
+              title: "Unexpected volume and price move",
+              summary: "Potentially material move.",
+              url: "https://example.com/escalation",
+            },
+          ],
+        },
+        generateText: vi.fn(async () => ({
+          output: escalatingOutput(),
+        })),
+      },
+      {
+        tools: {
+          information,
+        },
+      },
+    );
+
+    expect(result.heartbeat.output.decision).toBe("escalate");
+    expect(result.heartbeat.escalationEvent).not.toBeNull();
+    expect(result.debate?.status).toBe("completed");
+    expect(result.debate?.debateId).toBe("debate:branch_a:2026-01-02T03:04:05_000Z");
+    expect(information).toHaveBeenCalledWith(
+      expect.stringContaining("Unexpected volume and price move."),
+      expect.objectContaining({
+        debateId: "debate:branch_a:2026-01-02T03:04:05_000Z",
+      }),
+    );
+    expect(result.debate?.finalDecision.citations).toEqual([
+      { url: "https://example.com/escalation" },
+    ]);
+  });
+
   it("keeps the seeded heartbeat bundle available to debate agents", () => {
     const event = createEscalationEvent(escalatingOutput(), seedBundle());
     const input = createDebateStartInputFromEscalation(event!);
@@ -78,6 +126,20 @@ describe("heartbeat debate handoff", () => {
     });
   });
 });
+
+function branchConfig(): BranchConfig {
+  return {
+    id: "branch/a",
+    law: "Watch configured equities for potentially useful developments.",
+    assets: ["AAPL", "MSFT"],
+    heartbeat: {
+      enabled: true,
+      intervalMinutes: 5,
+      seedWindowDays: 30,
+      model: "small-model",
+    },
+  };
+}
 
 function escalatingOutput(): HeartbeatOutput {
   return {
