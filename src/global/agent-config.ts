@@ -206,3 +206,90 @@ export type InformationToolConfig = z.infer<typeof informationToolConfigSchema>;
 export type KairosBranchAgentConfig = z.infer<
   typeof kairosBranchAgentConfigSchema
 >;
+
+export type HeartbeatAgentConfigSelection = {
+  prompts?: {
+    systemPrompt?: string;
+  };
+  enabledTools?: Partial<Record<HeartbeatToolName, boolean>>;
+  maxToolSteps?: number;
+};
+
+export type DebateAgentConfigSelection = {
+  prompts?: {
+    judgeSystemPrompt?: string;
+    bullSystemPrompt?: string;
+    bearSystemPrompt?: string;
+    finalSystemPrompt?: string;
+  };
+  enabledTools?: Partial<Record<DebateConfigToolName, boolean>>;
+  budgets?: {
+    maxTurns?: number;
+    maxToolCalls?: number;
+  };
+};
+
+export type InformationAgentConfigSelection = {
+  enabledTools?: Partial<Record<InformationConfigToolName, boolean>>;
+  maxToolCalls?: number;
+  finnhubPremiumAccess?: boolean;
+};
+
+export function resolveHeartbeatAgentConfig(
+  config: KairosBranchAgentConfig | undefined,
+): HeartbeatAgentConfigSelection {
+  return {
+    prompts: config?.prompts?.heartbeatSystemPrompt
+      ? { systemPrompt: config.prompts.heartbeatSystemPrompt }
+      : undefined,
+    enabledTools: toolPoliciesToEnabledMap(config?.tools?.heartbeat),
+    maxToolSteps: config?.heartbeat?.maxToolSteps,
+  };
+}
+
+export function resolveDebateAgentConfig(
+  config: KairosBranchAgentConfig | undefined,
+): DebateAgentConfigSelection {
+  return {
+    prompts: {
+      judgeSystemPrompt: config?.prompts?.debateJudgeSystemPrompt,
+      bullSystemPrompt: config?.prompts?.debateBullSystemPrompt,
+      bearSystemPrompt: config?.prompts?.debateBearSystemPrompt,
+      finalSystemPrompt: config?.prompts?.debateFinalSystemPrompt,
+    },
+    enabledTools: toolPoliciesToEnabledMap(config?.tools?.debate),
+    budgets: {
+      maxTurns: config?.budgets?.debateMaxTurns,
+      maxToolCalls: config?.budgets?.debateMaxToolCalls,
+    },
+  };
+}
+
+export function resolveInformationAgentConfig(
+  config: KairosBranchAgentConfig | undefined,
+): InformationAgentConfigSelection {
+  return {
+    enabledTools: toolPoliciesToEnabledMap(config?.tools?.information),
+    maxToolCalls: config?.budgets?.informationMaxToolCalls,
+    finnhubPremiumAccess: config?.tools?.finnhubPremiumAccess,
+  };
+}
+
+function toolPoliciesToEnabledMap<TName extends string>(
+  policies: Partial<Record<TName, KairosToolPolicy>> | undefined,
+): Partial<Record<TName, boolean>> | undefined {
+  if (!policies) {
+    return undefined;
+  }
+
+  const enabled = Object.fromEntries(
+    Object.entries(policies).flatMap(([toolName, policy]) => {
+      const typedPolicy = policy as KairosToolPolicy | undefined;
+      return typedPolicy?.enabled === undefined
+        ? []
+        : [[toolName, typedPolicy.enabled]];
+    }),
+  ) as Partial<Record<TName, boolean>>;
+
+  return Object.keys(enabled).length > 0 ? enabled : undefined;
+}
