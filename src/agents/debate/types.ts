@@ -1,3 +1,5 @@
+import type { GlobalToolRegistry } from "../../global/tools.js";
+
 export type DebateAgentName = "judge" | "bull" | "bear" | "tool_agent";
 
 export type DebateMessageType = "argument" | "plan" | "tool_result" | "final";
@@ -132,6 +134,7 @@ export type DebateRunResult = {
 export type DebateGraphDependencies = {
   models?: DebateModelSet;
   tools?: DebateTools;
+  globalTools?: GlobalToolRegistry;
   now?: () => Date;
   id?: () => string;
 };

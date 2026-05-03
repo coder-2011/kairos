@@ -183,13 +183,14 @@ export function createGlobalToolRegistry(
     };
   }
 
-  if (deps.memory?.profile) {
+  const profileMemory = deps.memory?.profile;
+  if (profileMemory) {
     registry.supermemory_profile = async (input, context) => {
       const containerTag =
         context?.containerTag ??
         deps.memoryContainerTag ??
         GLOBAL_MEMORY_CONTAINER_TAG;
-      const profile = await deps.memory?.profile({
+      const profile = await profileMemory({
         containerTag,
         q: input,
       });
