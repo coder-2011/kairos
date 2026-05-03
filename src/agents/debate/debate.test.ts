@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { runDebateAgent, streamDebateAgentUpdates } from "./agent.js";
+import { createEscalationEvent } from "../heartbeat/escalation.js";
+import { createDebateStartInputFromEscalation } from "./escalation.js";
 import {
   createDebateStartedEvent,
   createFinalDecisionEvent,
@@ -35,6 +37,89 @@ function fakeStructuredModel<T>(output: T): StructuredDebateModelProvider {
 }
 
 describe("debate agent", () => {
+  it("moves a heartbeat escalation summary into a debate run", async () => {
+    const heartbeatOutput = {
+      branch_id: "pltr enterprise deals",
+      timestamp: fixedNow.toISOString(),
+      decision: "escalate" as const,
+      summary: "PLTR announced a potentially material government contract.",
+    };
+    const escalationEvent = createEscalationEvent(heartbeatOutput, {
+      branchId: heartbeatOutput.branch_id,
+      timestamp: heartbeatOutput.timestamp,
+      law: "Escalate if PLTR signs a potentially material government or enterprise deal.",
+      assets: ["PLTR"],
+      seedWindowDays: 30,
+      defaultSources: {
+        currentPrice: { PLTR: 100 },
+        recentVolume: { PLTR: "2x average" },
+        tickerMovement: { PLTR: "+4.2% 1d" },
+        supermemoryContext: "Prior PLTR deal escalations were useful.",
+        newsHeadlinesAndSummaries: [
+          {
+            title: "PLTR announces government contract",
+            summary: "Potentially material deal headline.",
+            url: "https://example.com/pltr-contract",
+          },
+        ],
+      },
+      optionalData: {},
+    });
+    const information = vi.fn(async () => ({
+      summary: "Information tool checked the escalated PLTR contract context.",
+      citations: [
+        {
+          title: "PLTR announces government contract",
+          url: "https://example.com/pltr-contract",
+        },
+      ],
+    }));
+
+    expect(escalationEvent).not.toBeNull();
+
+    const debateStartInput = createDebateStartInputFromEscalation(
+      escalationEvent!,
+    );
+    const result = await runDebateAgent(
+      {
+        debateId: "debate-from-escalation-1",
+        startInput: debateStartInput,
+      },
+      {
+        now: () => fixedNow,
+        id: () => "escalation-tool-event-1",
+        tools: {
+          information,
+        },
+      },
+    );
+
+    expect(debateStartInput.summary).toContain(heartbeatOutput.summary);
+    expect(debateStartInput.basicFinancials).toMatchObject({
+      branchId: "pltr enterprise deals",
+      assets: ["PLTR"],
+      heartbeatDecision: "escalate",
+    });
+    expect(information).toHaveBeenCalledWith(
+      expect.stringContaining(heartbeatOutput.summary),
+      expect.objectContaining({
+        debateId: "debate-from-escalation-1",
+        startInput: debateStartInput,
+      }),
+    );
+    expect(result.status).toBe("completed");
+    expect(result.toolEvents[0]).toMatchObject({
+      toolName: "information",
+      status: "completed",
+    });
+    expect(result.finalDecision.citations).toEqual([
+      {
+        title: "PLTR announces government contract",
+        url: "https://example.com/pltr-contract",
+      },
+    ]);
+  });
+
   it("runs the deterministic LangGraph debate with a tool call and final decision", async () => {
     const information = vi.fn(async () => ({
       summary: "Information tool checked the reported contract context.",
