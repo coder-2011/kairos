@@ -20,8 +20,8 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Online research/search: Exa API.
 - Persistent agent memory: Supermemory, available to all agents.
 - Brokerage: Alpaca is the planned brokerage integration.
-- Market data: Finnhub is the planned trading/market data provider.
-- Live ticker data: Alpaca may be used where it fits better than Finnhub.
+- Live ticker snapshots and heartbeat market-data seeds: Alpaca.
+- Finnhub: company news, optional market/research endpoints, and broader information-agent tooling where useful.
 - Primary implementation language: TypeScript.
 - Runtime/package manager: Bun.
 - Frontend: React with Vite.
@@ -94,7 +94,8 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - `src/api/`: thin API wrappers for external providers. Keep provider-specific auth, URL construction, and response normalization here.
 - `src/api/openrouter.ts`: OpenRouter LangChain chat model factory.
 - `src/api/supermemory.ts`: Supermemory profile/search plus write APIs for direct memories, raw context documents, heartbeat outputs, escalation events, and conversations.
-- `src/api/finnhub.ts`: Finnhub quote, candle, and company-news client plus default heartbeat seed providers.
+- `src/api/alpaca.ts`: Alpaca paper brokerage, portfolio, symbol lookup, stock snapshot, and heartbeat ticker seed providers.
+- `src/api/finnhub.ts`: Finnhub quote, candle, company-news, optional research endpoint client, and Finnhub news seed providers.
 - `src/api/exa.ts`: Exa news search client for cheap current web/news search.
 - `src/agents/heartbeat/`: the small-model heartbeat agent implemented as a constrained LangGraph/LangChain workflow.
 - `src/agents/heartbeat/types.ts`: branch config, seed bundle, heartbeat output, provider, and escalation event types.
@@ -109,7 +110,7 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 
 ## Heartbeat Agent Configuration
 - The heartbeat agent output is intentionally small: `branch_id`, `timestamp`, `decision`, and `summary`.
-- The default seed bundle is fixed initially: current price, recent volume, recent ticker movement, Supermemory context, and news headlines/summaries for the configured seed window.
+- The default seed bundle is fixed initially: Alpaca current price, Alpaca current daily volume, Alpaca ticker movement, Supermemory context, and news headlines/summaries for the configured seed window.
 - The default seed window is `30` days unless branch configuration overrides it.
 - Optional seeded data sources should be represented as generic keyed toggles in `BranchConfig.seededData.optionalSources`.
 - Do not hardcode a large optional source list in the core branch config; the UI can own that source catalog later.

@@ -34,8 +34,8 @@ Current stack decisions:
 - Online research/search: Exa API.
 - Persistent agent memory: Supermemory, available to all agents.
 - Brokerage: Alpaca is the planned brokerage integration.
-- Market data: Finnhub is the planned trading/market data provider.
-- Live ticker data: Alpaca may also be used for live ticker data if it fits the use case better than Finnhub.
+- Live ticker snapshots and heartbeat market-data seeds: Alpaca.
+- Finnhub: company news, optional market/research endpoints, and broader information-agent tooling where useful.
 - Primary language: TypeScript for most implementation work.
 - Database: no database initially. Use local files for audit/replay only and
   Supermemory for agent-usable memory and retrieval. Do not add local embedding
@@ -56,7 +56,8 @@ Implications:
 - Persistent cross-agent memory should use Supermemory.
 - Model selection should still be configurable by role, for example heartbeat model, big research model, debate participant model, and synthesis model.
 - Trading execution interfaces should keep Alpaca isolated behind a broker adapter.
-- Market data access should keep Finnhub isolated behind a data-provider adapter.
+- Ticker snapshot access should use Alpaca behind a provider adapter.
+- Finnhub access should stay isolated behind a data-provider adapter for news and optional research endpoints.
 - Persistence should start with local audit/replay files plus Supermemory as the
   persistent agent memory and retrieval backbone. Add a database or local vector
   index only if the architecture decision changes explicitly.
