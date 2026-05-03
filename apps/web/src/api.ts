@@ -284,12 +284,14 @@ export async function sendRouterMessage(input: {
   chatId: string;
   text: string;
 }): Promise<{
+  chat?: RouterChatRecord;
   userMessage: RouterMessageRecord;
   assistantMessage: RouterMessageRecord;
   run: RunRecord;
   heartbeatRuns: RunRecord[];
 }> {
   return request<{
+    chat?: RouterChatRecord;
     userMessage: RouterMessageRecord;
     assistantMessage: RouterMessageRecord;
     run: RunRecord;

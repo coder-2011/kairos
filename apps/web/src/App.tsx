@@ -466,7 +466,7 @@ export function App() {
           chat.id === selectedRouterChatId
             ? {
                 ...chat,
-                title: chat.title ?? buildChatTitle(text.trim()),
+                title: result.chat?.title ?? chat.title ?? buildChatTitle(text.trim()),
                 updatedAt: result.userMessage.createdAt,
               }
             : chat,

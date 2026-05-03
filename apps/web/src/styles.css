@@ -1692,6 +1692,57 @@ select:focus:hover {
   margin: 0 0 12px;
 }
 
+.heartbeat-handoff {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-left: 3px solid var(--outline);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.heartbeat-handoff.escalated {
+  border-left-color: var(--primary);
+}
+
+.heartbeat-handoff div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.heartbeat-handoff span,
+.heartbeat-handoff b,
+.heartbeat-handoff small {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.heartbeat-handoff span {
+  align-items: center;
+  color: var(--primary);
+  display: flex;
+  gap: 6px;
+}
+
+.heartbeat-handoff b,
+.heartbeat-handoff small {
+  color: var(--on-variant);
+}
+
+.heartbeat-handoff p {
+  color: var(--on-surface);
+  font-size: 13px;
+  line-height: 18px;
+  margin: 0;
+}
+
 .event-json {
   background: #0f172a;
   border: 1px solid var(--outline-variant);
