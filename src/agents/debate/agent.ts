@@ -1,6 +1,7 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
+import { observe } from "../../global/observability.js";
 import { executeGlobalTool, type GlobalToolName } from "../../global/tools.js";
 import {
   BEAR_SYSTEM_PROMPT,
@@ -223,6 +224,17 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     pendingToolRequest: null;
     updatedAt: string;
   }> => {
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "judge_start",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        messageCount: state.messages.length,
+        toolEventCount: state.toolEvents.length,
+      },
+    });
     const rawPlan = deps.models?.judge
       ? await invokeStructured<JudgePlan>(
           deps.models.judge,
@@ -231,6 +243,17 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         )
       : deterministicJudgePlan(state);
     const plan = judgePlanSchema.parse(rawPlan);
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "judge_complete",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        plan: plan.plan,
+        nextNode: plan.nextNode,
+      },
+    });
 
     return {
       currentPlan: plan,
@@ -256,6 +279,17 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       budgets: DebateBudgetState;
       updatedAt: string;
     }> => {
+      await observe(deps.observer, {
+        agent: "debate",
+        type: `${role}_start`,
+        runId: deps.runId,
+        branchId: branchIdFromState(state),
+        payload: {
+          debateId: state.debateId,
+          turnsUsed: state.budgets.turnsUsed,
+          toolCallsUsed: state.budgets.toolCallsUsed,
+        },
+      });
       const rawOutput = deps.models?.[role]
         ? await invokeStructured<DebateAgentOutput>(
             deps.models[role],
@@ -277,6 +311,18 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         requestedTool && state.budgets.toolCallsUsed < state.budgets.maxToolCalls
           ? requestedTool
           : null;
+      await observe(deps.observer, {
+        agent: "debate",
+        type: `${role}_complete`,
+        runId: deps.runId,
+        branchId: branchIdFromState(state),
+        payload: {
+          debateId: state.debateId,
+          argumentLength: output.argument.length,
+          confidence: output.confidence,
+          toolRequest,
+        },
+      });
 
       return {
         messages: [
@@ -320,6 +366,19 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     const debateTool = deps.tools?.[state.pendingToolRequest.toolName];
     const globalTool =
       deps.globalTools?.[state.pendingToolRequest.toolName as GlobalToolName];
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "tool_start",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        toolEventId: id,
+        toolName: state.pendingToolRequest.toolName,
+        requestedBy: state.pendingToolRequest.requestedBy,
+        input: state.pendingToolRequest.input,
+      },
+    });
 
     try {
       if (!debateTool && !globalTool) {
@@ -358,6 +417,20 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         startedAt,
         completedAt: isoNow(deps),
       });
+      await observe(deps.observer, {
+        agent: "debate",
+        type: "tool_complete",
+        runId: deps.runId,
+        branchId: branchIdFromState(state),
+        payload: {
+          debateId: state.debateId,
+          toolEventId: event.toolEventId,
+          toolName: event.toolName,
+          requestedBy: event.requestedBy,
+          citationCount: event.citations.length,
+          summaryLength: event.summary.length,
+        },
+      });
 
       return {
         messages: [
@@ -388,6 +461,19 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         error: error instanceof Error ? error.message : String(error),
         startedAt,
         completedAt: isoNow(deps),
+      });
+      await observe(deps.observer, {
+        agent: "debate",
+        type: "tool_error",
+        runId: deps.runId,
+        branchId: branchIdFromState(state),
+        payload: {
+          debateId: state.debateId,
+          toolEventId: event.toolEventId,
+          toolName: event.toolName,
+          requestedBy: event.requestedBy,
+          error: event.error,
+        },
       });
 
       return {
@@ -423,6 +509,17 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     status: "completed";
     updatedAt: string;
   }> => {
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "final_start",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        messageCount: state.messages.length,
+        toolEventCount: state.toolEvents.length,
+      },
+    });
     const rawDecision = deps.models?.final
       ? await invokeStructured<DebateDecision>(
           deps.models.final,
@@ -435,6 +532,18 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       ...parsedDecision,
       citations: uniqueCitations(parsedDecision.citations),
     };
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "final_complete",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        summaryLength: decision.summary.length,
+        confidence: decision.confidence,
+        citationCount: decision.citations.length,
+      },
+    });
 
     return {
       messages: [
@@ -496,6 +605,17 @@ export async function runDebateAgent(
     turnsUsed: 0,
     toolCallsUsed: 0,
   };
+  await observe(deps.observer, {
+    agent: "debate",
+    type: "run_start",
+    runId: deps.runId,
+    branchId: branchIdFromStartInput(startInput),
+    payload: {
+      debateId: config.debateId,
+      summaryLength: startInput.summary.length,
+      budgets,
+    },
+  });
 
   const result = await graph.invoke(
     {
@@ -514,6 +634,20 @@ export async function runDebateAgent(
   );
 
   const finalDecision = debateDecisionSchema.parse(result.finalDecision);
+  await observe(deps.observer, {
+    agent: "debate",
+    type: "run_complete",
+    runId: deps.runId,
+    branchId: branchIdFromStartInput(startInput),
+    payload: {
+      debateId: result.debateId,
+      status: result.status,
+      messageCount: result.messages.length,
+      toolEventCount: result.toolEvents.length,
+      finalSummaryLength: finalDecision.summary.length,
+      finalCitationCount: finalDecision.citations.length,
+    },
+  });
 
   return {
     debateId: result.debateId,
@@ -528,6 +662,17 @@ export async function runDebateAgent(
     currentPlan: result.currentPlan,
     finalDecision,
   };
+}
+
+function branchIdFromState(state: DebateState): string | undefined {
+  return branchIdFromStartInput(state.startInput);
+}
+
+function branchIdFromStartInput(
+  startInput: ReturnType<typeof debateStartInputSchema.parse>,
+): string | undefined {
+  const branchId = startInput.basicFinancials.branchId;
+  return typeof branchId === "string" ? branchId : undefined;
 }
 
 export async function* streamDebateAgentUpdates(
