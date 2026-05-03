@@ -89,7 +89,7 @@ type AppRoute = {
 function readRouteFromHash(): AppRoute {
   const hash = typeof window === "undefined" ? "" : window.location.hash;
   const [viewSegment, idSegment] = hash.replace(/^#\/?/, "").split("/");
-  const view = views.some((item) => item.id === viewSegment)
+  const view = routeViews.includes(viewSegment as View)
     ? (viewSegment as View)
     : "branches";
 
@@ -110,13 +110,14 @@ function routeHash(route: AppRoute): string {
   return `#/${route.view}`;
 }
 
-const views: Array<{ id: View; label: string; icon: string }> = [
+const routeViews: View[] = ["branches", "router", "monitoring", "portfolio", "runDeepDive", "config"];
+
+const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
   { id: "router", label: "Router", icon: "route" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
   { id: "runDeepDive", label: "Runs", icon: "timeline" },
-  { id: "config", label: "Branch Configuration", icon: "settings" },
 ];
 
 const promptFields: Array<{
@@ -460,6 +461,17 @@ export function App() {
         chatId: selectedRouterChatId,
         text: text.trim(),
       });
+      setRouterChats((current) =>
+        current.map((chat) =>
+          chat.id === selectedRouterChatId
+            ? {
+                ...chat,
+                title: chat.title ?? buildChatTitle(text.trim()),
+                updatedAt: result.userMessage.createdAt,
+              }
+            : chat,
+        ),
+      );
       setRouterMessages((current) => [
         ...current,
         result.userMessage,
@@ -932,8 +944,8 @@ function RouterView({
                 type="button"
               >
                 <span>CHAT</span>
-                <b>{chat.id}</b>
-                <em>{timeOnly(chat.updatedAt)}</em>
+                <b>{chatDisplayTitle(chat)}</b>
+                <em>{formatChatTimestamp(chat.updatedAt)}</em>
               </button>
             ))
           )}
@@ -1039,7 +1051,7 @@ function RouterMessageBubble({ message }: { message: RouterMessageRecord }) {
     <article className={`router-message ${message.role}`}>
       <div className="router-message-head">
         <b>{message.role === "user" ? "YOU" : "ROUTER"}</b>
-        <span>{timeOnly(message.createdAt)}</span>
+        <span>{formatChatTimestamp(message.createdAt)}</span>
       </div>
       <p>{message.text}</p>
     </article>
@@ -3070,6 +3082,46 @@ function formatTimestamp(value: unknown) {
   return typeof value === "string" && value.length > 0 ? timeOnly(value) : "-";
 }
 
+function chatDisplayTitle(chat: RouterChatRecord): string {
+  return chat.title?.trim() || `Router chat from ${formatChatTimestamp(chat.createdAt)}`;
+}
+
+function buildChatTitle(text: string): string | undefined {
+  const title = text
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title) return undefined;
+  return title.length > 64 ? `${title.slice(0, 61).trimEnd()}...` : title;
+}
+
+function formatChatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const sameDay = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  if (sameDay) return `Today, ${time}`;
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`;
+
+  return date.toLocaleString(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
 function readDisplay(value: unknown, fallback = "-") {
   if (typeof value === "string" && value.length > 0) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -3146,10 +3198,14 @@ function mergeTradeSymbolOptions(
 ): TradeSymbolOption[] {
   const selectedSet = new Set(selected.map(normalizeTickerInput));
   const options = new Map<string, TradeSymbolOption>();
+  const order = new Map<string, number>();
 
   for (const record of catalog) {
     const symbol = normalizeTickerInput(record.symbol);
-    if (symbol) options.set(symbol, { ...record, symbol });
+    if (symbol) {
+      options.set(symbol, { ...record, symbol });
+      if (!order.has(symbol)) order.set(symbol, order.size);
+    }
   }
 
   for (const symbol of mergeSymbolSelection(assets, selected)) {
@@ -3158,6 +3214,7 @@ function mergeTradeSymbolOptions(
         symbol,
         name: assets.includes(symbol) ? "Tracked ticker" : "Selected ticker",
       });
+      order.set(symbol, order.size);
     }
   }
 
@@ -3167,7 +3224,7 @@ function mergeTradeSymbolOptions(
     if (selectedDelta !== 0) return selectedDelta;
     const tradableDelta = Number(right.tradable) - Number(left.tradable);
     if (tradableDelta !== 0) return tradableDelta;
-    return left.symbol.localeCompare(right.symbol);
+    return (order.get(left.symbol) ?? 0) - (order.get(right.symbol) ?? 0);
   });
 }
 

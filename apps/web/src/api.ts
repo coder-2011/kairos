@@ -117,6 +117,7 @@ export type MessageRecord = JsonRecord & {
 
 export type RouterChatRecord = {
   id: string;
+  title?: string;
   createdAt: string;
   updatedAt: string;
 };
