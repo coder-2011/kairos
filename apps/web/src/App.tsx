@@ -256,7 +256,7 @@ export function App() {
       setPortfolio(nextPortfolio);
       setMessages(nextMessages);
       setTradeIntents(nextTradeIntents);
-      setPortfolioLoadState("api");
+      setPortfolioLoadState(nextPortfolio.status === "offline" ? "offline" : "api");
     } catch {
       setPortfolioLoadState("offline");
     }
@@ -849,12 +849,12 @@ function PortfolioView({
           <div className="portfolio-metrics">
             <Metric
               label="PORTFOLIO VALUE"
-              value={formatMoneyField(account, "portfolio_value")}
+              value={formatMoneyField(account, "portfolio_value", "portfolioValue")}
             />
             <Metric label="EQUITY" value={formatMoneyField(account, "equity")} />
             <Metric
               label="BUYING POWER"
-              value={formatMoneyField(account, "buying_power")}
+              value={formatMoneyField(account, "buying_power", "buyingPower")}
             />
             <Metric label="CASH" value={formatMoneyField(account, "cash")} />
             <Metric
@@ -874,8 +874,8 @@ function PortfolioView({
             rows={positions.map((position) => [
               readDisplay(position.symbol),
               readDisplay(position.qty),
-              formatMoneyValue(position.market_value),
-              formatMoneyValue(position.unrealized_pl),
+              formatMoneyField(position, "market_value", "marketValue"),
+              formatMoneyField(position, "unrealized_pl", "unrealizedPl"),
               readDisplay(position.side),
             ])}
             title="PAPER POSITIONS"
@@ -886,10 +886,10 @@ function PortfolioView({
             rows={orders.map((order) => [
               readDisplay(order.symbol),
               readDisplay(order.side),
-              readDisplay(order.type ?? order.order_type),
+              readDisplay(order.type ?? order.order_type ?? order.orderType),
               readDisplay(order.status),
-              formatMoneyValue(order.notional ?? order.filled_notional),
-              formatTimestamp(order.submitted_at ?? order.createdAt ?? order.created_at),
+              formatMoneyValue(order.notional ?? order.filled_notional ?? order.filledNotional),
+              formatTimestamp(order.submitted_at ?? order.submittedAt ?? order.createdAt ?? order.created_at),
             ])}
             title="PAPER ORDERS"
           />
@@ -990,7 +990,7 @@ function TradeIntentCard({ intent }: { intent: TradeIntentRecord }) {
         <b>{readDisplay(intent.symbol, "UNKNOWN")}</b>
         <span>{readDisplay(intent.status, "pending")}</span>
       </div>
-      <p>{readDisplay(intent.summary ?? intent.rationale, "No rationale supplied.")}</p>
+      <p>{readDisplay(intent.summary ?? intent.rationale ?? intent.reasoning, "No rationale supplied.")}</p>
       <div className="portfolio-card-grid">
         <span>{readDisplay(intent.side, "side")}</span>
         <span>{readDisplay(intent.orderType, "order")}</span>
@@ -1008,7 +1008,7 @@ function MessageCard({ message }: { message: MessageRecord }) {
         <b>{readDisplay(message.title ?? message.type ?? message.level, "MESSAGE")}</b>
         <span>{formatTimestamp(message.timestamp ?? message.createdAt)}</span>
       </div>
-      <p>{readDisplay(message.summary ?? message.message, "No message body supplied.")}</p>
+      <p>{readDisplay(message.summary ?? message.message ?? message.body, "No message body supplied.")}</p>
     </article>
   );
 }
@@ -2254,8 +2254,8 @@ function formatConfidenceValue(value: unknown) {
     : "-";
 }
 
-function formatMoneyField(record: JsonRecord | undefined, key: string) {
-  return formatMoneyValue(record?.[key]);
+function formatMoneyField(record: JsonRecord | undefined, ...keys: string[]) {
+  return formatMoneyValue(keys.map((key) => record?.[key]).find((value) => value !== undefined));
 }
 
 function formatMoneyValue(value: unknown) {

@@ -67,6 +67,7 @@ export type PortfolioSnapshot = {
   updatedAt?: string;
   paper?: boolean;
   status?: string;
+  error?: string;
 };
 
 export type MessageRecord = JsonRecord & {
@@ -226,6 +227,7 @@ function normalizePortfolioResponse(response: JsonRecord): PortfolioSnapshot {
     updatedAt: readString(portfolio.updatedAt) ?? readString(response.updatedAt),
     paper: readBoolean(portfolio.paper) ?? readBoolean(response.paper),
     status: readString(portfolio.status) ?? readString(response.status),
+    error: readString(portfolio.error) ?? readString(response.error),
   };
 }
 
