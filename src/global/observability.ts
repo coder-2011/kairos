@@ -28,6 +28,7 @@ export function observe(
     observer.event({
       timestamp: event.timestamp ?? new Date().toISOString(),
       ...event,
+      payload: summarizePayload(event.payload),
     }),
   );
 }
@@ -39,4 +40,41 @@ export function createJsonlObserver(path: string): AgentObserver {
       appendFileSync(path, `${JSON.stringify(event)}\n`);
     },
   };
+}
+
+function summarizePayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      length: value.length,
+      preview: value.slice(0, 5).map(summarizePayload),
+    };
+  }
+
+  if (typeof value === "string") {
+    return value.length > 2_000
+      ? {
+          kind: "string",
+          length: value.length,
+          preview: value.slice(0, 2_000),
+        }
+      : value;
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length > 50) {
+    return {
+      kind: "object",
+      keyCount: entries.length,
+      keys: entries.slice(0, 50).map(([key]) => key),
+    };
+  }
+
+  return Object.fromEntries(
+    entries.map(([key, entry]) => [key, summarizePayload(entry)]),
+  );
 }

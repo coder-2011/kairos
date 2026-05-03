@@ -561,7 +561,7 @@ export function createSupermemoryProfileTool(
 ) {
   return tool({
     description:
-      "Fetch branch-scoped stable and recent Supermemory profile context.",
+      "Fetch branch-scoped Supermemory profile context. Use when you need stable or recent memory about the branch, prior human corrections, recurring false positives, or durable preferences. Do not use for fresh market/news source discovery.",
     inputSchema: supermemoryProfileInputSchema,
     execute: ({
       containerTag,
@@ -581,7 +581,7 @@ export function createSupermemorySearchTool(
 ) {
   return tool({
     description:
-      "Search branch-scoped Supermemory memories for prior related events, human corrections, and false positives.",
+      "Search branch-scoped Supermemory memories for prior related events, prior decisions, human corrections, and false positives. Use to decide whether current evidence is new or a duplicate. Do not use as a substitute for fresh news/source checks.",
     inputSchema: supermemorySearchInputSchema,
     execute: ({
       containerTag,
@@ -603,7 +603,7 @@ export function createSupermemorySearchTool(
 export function createExaSearchTool(exa: Pick<ExaApi, "search">) {
   return tool({
     description:
-      "Search recent web/news coverage when seeded headlines are insufficient.",
+      "Search recent web/news coverage when the seeded headlines are insufficient or need source verification. Use for current external corroboration of a specific catalyst, event, or claim. Do not use for broad deep research; escalate instead.",
     inputSchema: exaNewsSearchInputSchema,
     execute: ({ query, numResults }: z.infer<typeof exaNewsSearchInputSchema>) =>
       exa.search({

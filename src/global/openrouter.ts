@@ -73,3 +73,29 @@ export function createOpenRouterChatModel(config: OpenRouterModelConfig) {
     },
   });
 }
+
+export function assertOpenRouterToolCapableModel(model: string): void {
+  if (!isProbablyOpenRouterToolCapableModel(model)) {
+    throw new Error(
+      [
+        `OpenRouter model ${model} is not known to support tool calling.`,
+        "Use a model listed by OpenRouter with supported_parameters=tools,",
+        "or run this agent without tools.",
+      ].join(" "),
+    );
+  }
+}
+
+export function isProbablyOpenRouterToolCapableModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return [
+    "openai/",
+    "anthropic/",
+    "google/gemini",
+    "x-ai/",
+    "qwen/",
+    "deepseek/",
+    "mistralai/mistral-large",
+    "mistralai/devstral",
+  ].some((prefix) => normalized.startsWith(prefix));
+}
