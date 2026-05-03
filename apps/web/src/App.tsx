@@ -33,7 +33,11 @@ import {
 
 type View = "branches" | "monitoring" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
+type RunMode = "agent" | "dry";
+type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
+
+const THEME_STORAGE_KEY = "kairos-theme";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
@@ -138,6 +142,8 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [runMode, setRunMode] = useState<RunMode>("agent");
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -145,6 +151,12 @@ export function App() {
   const premiumAccessEnabled = branches.some(
     (branch) => normalizeBranchConfig(branch).tools?.finnhubPremiumAccess === true,
   );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    document.documentElement.style.colorScheme = themeMode;
+    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,12 +224,12 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runDryHeartbeat(branchId: string) {
+  async function runHeartbeat(branchId: string) {
     try {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: true },
+        { dryRun: runMode === "dry" },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -229,11 +241,11 @@ export function App() {
     }
   }
 
-  async function startDryDebate(branchId: string) {
+  async function startDebate(branchId: string) {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: true,
+        dryRun: runMode === "dry",
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -309,13 +321,15 @@ export function App() {
   }
 
   return (
-    <div className="shell">
+    <div className="shell" data-theme={themeMode}>
       <SideNav
         premiumAccessDisabled={branches.length === 0}
         premiumAccessEnabled={premiumAccessEnabled}
         setView={setView}
+        themeMode={themeMode}
         view={view}
         onPremiumAccessChange={(enabled) => void setPremiumAccess(enabled)}
+        onThemeModeChange={setThemeMode}
       />
       <div className="workspace">
         <TopBar loadState={loadState} />
@@ -350,8 +364,10 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
-            onEscalate={() => void startDryDebate(selectedBranch.id)}
-            onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
+            runMode={runMode}
+            onEscalate={() => void startDebate(selectedBranch.id)}
+            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
+            onRunModeChange={setRunMode}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -381,15 +397,19 @@ export function App() {
 function SideNav({
   premiumAccessDisabled,
   premiumAccessEnabled,
+  themeMode,
   view,
   setView,
   onPremiumAccessChange,
+  onThemeModeChange,
 }: {
   premiumAccessDisabled: boolean;
   premiumAccessEnabled: boolean;
+  themeMode: ThemeMode;
   view: View;
   setView: (view: View) => void;
   onPremiumAccessChange: (enabled: boolean) => void;
+  onThemeModeChange: (mode: ThemeMode) => void;
 }) {
   return (
     <nav className="side-nav">
@@ -415,6 +435,10 @@ function SideNav({
           </button>
         ))}
       </div>
+      <ThemeSwitch
+        mode={themeMode}
+        onChange={(mode) => onThemeModeChange(mode)}
+      />
       <button
         className={`premium-access-button ${premiumAccessEnabled ? "enabled" : ""}`}
         disabled={premiumAccessDisabled}
@@ -441,6 +465,38 @@ function SideNav({
         <span>System Operator</span>
       </div>
     </nav>
+  );
+}
+
+function ThemeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: ThemeMode;
+  onChange: (mode: ThemeMode) => void;
+}) {
+  const nextMode = mode === "dark" ? "light" : "dark";
+
+  return (
+    <button
+      aria-label={`Switch to ${nextMode} mode`}
+      className={`theme-toggle ${mode}`}
+      onClick={() => onChange(nextMode)}
+      title={`Switch to ${nextMode} mode`}
+      type="button"
+    >
+      <span className="theme-toggle-track" aria-hidden="true">
+        <Icon name="light_mode" />
+        <Icon name="dark_mode" />
+        <span className="theme-toggle-thumb">
+          <Icon name={mode === "dark" ? "dark_mode" : "light_mode"} />
+        </span>
+      </span>
+      <span className="theme-toggle-copy">
+        <b>{mode === "dark" ? "Dark Mode" : "Light Mode"}</b>
+        <small>Flick display theme</small>
+      </span>
+    </button>
   );
 }
 
@@ -1746,6 +1802,10 @@ function humanizeToolName(toolName: InformationConfigToolName): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function readStoredThemeMode(): ThemeMode {
+  return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
 }
 
 function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
