@@ -6,6 +6,7 @@ import {
   kairosBranchAgentConfigSchema,
   createSupermemoryMemoryApi,
   createSupermemoryMirror,
+  getMemoryContainerTag,
   listOpenRouterModels,
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
@@ -692,6 +693,20 @@ async function createRouterMessage(
       type: "router.route.selected",
       payload: { branchIds: selectedBranchIds },
     });
+    const mirroredSources = await mirrorRouterSources(context, {
+      runId: run.id,
+      chatId,
+      messageId: userMessage.id,
+      branchIds: selectedBranchIds,
+      sources,
+      attachments: userMessage.attachments ?? [],
+    });
+    if (mirroredSources) {
+      await context.store.appendRunEvent(run.id, {
+        type: "router.sources.mirrored",
+        payload: { sourceCount: sources.length, branchIds: selectedBranchIds },
+      });
+    }
 
     const heartbeatRuns: RunRecord[] = [];
     for (const branchId of selectedBranchIds) {
@@ -1145,6 +1160,61 @@ function deterministicHeartbeat(input: HeartbeatTriggerInput): Promise<Heartbeat
   });
 }
 
+async function mirrorRouterSources(
+  context: LocalApiContext,
+  input: {
+    runId: string;
+    chatId: string;
+    messageId: string;
+    branchIds: string[];
+    sources: RouterExtractedSource[];
+    attachments: RouterAttachmentRecord[];
+  },
+): Promise<boolean> {
+  if (!context.supermemoryMirror) return false;
+
+  const containerTags = input.branchIds.map((branchId) =>
+    getMemoryContainerTag({ scopeId: branchId, prefix: "branch" }),
+  );
+
+  await Promise.all(
+    input.sources.map((source) =>
+      context.supermemoryMirror!.mirrorRecord({
+        type: "router.source.ingested",
+        scope: "source",
+        runId: input.runId,
+        artifactId: source.id,
+        actor: "router",
+        source: "router_agent",
+        title: `Kairos router ${source.kind}`,
+        summary: compactRouterSourceSummary(source),
+        content: source.text,
+        data: {
+          chatId: input.chatId,
+          messageId: input.messageId,
+          source,
+          attachments: input.attachments,
+          branchIds: input.branchIds,
+        },
+        metadata: {
+          source_kind: source.kind,
+          source_ref: source.ref,
+          routed_branch_count: input.branchIds.length,
+        },
+        containerTags,
+        customId: `kairos:router:${input.runId}:source:${source.id}`,
+      }),
+    ),
+  );
+  return true;
+}
+
+function compactRouterSourceSummary(source: RouterExtractedSource): string {
+  const ref = source.ref ? ` ${source.ref}` : "";
+  const text = source.text.replace(/\s+/g, " ").trim();
+  return `${source.kind}${ref}: ${text.slice(0, 240)}`;
+}
+
 async function extractRouterSources(
   context: LocalApiContext,
   input: z.infer<typeof routerMessageCreateSchema>,
@@ -1427,6 +1497,10 @@ type Route =
   | { name: "streamRunEvents"; params: { runId: string } }
   | { name: "getPortfolio"; params: Record<string, never> }
   | { name: "refreshPortfolio"; params: Record<string, never> }
+  | { name: "listRouterChats"; params: Record<string, never> }
+  | { name: "createRouterChat"; params: Record<string, never> }
+  | { name: "listRouterMessages"; params: { chatId: string } }
+  | { name: "createRouterMessage"; params: { chatId: string } }
   | { name: "listMessages"; params: Record<string, never> }
   | { name: "listTradeIntents"; params: Record<string, never> }
   | { name: "createTradeIntent"; params: Record<string, never> }
@@ -1440,6 +1514,14 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
   if (method === "GET" && pathname === "/portfolio") return { name: "getPortfolio", params: {} };
   if (method === "POST" && pathname === "/portfolio/refresh") return { name: "refreshPortfolio", params: {} };
+  if (segments.length === 2 && segments[0] === "router" && segments[1] === "chats") {
+    if (method === "GET") return { name: "listRouterChats", params: {} };
+    if (method === "POST") return { name: "createRouterChat", params: {} };
+  }
+  if (segments.length === 4 && segments[0] === "router" && segments[1] === "chats" && segments[3] === "messages") {
+    if (method === "GET") return { name: "listRouterMessages", params: { chatId: segments[2] } };
+    if (method === "POST") return { name: "createRouterMessage", params: { chatId: segments[2] } };
+  }
   if (method === "GET" && pathname === "/messages") return { name: "listMessages", params: {} };
   if (segments.length === 1 && segments[0] === "trade-intents") {
     if (method === "GET") return { name: "listTradeIntents", params: {} };

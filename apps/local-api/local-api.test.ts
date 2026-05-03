@@ -191,6 +191,58 @@ describe("local API handler", () => {
     ]);
   });
 
+  it("mirrors router uploaded documents into Supermemory", async () => {
+    const mirrored: SupermemoryMirrorRecord[] = [];
+    const { requestJson } = makeClient({
+      supermemoryMirror: createMockMirror(mirrored),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_contracts",
+      name: "PLTR contracts",
+      description: "Palantir government contracts",
+      config: { assets: ["PLTR"] },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+
+    const response = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR contract note",
+      attachments: [
+        {
+          id: "doc_1",
+          name: "contract.pdf",
+          mimeType: "application/pdf",
+          path: "/tmp/contract.pdf",
+        },
+      ],
+    });
+
+    expect(response.status).toBe(201);
+    const routerSources = mirrored.filter(
+      (record) => record.type === "router.source.ingested",
+    );
+    expect(routerSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "source",
+          artifactId: "doc_1",
+          content: "PDF attachment preserved for extraction: contract.pdf",
+          metadata: expect.objectContaining({ source_kind: "pdf" }),
+        }),
+      ]),
+    );
+    expect(routerSources.at(-1)?.data).toMatchObject({
+      attachments: [
+        {
+          id: "doc_1",
+          name: "contract.pdf",
+          mimeType: "application/pdf",
+          path: "/tmp/contract.pdf",
+        },
+      ],
+      branchIds: ["branch_pltr_contracts"],
+    });
+  });
+
   it("appends human interjections to run events", async () => {
     const { requestJson } = makeClient();
     const debate = await requestJson("POST", "/debates", {
@@ -319,6 +371,10 @@ describe("local API handler", () => {
       config: { assets: ["PLTR"] },
       law: { watchFor: "new material contracts" },
     });
+    const routerChat = await requestJson("POST", "/router/chats");
+    await requestJson("POST", `/router/chats/${routerChat.body.chat.id}/messages`, {
+      text: "PLTR may have a new material contract.",
+    });
     const heartbeat = await requestJson("POST", "/branches/branch_memory/heartbeat-runs", {
       input: { ticker: "PLTR" },
     });
@@ -346,6 +402,9 @@ describe("local API handler", () => {
     expect(mirrored.map((record) => record.type)).toEqual(
       expect.arrayContaining([
         "branch.created",
+        "router_chat.created",
+        "router_message.user",
+        "router_message.assistant",
         "run.created",
         "run.updated",
         "heartbeat.seeded",
@@ -372,6 +431,12 @@ describe("local API handler", () => {
       scope: "trade_intent",
       branchId: "branch_memory",
       lawId: "law_memory",
+    });
+    expect(
+      mirrored.find((record) => record.type === "router_message.user"),
+    ).toMatchObject({
+      scope: "router",
+      actor: "human",
     });
   });
 
@@ -599,6 +664,7 @@ function makeClient(options: {
   runHeartbeat?: LocalApiContext["runHeartbeat"];
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
+  supermemoryMirror?: SupermemoryMirror;
 } = {}) {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
@@ -626,6 +692,7 @@ function makeClient(options: {
       })),
     tradingBroker: options.tradingBroker,
     notificationSender: options.notificationSender,
+    supermemoryMirror: options.supermemoryMirror,
   };
   const handler = createLocalApiHandler(context);
 
