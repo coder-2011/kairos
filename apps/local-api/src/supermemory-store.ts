@@ -168,8 +168,21 @@ class SupermemoryMirroredStore implements KairosLocalStore {
     return this.store.listRouterChats();
   }
 
-  createRouterChat(input?: CreateRouterChatInput): Promise<RouterChatRecord> {
-    return this.store.createRouterChat(input);
+  async createRouterChat(
+    input?: CreateRouterChatInput,
+  ): Promise<RouterChatRecord> {
+    const chat = await this.store.createRouterChat(input);
+    await this.mirrorRecord({
+      type: "router_chat.created",
+      scope: "router",
+      timestamp: chat.createdAt,
+      artifactId: chat.id,
+      title: `Kairos router chat ${chat.id}`,
+      summary: "Router chat created.",
+      data: chat,
+      customId: `kairos:router_chat:${chat.id}`,
+    });
+    return chat;
   }
 
   getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
@@ -180,10 +193,29 @@ class SupermemoryMirroredStore implements KairosLocalStore {
     return this.store.listRouterMessages(chatId);
   }
 
-  createRouterMessage(
+  async createRouterMessage(
     input: CreateRouterMessageInput,
   ): Promise<RouterMessageRecord> {
-    return this.store.createRouterMessage(input);
+    const message = await this.store.createRouterMessage(input);
+    await this.mirrorRecord({
+      type: `router_message.${message.role}`,
+      scope: "router",
+      runId: message.runId,
+      timestamp: message.createdAt,
+      artifactId: message.id,
+      actor: message.role === "user" ? "human" : "router",
+      title: `Kairos router ${message.role} message`,
+      summary:
+        message.text ??
+        `Router message with ${message.attachments?.length ?? 0} attachment(s).`,
+      data: message,
+      metadata: {
+        chat_id: message.chatId,
+        attachment_count: message.attachments?.length ?? 0,
+      },
+      customId: `kairos:router_message:${message.id}`,
+    });
+    return message;
   }
 
   listMessages(): Promise<TradingMessage[]> {
@@ -344,8 +376,9 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       if (this.options.required) {
         throw error;
       }
-      // Supermemory mirrors local state; it is not the local source of truth.
-      // Preserve the successful local write even if external memory is down.
+      // Local files remain the audit log; Supermemory is the agent memory
+      // backbone. Preserve the local write if external memory is temporarily
+      // down unless strict mirroring is explicitly required.
     });
 
     if (this.options.required) {

@@ -353,25 +353,56 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   if (!branch) return json({ error: "not_found", message: "Branch not found." }, 404);
 
   const input = heartbeatTriggerSchema.parse(body);
+  let completed: RunRecord | undefined;
+  try {
+    completed = await runHeartbeatForBranch(context, branch, {
+      dryRun: input.dryRun,
+      input: input.input,
+      metadataSource: input.dryRun ? "dry_run" : "runtime",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    return json({
+      run: getFailedRunFromError(error),
+      error: "run_failed",
+      message,
+    }, 500);
+  }
+
+  return json({ run: completed }, 201);
+}
+
+async function runHeartbeatForBranch(
+  context: LocalApiContext,
+  branch: BranchRecord,
+  options: {
+    dryRun: boolean;
+    input: JsonRecord;
+    metadataSource: string;
+  },
+): Promise<RunRecord | undefined> {
   const runPayload = {
-    ...input.input,
+    ...options.input,
     branch: branchRunContext(branch),
   };
   const run = await context.store.createRun({
     kind: "heartbeat",
     status: "running",
-    branchId,
-    dryRun: input.dryRun,
+    branchId: branch.id,
+    dryRun: options.dryRun,
     input: runPayload,
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: options.metadataSource },
   });
-  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "heartbeat", branchId, dryRun: input.dryRun } });
+  await context.store.appendRunEvent(run.id, {
+    type: "run.started",
+    payload: { kind: "heartbeat", branchId: branch.id, dryRun: options.dryRun },
+  });
 
   let result: HeartbeatRunResult;
   try {
     result = await context.runHeartbeat({
-      branchId,
-      dryRun: input.dryRun,
+      branchId: branch.id,
+      dryRun: options.dryRun,
       payload: runPayload,
       branch,
     });
@@ -385,7 +416,7 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
       type: "run.failed",
       payload: { error: message },
     });
-    return json({ run: failed, error: "run_failed", message }, 500);
+    throw new Error(message, { cause: failed });
   }
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
@@ -396,7 +427,7 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   }
   await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "succeeded" } });
 
-  return json({ run: completed }, 201);
+  return completed;
 }
 
 async function applyTradingPolicyToDebate(
@@ -606,6 +637,127 @@ async function appendInterjection(context: LocalApiContext, runId: string, body:
     },
   });
   return json({ event }, 201);
+}
+
+async function createRouterMessage(
+  context: LocalApiContext,
+  chatId: string,
+  body: unknown,
+): Promise<Response> {
+  const chat = await context.store.getRouterChat(chatId);
+  if (!chat) return json({ error: "not_found", message: "Router chat not found." }, 404);
+
+  const input = routerMessageCreateSchema.parse(body);
+  if (!input.text.trim() && input.attachments.length === 0) {
+    return json({ error: "bad_request", message: "Router message is empty." }, 400);
+  }
+
+  const userMessage = await context.store.createRouterMessage({
+    chatId,
+    role: "user",
+    text: input.text.trim() || undefined,
+    attachments: input.attachments,
+  });
+  const run = await context.store.createRun({
+    kind: "router",
+    status: "running",
+    dryRun: input.dryRun,
+    input: {
+      chatId,
+      messageId: userMessage.id,
+      text: userMessage.text,
+      attachments: userMessage.attachments ?? [],
+    },
+    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+  });
+  await context.store.appendRunEvent(run.id, {
+    type: "run.started",
+    payload: { kind: "router", chatId, dryRun: input.dryRun },
+  });
+  await context.store.appendRunEvent(run.id, {
+    type: "router.message.received",
+    payload: { chatId, messageId: userMessage.id },
+  });
+
+  try {
+    const sources = await extractRouterSources(context, input, userMessage);
+    await context.store.appendRunEvent(run.id, {
+      type: "router.sources.extracted",
+      payload: { sources },
+    });
+
+    const branches = await context.store.listBranches();
+    const selectedBranchIds = routeToBranches(userMessage.text ?? "", sources, branches);
+    await context.store.appendRunEvent(run.id, {
+      type: "router.route.selected",
+      payload: { branchIds: selectedBranchIds },
+    });
+
+    const heartbeatRuns: RunRecord[] = [];
+    for (const branchId of selectedBranchIds) {
+      const branch = branches.find((item) => item.id === branchId);
+      if (!branch) continue;
+      const heartbeatRun = await runHeartbeatForBranch(context, branch, {
+        dryRun: input.dryRun,
+        input: {
+          origin: "router",
+          messageText: userMessage.text,
+          sources,
+          promptModifier:
+            "This run was triggered by human-routed information. Evaluate only whether this information is relevant, novel, and potentially escalation-worthy for this branch's law. Do not trade. Do not assume the human is correct.",
+        },
+        metadataSource: "router",
+      });
+      if (heartbeatRun) {
+        heartbeatRuns.push(heartbeatRun);
+        await context.store.appendRunEvent(run.id, {
+          type: "router.heartbeat_triggered",
+          payload: { branchId, runId: heartbeatRun.id },
+        });
+      }
+    }
+
+    const output = {
+      branchIds: selectedBranchIds,
+      response: routerResponse(selectedBranchIds, sources),
+    };
+    const completed = await context.store.updateRun(run.id, {
+      status: "succeeded",
+      output,
+    });
+    const assistantMessage = await context.store.createRouterMessage({
+      chatId,
+      role: "assistant",
+      text: output.response,
+      runId: run.id,
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "router.response.created",
+      payload: { messageId: assistantMessage.id },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.completed",
+      payload: { status: "succeeded" },
+    });
+
+    return json({
+      userMessage,
+      assistantMessage,
+      run: completed,
+      heartbeatRuns,
+    }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: message },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: message },
+    });
+    return json({ run: failed, error: "run_failed", message }, 500);
+  }
 }
 
 async function getPortfolio(
@@ -993,6 +1145,172 @@ function deterministicHeartbeat(input: HeartbeatTriggerInput): Promise<Heartbeat
   });
 }
 
+async function extractRouterSources(
+  context: LocalApiContext,
+  input: z.infer<typeof routerMessageCreateSchema>,
+  message: RouterMessageRecord,
+): Promise<RouterExtractedSource[]> {
+  const sources: RouterExtractedSource[] = [];
+  if (message.text) {
+    sources.push({
+      id: "chat_text",
+      kind: "chat_text",
+      text: message.text,
+    });
+  }
+
+  const urls = extractUrls(message.text ?? "");
+  sources.push(...await context.retrieveUrlContents({
+    urls,
+    dryRun: input.dryRun,
+  }));
+
+  for (const attachment of input.attachments) {
+    sources.push(attachmentSource(attachment));
+  }
+
+  return sources;
+}
+
+function attachmentSource(attachment: RouterAttachmentRecord): RouterExtractedSource {
+  if (attachment.mimeType === "application/pdf") {
+    return {
+      id: attachment.id,
+      kind: "pdf",
+      ref: attachment.id,
+      text: `PDF attachment preserved for extraction: ${attachment.name}`,
+    };
+  }
+
+  if (attachment.mimeType.startsWith("image/")) {
+    return {
+      id: attachment.id,
+      kind: "image",
+      ref: attachment.id,
+      text: `Image attachment preserved for extraction: ${attachment.name}`,
+    };
+  }
+
+  return {
+    id: attachment.id,
+    kind: "chat_text",
+    ref: attachment.id,
+    text: `Attachment preserved for extraction: ${attachment.name}`,
+  };
+}
+
+async function defaultRetrieveUrlContents(
+  input: RouterUrlRetrieveInput,
+): Promise<RouterExtractedSource[]> {
+  if (input.urls.length === 0) return [];
+  if (input.dryRun || !process.env.EXA_API_KEY) {
+    return input.urls.map((url, index) => ({
+      id: `webpage_${index + 1}`,
+      kind: "webpage" as const,
+      ref: url,
+      text: url,
+    }));
+  }
+
+  const response = await new ExaApi().contents({
+    urls: input.urls,
+    maxCharacters: 6000,
+  });
+
+  return response.results.map((result, index) => ({
+    id: result.id ?? `webpage_${index + 1}`,
+    kind: "webpage" as const,
+    ref: result.url,
+    text: result.text ?? result.summary ?? result.highlights?.join("\n") ?? result.url,
+  }));
+}
+
+function extractUrls(text: string): string[] {
+  return [...new Set(text.match(/https?:\/\/[^\s)]+/g) ?? [])].map((url) =>
+    url.replace(/[.,;:!?]+$/, ""),
+  );
+}
+
+function routeToBranches(
+  messageText: string,
+  sources: RouterExtractedSource[],
+  branches: BranchRecord[],
+): string[] {
+  const submittedText = normalizeText([
+    messageText,
+    ...sources.map((source) => source.text),
+  ].join(" "));
+  if (!submittedText) return [];
+
+  return branches
+    .filter((branch) => branch.enabled)
+    .filter((branch) => branchMatchesText(branch, submittedText))
+    .map((branch) => branch.id);
+}
+
+function branchMatchesText(branch: BranchRecord, submittedText: string): boolean {
+  const branchText = branchInventoryText(branch);
+  const branchTokens = meaningfulTokens(branchText);
+  const submittedTokens = meaningfulTokens(submittedText);
+  const tokenOverlap = [...branchTokens].filter((token) =>
+    submittedTokens.has(token),
+  ).length;
+  const assetMatch = (branch.config?.assets ?? []).some((asset) =>
+    submittedText.includes(normalizeText(asset)),
+  );
+  const idMatch = submittedText.includes(normalizeText(branch.id));
+  return idMatch || assetMatch || tokenOverlap >= 2;
+}
+
+function branchInventoryText(branch: BranchRecord): string {
+  return normalizeText([
+    branch.id,
+    branch.name,
+    branch.description,
+    JSON.stringify(branch.law ?? {}),
+    (branch.config?.assets ?? []).join(" "),
+  ].join(" "));
+}
+
+function meaningfulTokens(text: string): Set<string> {
+  const ignored = new Set([
+    "and",
+    "for",
+    "the",
+    "this",
+    "that",
+    "with",
+    "from",
+    "branch",
+    "law",
+    "watch",
+    "watches",
+  ]);
+  return new Set(
+    normalizeText(text)
+      .split(/\s+/)
+      .filter((token) => token.length > 2 && !ignored.has(token)),
+  );
+}
+
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function routerResponse(branchIds: string[], sources: RouterExtractedSource[]): string {
+  if (branchIds.length === 0) {
+    return "Thanks. I read it, but I did not send it to any branch. It does not match the current branch laws closely enough.";
+  }
+
+  const sourceKinds = [...new Set(sources.map((source) => source.kind))].join(", ");
+  return [
+    "Thanks. I sent this to:",
+    ...branchIds.map((branchId) => `- ${branchId}`),
+    "",
+    `I used the submitted ${sourceKinds || "message"} and woke the heartbeat agent for each selected branch.`,
+  ].join("\n");
+}
+
 function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
   if (!input.dryRun) {
     throw new Error("Agent pipeline debate is not configured for this local API process.");
@@ -1011,6 +1329,12 @@ function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResu
       { type: "debate.judge.summary", payload: { decision: "needs_review" } },
     ],
   });
+}
+
+function getFailedRunFromError(error: unknown): RunRecord | undefined {
+  return error instanceof Error && isJsonRecord(error.cause)
+    ? error.cause as RunRecord
+    : undefined;
 }
 
 function branchRunContext(branch: BranchRecord): JsonRecord {
@@ -1091,6 +1415,10 @@ type Route =
   | { name: "updateBranch"; params: { branchId: string } }
   | { name: "deleteBranch"; params: { branchId: string } }
   | { name: "listRuns"; params: Record<string, never> }
+  | { name: "listRouterChats"; params: Record<string, never> }
+  | { name: "createRouterChat"; params: Record<string, never> }
+  | { name: "listRouterMessages"; params: { chatId: string } }
+  | { name: "createRouterMessage"; params: { chatId: string } }
   | { name: "getRun"; params: { runId: string } }
   | { name: "listRunEvents"; params: { runId: string } }
   | { name: "triggerHeartbeat"; params: { branchId: string } }
@@ -1121,6 +1449,14 @@ function matchRoute(method: string, pathname: string): Route | undefined {
     return { name: "submitPaperTradeIntent", params: { tradeIntentId: segments[1] } };
   }
   if (method === "GET" && pathname === "/broker-orders") return { name: "listBrokerOrders", params: {} };
+  if (segments.length === 2 && segments[0] === "router" && segments[1] === "chats") {
+    if (method === "GET") return { name: "listRouterChats", params: {} };
+    if (method === "POST") return { name: "createRouterChat", params: {} };
+  }
+  if (segments.length === 4 && segments[0] === "router" && segments[1] === "chats" && segments[3] === "messages") {
+    if (method === "GET") return { name: "listRouterMessages", params: { chatId: segments[2] } };
+    if (method === "POST") return { name: "createRouterMessage", params: { chatId: segments[2] } };
+  }
   if (segments.length === 1 && segments[0] === "branches") {
     if (method === "GET") return { name: "listBranches", params: {} };
     if (method === "POST") return { name: "createBranch", params: {} };

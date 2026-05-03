@@ -131,6 +131,66 @@ describe("local API handler", () => {
     expect(response.body.run.output.decision).toBe("needs_review");
   });
 
+  it("routes chat text to matching branches and wakes their heartbeat agents", async () => {
+    const heartbeatPayloads: unknown[] = [];
+    const { requestJson } = makeClient({
+      runHeartbeat: async ({ branchId, dryRun, payload }) => {
+        heartbeatPayloads.push({ branchId, payload });
+        return {
+          output: {
+            branchId,
+            decision: "monitor",
+            dryRun,
+            summary: `Router woke ${branchId}.`,
+          },
+          events: [
+            { type: "heartbeat.seeded", payload },
+            { type: "heartbeat.decision", payload: { decision: "monitor" } },
+          ],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_contracts",
+      name: "PLTR contracts",
+      description: "Palantir government contracts",
+      config: { assets: ["PLTR"] },
+      law: { thesis: "Watch for new Palantir government deals." },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_unrelated",
+      name: "Semiconductor supply chain",
+      config: { assets: ["NVDA"] },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+
+    const response = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR signed a new government contract according to this note.",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.run).toMatchObject({
+      kind: "router",
+      status: "succeeded",
+    });
+    expect(response.body.run.output.branchIds).toEqual(["branch_pltr_contracts"]);
+    expect(response.body.heartbeatRuns).toHaveLength(1);
+    expect(heartbeatPayloads).toHaveLength(1);
+    expect(heartbeatPayloads[0]).toMatchObject({
+      branchId: "branch_pltr_contracts",
+      payload: {
+        origin: "router",
+        messageText: "PLTR signed a new government contract according to this note.",
+      },
+    });
+
+    const messages = await requestJson("GET", `/router/chats/${chat.body.chat.id}/messages`);
+    expect(messages.body.messages.map((message: { role: string }) => message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+  });
+
   it("appends human interjections to run events", async () => {
     const { requestJson } = makeClient();
     const debate = await requestJson("POST", "/debates", {
@@ -536,19 +596,20 @@ describe("local API handler", () => {
 
 function makeClient(options: {
   store?: MemoryKairosStore | SupabaseKairosStore;
+  runHeartbeat?: LocalApiContext["runHeartbeat"];
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
 } = {}) {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
     store,
-    runHeartbeat: async ({ branchId, dryRun, payload }) => ({
+    runHeartbeat: options.runHeartbeat ?? (async ({ branchId, dryRun, payload }) => ({
       output: { branchId, decision: "monitor", dryRun },
       events: [
         { type: "heartbeat.seeded", payload },
         { type: "heartbeat.decision", payload: { decision: "monitor" } },
       ],
-    }),
+    })),
     createDebate: async ({ dryRun, payload }) => ({
       output: { decision: "needs_review", dryRun },
       events: [
@@ -556,6 +617,13 @@ function makeClient(options: {
         { type: "debate.judge.summary", payload: { decision: "needs_review" } },
       ],
     }),
+    retrieveUrlContents: async ({ urls }) =>
+      urls.map((url, index) => ({
+        id: `webpage_${index + 1}`,
+        kind: "webpage",
+        ref: url,
+        text: url,
+      })),
     tradingBroker: options.tradingBroker,
     notificationSender: options.notificationSender,
   };
