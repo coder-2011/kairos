@@ -299,7 +299,8 @@ export function App() {
 
         if (cancelled) return;
         setBranches(apiBranches);
-        setRuns(apiRuns);
+        const sortedRuns = sortRunsByCreatedAt(apiRuns);
+        setRuns(sortedRuns);
         const route = readRouteFromHash();
         setSelectedBranchId(
           route.branchId && apiBranches.some((branch) => branch.id === route.branchId)
@@ -307,11 +308,11 @@ export function App() {
             : apiBranches[0]?.id ?? "",
         );
         setSelectedRunId((current) => {
-          const routeRunId = route.runId && apiRuns.some((run) => run.id === route.runId)
+          const routeRunId = route.runId && sortedRuns.some((run) => run.id === route.runId)
             ? route.runId
             : undefined;
           if (routeRunId) return routeRunId;
-          return current && apiRuns.some((run) => run.id === current) ? current : "";
+          return current && sortedRuns.some((run) => run.id === current) ? current : "";
         });
         setLoadState("api");
       } catch {
@@ -391,6 +392,18 @@ export function App() {
       cancelled = true;
     };
   }, [loadState, selectedRun?.id]);
+
+  useEffect(() => {
+    if (
+      loadState === "api" &&
+      (view === "monitoring" || view === "runDeepDive") &&
+      !selectedRunId &&
+      runs[0]?.id
+    ) {
+      setSelectedRunId(runs[0].id);
+      window.history.replaceState(null, "", routeHash({ view, runId: runs[0].id }));
+    }
+  }, [loadState, runs, selectedRunId, view]);
 
   useEffect(() => {
     if (view !== "portfolio") return;
@@ -558,11 +571,13 @@ export function App() {
     }
   }
 
-  async function injectHumanContext(message: string) {
+  async function injectHumanContext(message: string, metadata?: JsonRecord) {
     if (!selectedRun?.id || !message.trim()) return;
 
     try {
-      const event = await appendInterjection(selectedRun.id, message.trim());
+      const event = await appendInterjection(selectedRun.id, message.trim(), {
+        metadata,
+      });
       setEvents((current) => [...current, event]);
       setLoadState("api");
     } catch {
@@ -674,12 +689,18 @@ export function App() {
         )}
         {view === "monitoring" && (
           <MonitoringView
+            branches={branches}
             events={events}
             onInject={injectHumanContext}
+            onSelectRun={(runId) => navigate("monitoring", { runId })}
             onStartDebateFromEscalation={(branchId, escalation) =>
-              void startDebate(branchId, escalation)
+              void startDebate(branchId, {
+                ...escalation,
+                ...(selectedRun?.id ? { sourceRunId: selectedRun.id } : {}),
+              })
             }
             run={selectedRun}
+            runs={runs}
           />
         )}
         {view === "portfolio" && (
@@ -1091,22 +1112,52 @@ function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
 }
 
 function MonitoringView({
+  branches,
   events,
+  onSelectRun,
   onStartDebateFromEscalation,
   run,
+  runs,
   onInject,
 }: {
+  branches: BranchRecord[];
   events: RunEventRecord[];
+  onSelectRun: (runId: string) => void;
   run?: RunRecord;
+  runs: RunRecord[];
   onStartDebateFromEscalation: (branchId: string, escalation: JsonRecord) => void;
-  onInject: (message: string) => void;
+  onInject: (message: string, metadata?: JsonRecord) => void;
 }) {
   const [message, setMessage] = useState("");
   const [showEvidence, setShowEvidence] = useState(true);
   const heartbeatEscalation = getHeartbeatEscalation(run);
+  const runSummary = run ? summarizeRun(run, branches.find((branch) => branch.id === run.branchId)) : undefined;
+  const branchName = run ? selectedBranchName(branches, run.branchId) : undefined;
   const transcriptEvents = events.filter(
     (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
+  const monitoringPayload = {
+    run,
+    events,
+    exportedAt: new Date().toISOString(),
+  };
+
+  function injectFeedback(label: "wrong" | "stale" | "useful") {
+    onInject(`Feedback: marked this run as ${label}.`, {
+      feedback: label,
+      source: "monitoring_decision_control",
+    });
+  }
+
+  async function exportRun() {
+    if (!run) return;
+    await navigator.clipboard?.writeText(JSON.stringify(monitoringPayload, null, 2));
+    onInject("Exported run packet from Monitoring.", {
+      source: "monitoring_export",
+      exportedRunId: run.id,
+      eventCount: events.length,
+    });
+  }
 
   return (
     <main className={`split-canvas ${showEvidence ? "" : "evidence-closed"}`}>
@@ -1116,11 +1167,42 @@ function MonitoringView({
           meta={run ? run.status.toUpperCase() : ""}
           title="EVENTS"
         />
+        <div className="monitoring-run-strip">
+          <div className="section-title">RECENT RUNS <b>{runs.length}</b></div>
+          {runs.length === 0 ? (
+            <EmptyPanel
+              icon="history"
+              message="Run a heartbeat or debate to populate Monitoring."
+              title="No Runs"
+            />
+          ) : (
+            <div className="monitoring-run-list">
+              {runs.slice(0, 8).map((item) => (
+                <button
+                  className={`monitoring-run-item ${item.id === run?.id ? "active" : ""} ${item.status}`}
+                  key={item.id}
+                  onClick={() => onSelectRun(item.id)}
+                  type="button"
+                >
+                  <span>{item.kind}</span>
+                  <b>{summarizeRun(item).outcome}</b>
+                  <small>{selectedBranchName(branches, item.branchId) ?? item.branchId ?? "No branch"} · {timeOnly(item.createdAt)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="timeline-scroll">
-          {events.length === 0 ? (
+          {!run ? (
+            <EmptyPanel
+              icon="touch_app"
+              message="Select a run to inspect its timeline."
+              title="No Run Selected"
+            />
+          ) : events.length === 0 ? (
             <EmptyPanel
               icon="stream"
-              message="No events yet."
+              message="This run has no event records yet. The run summary still appears in the center pane."
               title="No Run Events"
             />
           ) : (
@@ -1140,11 +1222,19 @@ function MonitoringView({
           actionIcon={showEvidence ? undefined : "database"}
           actionIconLabel="Show evidence"
           onActionIconClick={() => setShowEvidence(true)}
+          onActionClick={() => void exportRun()}
           icon="forum"
-          meta=""
-          title="DEBATE"
+          meta={branchName ?? runSummary?.branchLabel ?? ""}
+          title={run ? "RUN MONITOR" : "MONITORING"}
         />
         <div className="transcript-scroll">
+          {run && runSummary && (
+            <RunOverviewPanel
+              eventCount={events.length}
+              run={run}
+              summary={runSummary}
+            />
+          )}
           {run?.kind === "heartbeat" && (
             <HeartbeatHandoffPanel
               escalation={heartbeatEscalation}
@@ -1188,6 +1278,7 @@ function MonitoringView({
                 void onInject(message);
                 setMessage("");
               }}
+              disabled={!run || !message.trim()}
               type="button"
             >
               INJECT
@@ -1196,14 +1287,26 @@ function MonitoringView({
           <div className="decision-row">
             <span>DECISION CONTROL</span>
             <div>
-              <button className="command-button compact" type="button">
+              <button
+                className="command-button compact"
+                disabled={!run}
+                onClick={() => injectFeedback("wrong")}
+                type="button"
+              >
                 <Icon name="thumb_down" /> WRONG
               </button>
-              <button className="command-button compact" type="button">
+              <button
+                className="command-button compact"
+                disabled={!run}
+                onClick={() => injectFeedback("stale")}
+                type="button"
+              >
                 <Icon name="update" /> STALE
               </button>
               <button
                 className="command-button compact primary-outline"
+                disabled={!run}
+                onClick={() => injectFeedback("useful")}
                 type="button"
               >
                 <Icon name="thumb_up" /> USEFUL
@@ -1262,6 +1365,34 @@ function HeartbeatHandoffPanel({
           debate handoff.
         </small>
       )}
+    </article>
+  );
+}
+
+function RunOverviewPanel({
+  eventCount,
+  run,
+  summary,
+}: {
+  eventCount: number;
+  run: RunRecord;
+  summary: ReturnType<typeof summarizeRun>;
+}) {
+  return (
+    <article className={`monitoring-overview ${run.status}`}>
+      <div className="monitoring-overview-head">
+        <span>
+          <Icon name={run.status === "failed" ? "error" : run.kind === "debate" ? "forum" : "monitor_heart"} />
+          {run.kind.toUpperCase()} RUN
+        </span>
+        <b>{run.status}</b>
+      </div>
+      <p>{summary.outcome}</p>
+      <div className="monitoring-facts">
+        <RunFact label="Branch" value={summary.branchLabel} />
+        <RunFact label="Events" value={String(eventCount)} />
+        <RunFact label="Updated" value={formatDateTime(run.updatedAt)} />
+      </div>
     </article>
   );
 }
@@ -2537,7 +2668,24 @@ function EvidencePane({
       event.type.includes("source") ||
       event.type.includes("evidence"),
   );
-  const snapshot = selectedEvidence?.payload;
+  const snapshot =
+    selectedEvidence?.payload ??
+    (run?.output
+      ? {
+          kind: "run_output",
+          output: run.output,
+          input: run.input,
+        }
+      : run?.input
+        ? {
+            kind: "run_input",
+            input: run.input,
+          }
+        : undefined);
+  const sourceTitle =
+    selectedEvidence?.id ??
+    (run ? `${run.kind} ${run.id.slice(0, 8)}` : "RUN PAYLOAD");
+  const sourceType = selectedEvidence?.type ?? (run?.output ? "run.output" : run?.kind ?? "record");
 
   return (
     <section className="evidence pane medium">
@@ -2554,15 +2702,15 @@ function EvidencePane({
           <EmptyPanel
             icon="database"
             title="No Evidence"
-            message="No evidence yet."
+            message="Select a run to inspect its output, input, or tool evidence."
           />
         ) : (
           <>
             <div className="source-card">
               <div className="field-label">SOURCE</div>
-              <h1>{selectedEvidence?.id ?? run?.id ?? "RUN PAYLOAD"}</h1>
+              <h1>{sourceTitle}</h1>
               <div className="source-tags">
-                <span>{selectedEvidence?.type ?? run?.kind ?? "record"}</span>
+                <span>{sourceType}</span>
                 <span>{run?.status ?? "loaded"}</span>
               </div>
             </div>
@@ -2714,6 +2862,7 @@ function PaneHeader({
   action,
   actionIcon,
   actionIconLabel,
+  onActionClick,
   onActionIconClick,
 }: {
   icon?: string;
@@ -2722,6 +2871,7 @@ function PaneHeader({
   action?: string;
   actionIcon?: string;
   actionIconLabel?: string;
+  onActionClick?: () => void;
   onActionIconClick?: () => void;
 }) {
   return (
@@ -2730,7 +2880,16 @@ function PaneHeader({
         <h2>{icon && <Icon name={icon} />} {title}</h2>
         {meta && <div>{meta}</div>}
       </div>
-      {action && <button className="command-button compact" type="button">{action}</button>}
+      {action && (
+        <button
+          className="command-button compact"
+          disabled={!onActionClick}
+          onClick={onActionClick}
+          type="button"
+        >
+          {action}
+        </button>
+      )}
       {actionIcon && (
         <IconButton
           icon={actionIcon}
@@ -2876,6 +3035,14 @@ function nextBranchName(branches: BranchRecord[]): string {
   }
 
   return name;
+}
+
+function sortRunsByCreatedAt(runs: RunRecord[]): RunRecord[] {
+  return [...runs].sort(
+    (left, right) =>
+      Date.parse(right.createdAt) - Date.parse(left.createdAt) ||
+      right.id.localeCompare(left.id),
+  );
 }
 
 function defaultBranchConfig(): WebBranchConfig {

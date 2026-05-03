@@ -333,10 +333,18 @@ export async function createDebate(input: {
 export async function appendInterjection(
   runId: string,
   message: string,
+  input: {
+    author?: string;
+    metadata?: JsonRecord;
+  } = {},
 ): Promise<RunEventRecord> {
   return request<{ event: RunEventRecord }>(`/runs/${runId}/interjections`, {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      author: input.author,
+      message,
+      metadata: input.metadata,
+    }),
   }).then((response) => response.event);
 }
 
