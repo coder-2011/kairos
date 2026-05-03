@@ -1,0 +1,10 @@
+{
+  "steps": [],
+  "findings": [
+    {
+      "area": "qa-script",
+      "severity": "high",
+      "detail": "page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5175/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:5175/\", waiting until \"domcontentloaded\"\u001b[22m\n\n    at /Users/namanchetwani/Projects/kairos/[eval1]:48:14"
+    }
+  ]
+}

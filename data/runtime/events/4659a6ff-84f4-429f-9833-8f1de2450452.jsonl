@@ -1,2 +1,0 @@
-{"eventId":"55fc6c70-d131-4b09-a9f5-9b870d94267a","runId":"4659a6ff-84f4-429f-9833-8f1de2450452","timestamp":"2026-05-03T23:02:29.478Z","scope":"run","type":"run.started","actor":"local-api","payload":{"kind":"debate"},"branchId":"branch_moqc11cu"}
-{"eventId":"295966ee-49ae-4e49-8b00-2151a6209479","runId":"4659a6ff-84f4-429f-9833-8f1de2450452","timestamp":"2026-05-03T23:02:29.495Z","scope":"run","type":"run.failed","actor":"local-api","payload":{"error":"Agent pipeline debate is not configured for this local API process."},"branchId":"branch_moqc11cu"}
