@@ -263,14 +263,14 @@ export function App() {
             onCreate={() => setView("config")}
           />
         )}
-        {view === "monitoring" && (
+        {view === "debate" && (
           <DebateView
             events={events}
             run={selectedRun}
             onInject={injectHumanContext}
           />
         )}
-        {view === "runDeepDive" && (
+        {view === "detail" && (
           <RunDeepDive
             branches={branches}
             events={events}
@@ -282,7 +282,9 @@ export function App() {
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
-            onDryRun={() => void runDryHeartbeat(selectedBranch.id)}
+            runMode={runMode}
+            onRunModeChange={setRunMode}
+            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
             onEscalate={() => void startDebate(selectedBranch.id)}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
@@ -296,7 +298,7 @@ export function App() {
             message="Select a branch from Branch List. Branch Configuration is where laws and branch-agent settings are edited."
           />
         )}
-        <Footer active={view === "monitoring" ? "human" : view === "runDeepDive" ? "manual" : "dry"} />
+        <Footer active={view === "debate" ? "human" : view === "detail" ? "manual" : "dry"} />
       </div>
     </div>
   );
@@ -699,9 +701,17 @@ function DraftLaw({ onCompile }: { onCompile: () => void }) {
 
 function BranchConfig({
   branch,
+  runMode,
+  onRunModeChange,
+  onRunHeartbeat,
+  onEscalate,
   onSave,
 }: {
   branch: BranchRecord;
+  runMode: RunMode;
+  onRunModeChange: (mode: RunMode) => void;
+  onRunHeartbeat: () => void;
+  onEscalate: () => void;
   onSave: (config: KairosBranchAgentConfig) => void;
 }) {
   const [config, setConfig] = useState<KairosBranchAgentConfig>(() =>
@@ -728,6 +738,23 @@ function BranchConfig({
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
+          <RunModeSwitch value={runMode} onChange={onRunModeChange} />
+          <button
+            className="command-button"
+            onClick={onRunHeartbeat}
+            type="button"
+          >
+            <Icon name="play_arrow" />
+            {runMode === "dry" ? "DRY HEARTBEAT" : "LIVE HEARTBEAT"}
+          </button>
+          <button
+            className="command-button primary-outline"
+            onClick={onEscalate}
+            type="button"
+          >
+            <Icon name="warning" />
+            {runMode === "dry" ? "DRY ESCALATION" : "LIVE ESCALATION"}
+          </button>
           <button
             className="command-button"
             onClick={() => setConfig(normalizeBranchConfig(branch))}
