@@ -614,7 +614,7 @@ describe("local API handler", () => {
         new Request(`${baseUrl}/branches/branch_runtime/heartbeat-runs`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ dryRun: false, input: { source: "test" } }),
+          body: JSON.stringify({ input: { source: "test" } }),
         }),
       );
 
