@@ -25,6 +25,7 @@
   --on-error-container: #93000a;
   --success: #15803d;
   --success-soft: #f0fdf4;
+  --success-tint: #f7fdf8;
   --success-border: #bbf7d0;
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -60,6 +61,7 @@
   --on-error-container: #ffd8d3;
   --success: #9bd79f;
   --success-soft: #17331e;
+  --success-tint: #18231a;
   --success-border: #31583a;
 }
 
@@ -676,6 +678,12 @@ a {
   color: var(--on-primary);
 }
 
+.command-button.danger-outline:hover {
+  background: var(--error-container);
+  border-color: var(--error);
+  color: var(--on-error-container);
+}
+
 .command-button.compact {
   min-height: 24px;
   padding: 4px 8px;
@@ -956,8 +964,8 @@ select:focus {
 
 .portfolio-safety-strip {
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--outline-variant);
+  background: var(--success-tint);
+  border: 1px solid color-mix(in srgb, var(--success-border) 60%, var(--outline-variant));
   border-radius: var(--radius-md);
   color: var(--on-variant);
   display: flex;
@@ -1124,6 +1132,11 @@ select:focus {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
+.run-list-item.failed {
+  border-color: rgba(186, 26, 26, 0.35);
+  box-shadow: inset 3px 0 0 var(--error);
+}
+
 .run-list-item span,
 .run-list-item b,
 .run-list-item small {
@@ -1150,6 +1163,17 @@ select:focus {
   font-style: normal;
 }
 
+.run-list-item p {
+  color: var(--on-variant);
+  display: -webkit-box;
+  font-size: 11px;
+  line-height: 15px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .run-deep-grid {
   display: grid;
   gap: 12px;
@@ -1163,8 +1187,121 @@ select:focus {
   min-width: 0;
 }
 
+.trace-section,
+.raw-details {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
 .trace-section.full {
   grid-column: 1 / -1;
+}
+
+.run-summary-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.run-fact {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  padding: 10px;
+}
+
+.run-fact span,
+.run-fact b,
+.raw-details summary {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.run-fact span {
+  color: var(--on-variant);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.run-fact b {
+  color: var(--on-surface);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-fact.danger b {
+  color: var(--error);
+}
+
+.run-outcome {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.run-outcome.danger {
+  background: var(--error-container);
+  border-color: rgba(186, 26, 26, 0.22);
+  color: var(--on-error-container);
+}
+
+.run-outcome b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.run-outcome p {
+  font-size: 13px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.run-field-list {
+  margin-bottom: 12px;
+}
+
+.run-field-list .alignment-row b {
+  max-width: 58%;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-details {
+  padding: 0;
+}
+
+.raw-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  padding: 10px 12px;
+}
+
+.raw-details .json-block,
+.raw-details .event-json {
+  border: 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  margin: 0;
+}
+
+.raw-details.compact {
+  background: transparent;
+  margin-top: 10px;
 }
 
 .trace-event-list {
@@ -1485,6 +1622,20 @@ select:focus {
   background: rgba(218, 226, 253, 0.28);
   border-color: var(--primary);
   margin-left: 32px;
+}
+
+.agent-card.event-card {
+  background: var(--surface);
+  border-left: 3px solid var(--primary);
+}
+
+.agent-card.event-card.danger {
+  border-color: rgba(186, 26, 26, 0.25);
+  border-left-color: var(--error);
+}
+
+.agent-card.event-card.danger .agent-card-head span {
+  color: var(--error);
 }
 
 .agent-card-head {
@@ -1935,36 +2086,6 @@ select:focus {
 
 .editor-canvas {
   grid-template-columns: minmax(0, 1fr) 320px;
-}
-
-.run-mode-switch {
-  align-items: center;
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-sm);
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(48px, 1fr));
-  min-height: 28px;
-  padding: 2px;
-}
-
-.run-mode-switch button {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--on-variant);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  min-height: 22px;
-  padding: 3px 8px;
-}
-
-.run-mode-switch button.active {
-  background: var(--surface);
-  border-color: var(--outline-variant);
-  color: var(--on-surface);
 }
 
 .editor-body,
