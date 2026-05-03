@@ -20,6 +20,7 @@
     "exa-js": "^2.12.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "twilio": "^6.0.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
