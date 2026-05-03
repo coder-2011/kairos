@@ -2171,7 +2171,24 @@ select:focus {
 
 @media (max-width: 760px) {
   .side-nav {
+    display: flex;
+    flex-basis: 52px;
+  }
+
+  .brand-block,
+  .operator-block {
     display: none;
+  }
+
+  .nav-list {
+    padding: 6px;
+  }
+
+  .nav-item,
+  .theme-toggle,
+  .premium-access-button {
+    min-height: 36px;
+    padding: 8px;
   }
 
   .top-bar {
@@ -2226,6 +2243,22 @@ select:focus {
   .portfolio-canvas {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .portfolio-main,
+  .portfolio-side {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .portfolio-scroll {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .compact-panel {
+    overflow-x: auto;
   }
 
   .portfolio-metrics,
