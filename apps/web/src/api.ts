@@ -5,13 +5,14 @@ import type {
 } from "../../../src/global/agent-config.js";
 
 export type JsonRecord = Record<string, unknown>;
-export type TradingMode = "disabled" | "paper";
+export type TradingMode = "disabled" | "enabled" | "paper";
 export type AllowedOrderType = "market" | "limit";
 
 export type BranchTradingConfig = {
   mode?: TradingMode;
   symbol?: string;
   symbols?: string[];
+  autoTradeEnabled?: boolean;
   paperAutoBuyEnabled?: boolean;
   notifyOnBuySignal?: boolean;
   maxNotionalPerOrder?: number;

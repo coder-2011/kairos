@@ -15,9 +15,11 @@ export type PermittedTradingAction =
 export type ThresholdPolicyResult = {
   confidenceScore: number;
   notifyThreshold: number;
+  tradeThreshold: number;
   paperThreshold: number;
   thresholdResult: ThresholdActionResult;
   permittedAction: PermittedTradingAction;
+  autoTradeEnabled: boolean;
   paperAutoTradeEnabled: boolean;
   paperAutoBuyEnabled: boolean;
   rationale: string;
@@ -43,7 +45,9 @@ export function evaluateTradingThresholdPolicy(
     branchConfig?.trading?.notifyConfidenceThreshold ??
     input.branchConfig?.thresholds?.notifyConfidence ??
     DEFAULT_NOTIFY_THRESHOLD;
-  const paperThreshold =
+  const tradeThreshold =
+    input.tradingConfig?.tradeConfidenceThreshold ??
+    branchConfig?.trading?.tradeConfidenceThreshold ??
     input.tradingConfig?.paperTradeConfidenceThreshold ??
     branchConfig?.trading?.paperTradeConfidenceThreshold ??
     input.branchConfig?.thresholds?.paperTradeDraftConfidence ??
@@ -53,7 +57,9 @@ export function evaluateTradingThresholdPolicy(
     input.tradingConfig?.mode ??
     branchConfig?.trading?.mode ??
     "disabled";
-  const paperAutoTradeEnabled =
+  const autoTradeEnabled =
+    input.tradingConfig?.autoTradeEnabled ??
+    branchConfig?.trading?.autoTradeEnabled ??
     input.tradingConfig?.paperAutoBuyEnabled ??
     branchConfig?.trading?.paperAutoBuyEnabled ??
     false;
@@ -62,31 +68,35 @@ export function evaluateTradingThresholdPolicy(
     branchConfig?.trading?.notifyOnBuySignal ??
     true;
 
-  if (input.confidence >= paperThreshold) {
-    if (tradingMode !== "paper") {
+  if (input.confidence >= tradeThreshold) {
+    if (tradingMode !== "enabled" && tradingMode !== "paper") {
       return {
         confidenceScore: input.confidence,
         notifyThreshold,
-        paperThreshold,
+        tradeThreshold,
+        paperThreshold: tradeThreshold,
         thresholdResult: "paper_trade_candidate",
         permittedAction: notifyOnTradeSignal ? "message_human" : "record_only",
+        autoTradeEnabled: false,
         paperAutoTradeEnabled: false,
         paperAutoBuyEnabled: false,
-        rationale: "Confidence crossed the paper threshold, but paper trading is disabled.",
+        rationale: "Confidence crossed the trading threshold, but trading is disabled.",
       };
     }
 
     return {
       confidenceScore: input.confidence,
       notifyThreshold,
-      paperThreshold,
+      tradeThreshold,
+      paperThreshold: tradeThreshold,
       thresholdResult: "paper_trade_candidate",
-      permittedAction: paperAutoTradeEnabled ? "paper_order" : "paper_trade_intent",
-      paperAutoTradeEnabled,
-      paperAutoBuyEnabled: paperAutoTradeEnabled,
-      rationale: paperAutoTradeEnabled
-        ? "Confidence crossed the paper threshold and branch trading config allows paper auto-trading."
-        : "Confidence crossed the paper threshold, but paper auto-trading is disabled.",
+      permittedAction: autoTradeEnabled ? "paper_order" : "paper_trade_intent",
+      autoTradeEnabled,
+      paperAutoTradeEnabled: autoTradeEnabled,
+      paperAutoBuyEnabled: autoTradeEnabled,
+      rationale: autoTradeEnabled
+        ? "Confidence crossed the trading threshold and branch trading config allows auto-submit."
+        : "Confidence crossed the trading threshold, but auto-submit is disabled.",
     };
   }
 
@@ -94,13 +104,15 @@ export function evaluateTradingThresholdPolicy(
     return {
       confidenceScore: input.confidence,
       notifyThreshold,
-      paperThreshold,
+      tradeThreshold,
+      paperThreshold: tradeThreshold,
       thresholdResult: "message_human",
       permittedAction: notifyOnTradeSignal ? "message_human" : "record_only",
-      paperAutoTradeEnabled,
-      paperAutoBuyEnabled: paperAutoTradeEnabled,
+      autoTradeEnabled,
+      paperAutoTradeEnabled: autoTradeEnabled,
+      paperAutoBuyEnabled: autoTradeEnabled,
       rationale: notifyOnTradeSignal
-        ? "Confidence crossed the notify threshold but stayed below the paper threshold."
+        ? "Confidence crossed the notify threshold but stayed below the trading threshold."
         : "Confidence crossed the notify threshold, but branch notifications are disabled.",
     };
   }
@@ -108,11 +120,13 @@ export function evaluateTradingThresholdPolicy(
   return {
     confidenceScore: input.confidence,
     notifyThreshold,
-    paperThreshold,
+    tradeThreshold,
+    paperThreshold: tradeThreshold,
     thresholdResult: "below_thresholds",
     permittedAction: "record_only",
-    paperAutoTradeEnabled,
-    paperAutoBuyEnabled: paperAutoTradeEnabled,
+    autoTradeEnabled,
+    paperAutoTradeEnabled: autoTradeEnabled,
+    paperAutoBuyEnabled: autoTradeEnabled,
     rationale: "Confidence stayed below configured action thresholds.",
   };
 }

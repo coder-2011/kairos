@@ -39,9 +39,10 @@ export const brokerOrderStatusSchema = z.enum([
 
 export const tradingConfigSchema = z
   .object({
-    mode: z.enum(["disabled", "paper"]).optional(),
+    mode: z.enum(["disabled", "enabled", "paper"]).optional(),
     symbol: z.string().min(1).optional(),
     symbols: z.array(z.string().min(1)).optional(),
+    autoTradeEnabled: z.boolean().optional(),
     paperAutoBuyEnabled: z.boolean().optional(),
     notifyOnBuySignal: z.boolean().optional(),
     maxNotionalPerOrder: moneySchema.optional(),
@@ -49,6 +50,7 @@ export const tradingConfigSchema = z
     allowedOrderType: brokerOrderTypeSchema.optional(),
     allowQueuedOrdersWhenMarketClosed: z.boolean().optional(),
     notifyConfidenceThreshold: confidenceSchema.optional(),
+    tradeConfidenceThreshold: confidenceSchema.optional(),
     paperTradeConfidenceThreshold: confidenceSchema.optional(),
     maxNotionalUsd: moneySchema.optional(),
     defaultOrderType: brokerOrderTypeSchema.optional(),
