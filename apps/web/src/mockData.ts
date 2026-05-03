@@ -17,9 +17,22 @@ export const fallbackBranches: BranchRecord[] = [
     },
     config: {
       assets: ["PLTR"],
-      heartbeat: "5m",
-      seedWindowDays: 30,
+      heartbeat: { intervalMinutes: 5, seedWindowDays: 30, maxToolSteps: 3 },
       riskLevel: "medium",
+      tools: {
+        information: {
+          exa_search: { enabled: true },
+          exa_research: { enabled: true },
+          exa_contents: { enabled: true },
+          finnhub_company_news: { enabled: true },
+          finnhub_filings: { enabled: true },
+          supermemory_search: { enabled: true },
+        },
+      },
+      thresholds: {
+        notifyConfidence: 0.75,
+        buyConfidence: 0.9,
+      },
     },
     metadata: {
       lastRun: "14:22:01.004Z",
@@ -36,7 +49,11 @@ export const fallbackBranches: BranchRecord[] = [
     enabled: true,
     createdAt: now,
     updatedAt: now,
-    config: { assets: ["NVDA"], heartbeat: "5m", riskLevel: "high" },
+    config: {
+      assets: ["NVDA"],
+      heartbeat: { intervalMinutes: 5, seedWindowDays: 30, maxToolSteps: 3 },
+      riskLevel: "high",
+    },
     metadata: {
       lastRun: "14:21:45.992Z",
       heartbeatMs: 500,
@@ -52,7 +69,11 @@ export const fallbackBranches: BranchRecord[] = [
     enabled: true,
     createdAt: now,
     updatedAt: now,
-    config: { assets: ["XBI"], heartbeat: "15m", riskLevel: "medium" },
+    config: {
+      assets: ["XBI"],
+      heartbeat: { intervalMinutes: 15, seedWindowDays: 30, maxToolSteps: 3 },
+      riskLevel: "medium",
+    },
     metadata: {
       lastRun: "14:22:00.120Z",
       heartbeatMs: 1000,
@@ -68,7 +89,11 @@ export const fallbackBranches: BranchRecord[] = [
     enabled: false,
     createdAt: now,
     updatedAt: now,
-    config: { assets: ["SMH", "AMD", "NVDA"], heartbeat: "15m", riskLevel: "low" },
+    config: {
+      assets: ["SMH", "AMD", "NVDA"],
+      heartbeat: { intervalMinutes: 15, seedWindowDays: 30, maxToolSteps: 3 },
+      riskLevel: "low",
+    },
     metadata: {
       lastRun: "13:45:11.000Z",
       heartbeatMs: null,
@@ -84,7 +109,11 @@ export const fallbackBranches: BranchRecord[] = [
     enabled: true,
     createdAt: now,
     updatedAt: now,
-    config: { assets: ["TSLA"], heartbeat: "5m", riskLevel: "medium" },
+    config: {
+      assets: ["TSLA"],
+      heartbeat: { intervalMinutes: 5, seedWindowDays: 30, maxToolSteps: 3 },
+      riskLevel: "medium",
+    },
     metadata: {
       lastRun: "14:22:01.105Z",
       heartbeatMs: 250,
@@ -100,7 +129,11 @@ export const fallbackBranches: BranchRecord[] = [
     enabled: true,
     createdAt: now,
     updatedAt: now,
-    config: { assets: ["BTC/USD"], heartbeat: "30s", riskLevel: "high" },
+    config: {
+      assets: ["BTC/USD"],
+      heartbeat: { intervalMinutes: 0.5, seedWindowDays: 30, maxToolSteps: 3 },
+      riskLevel: "high",
+    },
     metadata: {
       lastRun: "14:22:01.150Z",
       heartbeatMs: 100,

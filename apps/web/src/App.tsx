@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   appendInterjection,
@@ -14,10 +14,9 @@ import {
   type RunRecord,
 } from "./api";
 import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
-import { fallbackBranches, fallbackEvents, fallbackRuns } from "./mockData";
 
 type View = "branches" | "debate" | "detail" | "draft" | "config";
-type LoadState = "loading" | "api" | "fallback";
+type LoadState = "loading" | "api" | "offline";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
@@ -31,18 +30,18 @@ const personaPromptFields = [
   {
     role: "Judge",
     key: "debateJudgeSystemPrompt",
-    fallback:
+    defaultText:
       "Orchestrate the debate, preserve uncertainty, and synthesize only from cited evidence.",
   },
   {
     role: "Bull",
     key: "debateBullSystemPrompt",
-    fallback: "Argue materiality and opportunity when evidence supports it.",
+    defaultText: "Argue materiality and opportunity when evidence supports it.",
   },
   {
     role: "Bear",
     key: "debateBearSystemPrompt",
-    fallback: "Argue noise, stale evidence, source risk, and priced-in scenarios.",
+    defaultText: "Argue noise, stale evidence, source risk, and priced-in scenarios.",
   },
 ] as const;
 
@@ -60,12 +59,12 @@ const informationToolFields = [
 
 export function App() {
   const [view, setView] = useState<View>("branches");
-  const [branches, setBranches] = useState<BranchRecord[]>(fallbackBranches);
-  const [runs, setRuns] = useState<RunRecord[]>(fallbackRuns);
-  const [events, setEvents] = useState<RunEventRecord[]>(fallbackEvents);
+  const [branches, setBranches] = useState<BranchRecord[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [events, setEvents] = useState<RunEventRecord[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [selectedBranchId, setSelectedBranchId] = useState("BR-EQ-112");
-  const [selectedRunId, setSelectedRunId] = useState("run_40291");
+  const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [selectedRunId, setSelectedRunId] = useState("");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -83,19 +82,17 @@ export function App() {
 
         if (cancelled) return;
 
-        const nextBranches = apiBranches.length ? apiBranches : fallbackBranches;
-        const nextRuns = apiRuns.length ? apiRuns : fallbackRuns;
-        setBranches(nextBranches);
-        setRuns(nextRuns);
-        setSelectedBranchId(nextBranches[0]?.id ?? "BR-EQ-112");
-        setSelectedRunId(nextRuns[0]?.id ?? "run_40291");
-        setLoadState(apiBranches.length || apiRuns.length ? "api" : "fallback");
+        setBranches(apiBranches);
+        setRuns(apiRuns);
+        setSelectedBranchId(apiBranches[0]?.id ?? "");
+        setSelectedRunId(apiRuns[0]?.id ?? "");
+        setLoadState("api");
       } catch {
         if (cancelled) return;
-        setBranches(fallbackBranches);
-        setRuns(fallbackRuns);
-        setEvents(fallbackEvents);
-        setLoadState("fallback");
+        setBranches([]);
+        setRuns([]);
+        setEvents([]);
+        setLoadState("offline");
       }
     }
 
@@ -112,11 +109,11 @@ export function App() {
     getRunEvents(selectedRun.id)
       .then((nextEvents) => {
         if (!cancelled) {
-          setEvents(nextEvents.length ? nextEvents : fallbackEvents);
+          setEvents(nextEvents);
         }
       })
       .catch(() => {
-        if (!cancelled) setEvents(fallbackEvents);
+        if (!cancelled) setEvents([]);
       });
 
     return () => {
@@ -133,6 +130,7 @@ export function App() {
       setLoadState("api");
     } catch {
       setView("debate");
+      setLoadState("offline");
     }
   }
 
@@ -151,6 +149,7 @@ export function App() {
       setLoadState("api");
     } catch {
       setView("debate");
+      setLoadState("offline");
     }
   }
 
@@ -162,16 +161,7 @@ export function App() {
       setEvents((current) => [...current, event]);
       setLoadState("api");
     } catch {
-      setEvents((current) => [
-        ...current,
-        {
-          id: `local_${Date.now()}`,
-          runId: selectedRun.id,
-          type: "human.interjection",
-          timestamp: new Date().toISOString(),
-          payload: { title: "Human Interjection", summary: message.trim() },
-        },
-      ]);
+      setLoadState("offline");
     }
   }
 
@@ -186,17 +176,7 @@ export function App() {
       );
       setLoadState("api");
     } catch {
-      setBranches((current) =>
-        current.map((item) =>
-          item.id === branchId
-            ? {
-                ...item,
-                config,
-                updatedAt: new Date().toISOString(),
-              }
-            : item,
-        ),
-      );
+      setLoadState("offline");
     }
   }
 
@@ -223,21 +203,36 @@ export function App() {
             onInject={injectHumanContext}
           />
         )}
-        {view === "detail" && (
+        {view === "detail" && selectedBranch && (
           <BranchDetail
             branch={selectedBranch}
+            runs={runs}
             onEdit={() => setView("config")}
             onDryRun={() => void runDryHeartbeat(selectedBranch.id)}
             onEscalate={() => void startDebate(selectedBranch.id)}
           />
         )}
+        {view === "detail" && !selectedBranch && (
+          <EmptyCanvas
+            icon="account_tree"
+            title="No Branch Selected"
+            message="Create or load a branch from the local API to inspect a branch deep-dive."
+          />
+        )}
         {view === "draft" && <DraftLaw onCompile={() => setView("config")} />}
-        {view === "config" && (
+        {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
             onSave={(config) =>
               void saveBranchAgentConfig(selectedBranch.id, config)
             }
+          />
+        )}
+        {view === "config" && !selectedBranch && (
+          <EmptyCanvas
+            icon="settings"
+            title="No Branch Configuration"
+            message="The frontend is connected to real local API data only. No branch record is available yet."
           />
         )}
         <Footer active={view === "debate" ? "human" : view === "detail" ? "manual" : "dry"} />
@@ -296,7 +291,7 @@ function TopBar({ loadState }: { loadState: LoadState }) {
             ? "SYNCING"
             : loadState === "api"
               ? "LOCAL API"
-              : "FALLBACK DATA"}
+              : "API OFFLINE"}
         </span>
       </div>
       <div className="top-actions">
@@ -383,20 +378,28 @@ function BranchList({
             </tr>
           </thead>
           <tbody>
-            {branches.map((branch) => (
-              <tr key={branch.id} onClick={() => onSelect(branch)}>
-                <td>{branch.id}</td>
-                <td className="muted truncate-cell">{branch.name}</td>
-                <td>
-                  <StatusBadge status={getBranchStatus(branch)} />
-                </td>
-                <td className="muted">{formatHeartbeat(branch)}</td>
-                <td>{String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}</td>
-                <td className={`right ${getEscalations(branch) > 0 ? "danger-text" : ""}`}>
-                  {getEscalations(branch)}
+            {branches.length === 0 ? (
+              <tr>
+                <td className="empty-table-cell" colSpan={6}>
+                  No branches returned by the local API.
                 </td>
               </tr>
-            ))}
+            ) : (
+              branches.map((branch) => (
+                <tr key={branch.id} onClick={() => onSelect(branch)}>
+                  <td>{branch.id}</td>
+                  <td className="muted truncate-cell">{branch.name}</td>
+                  <td>
+                    <StatusBadge status={getBranchStatus(branch)} />
+                  </td>
+                  <td className="muted">{formatHeartbeat(branch)}</td>
+                  <td>{String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}</td>
+                  <td className={`right ${getEscalations(branch) > 0 ? "danger-text" : ""}`}>
+                    {getEscalations(branch)}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </section>
@@ -414,63 +417,46 @@ function DebateView({
   onInject: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
-
-  const renderedEvents = useMemo(
-    () => (events.length ? events : fallbackEvents),
-    [events],
+  const transcriptEvents = events.filter((event) =>
+    event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
 
   return (
     <main className="split-canvas">
       <section className="event-stream pane narrow">
-        <PaneHeader icon="stream" title="RUN EVENT STREAM" meta={`ID: ${run?.id ?? "EVT-992-ALPHA"}`} />
+        <PaneHeader icon="stream" title="RUN EVENT STREAM" meta={`ID: ${run?.id ?? "NO RUN"}`} />
         <div className="timeline-scroll">
-          {renderedEvents.map((event, index) => (
-            <TimelineEvent
-              event={event}
-              key={event.id}
-              last={index === renderedEvents.length - 1}
+          {events.length === 0 ? (
+            <EmptyPanel
+              icon="stream"
+              title="No Run Events"
+              message="Select or create a real run to populate the event stream."
             />
-          ))}
+          ) : (
+            events.map((event, index) => (
+              <TimelineEvent
+                event={event}
+                key={event.id}
+                last={index === events.length - 1}
+              />
+            ))
+          )}
         </div>
       </section>
       <section className="transcript pane wide">
         <PaneHeader icon="forum" title="DEBATE TRANSCRIPT" meta="PROTOCOL: DELPHI-3" action="EXPORT" />
         <div className="transcript-scroll">
-          <AgentMessage
-            agent="BEAR"
-            icon="trending_down"
-            confidence="87%"
-            tone="secondary"
-            sources={["SRC: VOL-HIST-14", "SRC: OB-DEPTH-A"]}
-          >
-            The new evidence resembles historical false positives: the source
-            velocity is high, but the cited contract language still lacks size,
-            timing, and budget attribution. Recommend downgrade to watch until a
-            primary source confirms materiality.
-          </AgentMessage>
-          <AgentMessage
-            agent="BULL"
-            icon="trending_up"
-            confidence="62%"
-            tone="primary"
-            sources={["SRC: SENT-IND-09"]}
-          >
-            The counterpoint is that channel pickup is diverging from ordinary
-            commentary. If the event is tied to a new customer category or
-            multi-year procurement, this is exactly the kind of underpriced
-            evidence the law is supposed to catch.
-          </AgentMessage>
-          <AgentMessage
-            agent="JUDGE"
-            icon="gavel"
-            confidence="SYNTHESIS PENDING"
-            tone="judge"
-          >
-            Conflict detected in source credibility versus law relevance. Human
-            context can help classify the source, but it will be stored as
-            unverified context rather than a decision command.
-          </AgentMessage>
+          {transcriptEvents.length === 0 ? (
+            <EmptyPanel
+              icon="forum"
+              title="No Debate Transcript"
+              message="Debate and human interjection events from the selected run will appear here."
+            />
+          ) : (
+            transcriptEvents.map((event) => (
+              <EventRecordCard event={event} key={event.id} />
+            ))
+          )}
         </div>
         <div className="interjection-panel">
           <label>HUMAN INTERJECTION</label>
@@ -513,23 +499,30 @@ function DebateView({
           </div>
         </div>
       </section>
-      <EvidencePane />
+      <EvidencePane events={events} run={run} />
     </main>
   );
 }
 
 function BranchDetail({
   branch,
+  runs,
   onEdit,
   onDryRun,
   onEscalate,
 }: {
   branch: BranchRecord;
+  runs: RunRecord[];
   onEdit: () => void;
   onDryRun: () => void;
   onEscalate: () => void;
 }) {
-  const assets = readAssets(branch).join(", ") || "PLTR";
+  const assets = readAssets(branch).join(", ") || "No assets configured";
+  const branchRuns = runs.filter((run) => run.branchId === branch.id);
+  const lawText =
+    typeof branch.law?.thesis === "string"
+      ? branch.law.thesis
+      : branch.description ?? "No law text returned by the local API.";
 
   return (
     <main className="detail-canvas">
@@ -539,7 +532,7 @@ function BranchDetail({
             <h1>{branch.name}</h1>
             <p>
               Target Asset: <b>{assets}</b> | Heartbeat:{" "}
-              <b>{String(branch.config?.heartbeat ?? "5m")}</b>
+              <b>{String(branch.config?.heartbeat ?? "Not configured")}</b>
             </p>
           </div>
           <div className="button-row">
@@ -557,46 +550,33 @@ function BranchDetail({
         <section className="law-block">
           <div className="section-title">
             <span>THESIS / THE LAW</span>
-            <b>v4.1.2</b>
+            <b>{branch.lawId ?? branch.id}</b>
           </div>
-          <pre>
-{`# Thesis: ${branch.description ?? "Watch for high-information market evidence."}
-# Branch evidence should be new, law-relevant, and citeable.
-
-def evaluate_evidence(source_event):
-    novelty = source_event.score("novelty")
-    relevance = source_event.score("law_relevance")
-    credibility = source_event.score("source_credibility")
-
-    if novelty > 0.72 and relevance > 0.80 and credibility > 0.65:
-        return Action.ESCALATE_TO_DEBATE
-
-    if relevance > 0.55:
-        return Action.STORE_AND_MONITOR
-
-    return Action.IGNORE`}
-          </pre>
+          <pre>{lawText}</pre>
         </section>
         <section className="recent-runs">
           <div className="section-title">RECENT RUNS (HEARTBEAT)</div>
-          {[
-            ["14:32:00", "EVAL_HOLD", ""],
-            ["14:31:30", "EVAL_HOLD", ""],
-            ["14:31:00", "ESCALATION_REQUIRED", "Source credibility conflict"],
-            ["14:30:30", "EVAL_HOLD", ""],
-          ].map(([time, status, note]) => (
-            <div className={`run-row ${status.includes("ESCALATION") ? "alert" : ""}`} key={`${time}-${status}`}>
-              <span>{time}</span>
-              <b>{status}</b>
-              <em>{note}</em>
-              <a>{status.includes("ESCALATION") ? "Resolve" : "Details"}</a>
-            </div>
-          ))}
+          {branchRuns.length === 0 ? (
+            <EmptyPanel
+              icon="history"
+              title="No Runs"
+              message="Heartbeat and debate runs for this branch will appear here after the local API records them."
+            />
+          ) : (
+            branchRuns.map((run) => (
+              <div className={`run-row ${run.status === "failed" ? "alert" : ""}`} key={run.id}>
+                <span>{timeOnly(run.createdAt)}</span>
+                <b>{run.kind.toUpperCase()}</b>
+                <em>{run.status}</em>
+                <a>{run.id}</a>
+              </div>
+            ))
+          )}
         </section>
       </section>
       <aside className="detail-side">
-        <SettingsPanel />
-        <EscalationCard />
+        <SettingsPanel branch={branch} />
+        <EscalationCard runs={branchRuns} />
       </aside>
     </main>
   );
@@ -622,11 +602,7 @@ function DraftLaw({ onCompile }: { onCompile: () => void }) {
           <FieldLabel label="Market Signal Logic">
             <textarea
               className="code-area"
-              defaultValue={`WATCH source_events
-WHERE entity IN branch.assets
-AND law_relevance > 0.80
-AND source_credibility > 0.65
-EMIT ESCALATION_CANDIDATE;`}
+              placeholder="Describe the branch-specific signal logic to compile..."
             />
           </FieldLabel>
           <div>
@@ -645,15 +621,11 @@ EMIT ESCALATION_CANDIDATE;`}
       </section>
       <aside className="snippet-side">
         <PaneHeader title="LOGIC SNIPPETS" meta="" />
-        {["Material Contract", "Sentiment Spike", "Policy Shock"].map((title) => (
-          <button className="snippet" key={title} type="button">
-            <b>{title}</b>
-            <span>
-              Detects new, high-signal evidence that meets branch relevance and
-              credibility gates.
-            </span>
-          </button>
-        ))}
+        <EmptyPanel
+          icon="inventory_2"
+          title="No Saved Snippets"
+          message="Saved law snippets from the real workspace will appear here when that source exists."
+        />
         <div className="simulation-panel">
           <div className="section-title">SIMULATION: DRY RUN</div>
           <Icon name="query_stats" />
@@ -664,14 +636,45 @@ EMIT ESCALATION_CANDIDATE;`}
   );
 }
 
-function BranchConfig({ branch }: { branch: BranchRecord }) {
+function BranchConfig({
+  branch,
+  onSave,
+}: {
+  branch: BranchRecord;
+  onSave: (config: KairosBranchAgentConfig) => void;
+}) {
+  const [config, setConfig] = useState<KairosBranchAgentConfig>(() =>
+    normalizeBranchConfig(branch),
+  );
+
+  useEffect(() => {
+    setConfig(normalizeBranchConfig(branch));
+  }, [branch.id, branch.config]);
+
+  const heartbeatInterval = config.heartbeat?.intervalMinutes ?? 5;
+  const seedWindowDays = config.heartbeat?.seedWindowDays ?? 30;
+  const notifyConfidence = Math.round(
+    (config.thresholds?.notifyConfidence ?? 0.75) * 100,
+  );
+  const buyConfidence = Math.round((config.thresholds?.buyConfidence ?? 0.9) * 100);
+
   return (
     <main className="config-canvas">
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
-          <button className="command-button" type="button">DISCARD</button>
-          <button className="command-button primary" type="button">
+          <button
+            className="command-button"
+            onClick={() => setConfig(normalizeBranchConfig(branch))}
+            type="button"
+          >
+            DISCARD
+          </button>
+          <button
+            className="command-button primary"
+            onClick={() => onSave(config)}
+            type="button"
+          >
             SAVE CONFIGURATION
           </button>
         </div>
@@ -688,13 +691,20 @@ function BranchConfig({ branch }: { branch: BranchRecord }) {
         <div>
           <div className="field-label">AGENT PERSONA PROMPTS</div>
           <div className="persona-grid">
-            {[
-              ["Judge", "Orchestrate the debate, preserve uncertainty, and synthesize only from cited evidence."],
-              ["Bull", "Argue materiality and opportunity when evidence supports it."],
-              ["Bear", "Argue noise, stale evidence, source risk, and priced-in scenarios."],
-            ].map(([role, text]) => (
-              <FieldLabel label={role} key={role}>
-                <textarea defaultValue={text} />
+            {personaPromptFields.map((field) => (
+              <FieldLabel label={field.role} key={field.role}>
+                <textarea
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      prompts: {
+                        ...current.prompts,
+                        [field.key]: event.target.value,
+                      },
+                    }))
+                  }
+                  value={config.prompts?.[field.key] ?? field.defaultText}
+                />
               </FieldLabel>
             ))}
           </div>
@@ -702,16 +712,47 @@ function BranchConfig({ branch }: { branch: BranchRecord }) {
         <div className="config-grid">
           <FieldLabel label="Information Agent Tools">
             <div className="tool-picker">
-              {["SEC Filings Parser", "Exa News Search", "Supermemory Search", "Finnhub Company News"].map((tool, index) => (
-                <label key={tool}>
-                  <input defaultChecked={index < 3} type="checkbox" />
-                  <span>{tool}</span>
+              {informationToolFields.map((tool) => (
+                <label key={tool.key}>
+                  <input
+                    checked={
+                      config.tools?.information?.[tool.key]?.enabled ?? true
+                    }
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          information: {
+                            ...current.tools?.information,
+                            [tool.key]: {
+                              ...current.tools?.information?.[tool.key],
+                              enabled: event.target.checked,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>{tool.label}</span>
                 </label>
               ))}
             </div>
           </FieldLabel>
           <FieldLabel label="Data Seeding (Heartbeat & Debate)">
-            <select defaultValue="equities">
+            <select
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  research: {
+                    ...current.research,
+                    dataPacket: event.target.value,
+                  },
+                }))
+              }
+              value={config.research?.dataPacket ?? "equities"}
+            >
               <option value="equities">Tracked equities rolling 30-day packet</option>
               <option value="crypto">Crypto liquidity packet</option>
               <option value="earnings">Tech earnings calendar packet</option>
@@ -720,69 +761,168 @@ function BranchConfig({ branch }: { branch: BranchRecord }) {
           </FieldLabel>
         </div>
         <FieldLabel label="Research Seeding (Exa)">
-          <textarea defaultValue="Find recent, citeable evidence relevant to the branch law. Prefer primary sources and source diversity." />
+          <textarea
+            onChange={(event) =>
+              setConfig((current) => ({
+                ...current,
+                research: {
+                  ...current.research,
+                  exaInstruction: event.target.value,
+                },
+              }))
+            }
+            value={
+              config.research?.exaInstruction ??
+              "Find recent, citeable evidence relevant to the branch law. Prefer primary sources and source diversity."
+            }
+          />
         </FieldLabel>
+        <div className="config-grid">
+          <FieldLabel label="Heartbeat Interval Minutes">
+            <input
+              min="1"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  heartbeat: {
+                    ...current.heartbeat,
+                    intervalMinutes: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={heartbeatInterval}
+            />
+          </FieldLabel>
+          <FieldLabel label="Seed Window Days">
+            <input
+              min="1"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  heartbeat: {
+                    ...current.heartbeat,
+                    seedWindowDays: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={seedWindowDays}
+            />
+          </FieldLabel>
+        </div>
         <div>
           <div className="field-label">EXECUTION THRESHOLDS</div>
           <div className="threshold-wide">
-            <Slider label="Notification Threshold" value="75%" />
-            <Slider label="Paper Trade Draft Threshold" value="90%" />
+            <Slider
+              label="Notification Threshold"
+              onChange={(value) =>
+                setConfig((current) => ({
+                  ...current,
+                  thresholds: {
+                    ...current.thresholds,
+                    notifyConfidence: value / 100,
+                  },
+                }))
+              }
+              value={`${notifyConfidence}%`}
+            />
+            <Slider
+              label="Buy Threshold"
+              onChange={(value) =>
+                setConfig((current) => ({
+                  ...current,
+                  thresholds: {
+                    ...current.thresholds,
+                    buyConfidence: value / 100,
+                  },
+                }))
+              }
+              value={`${buyConfidence}%`}
+            />
           </div>
         </div>
+        <button
+          className="command-button primary"
+          onClick={() => onSave(config)}
+          type="button"
+        >
+          SAVE CONFIGURATION
+        </button>
       </div>
     </main>
   );
 }
 
-function EvidencePane() {
+function EvidencePane({
+  events,
+  run,
+}: {
+  events: RunEventRecord[];
+  run?: RunRecord;
+}) {
+  const selectedEvidence = events.find(
+    (event) =>
+      event.type.includes("tool") ||
+      event.type.includes("source") ||
+      event.type.includes("evidence"),
+  );
+  const snapshot = selectedEvidence?.payload ?? run?.output ?? run?.input;
+
   return (
     <section className="evidence pane medium">
       <PaneHeader icon="database" title="EVIDENCE & SOURCE" meta="" actionIcon="close" />
       <div className="evidence-scroll">
-        <div className="source-card">
-          <div className="field-label">SOURCE IDENTIFIER</div>
-          <h1>SENT-IND-09</h1>
-          <div className="source-tags">
-            <span>TYPE: SENTIMENT</span>
-            <span>QLTY: TIER 2</span>
-          </div>
-        </div>
-        <div className="field-label">RAW DATA SNAPSHOT</div>
-        <pre className="json-block">
-{`{
-  "timestamp": "14:04:55.201Z",
-  "vector": "POSITIVE_DIVERGENCE",
-  "magnitude": 0.88,
-  "sources_aggregated": 42,
-  "confidence_interval": [0.75, 0.92],
-  "keywords_detected": ["accumulation", "hidden_buyer"]
-}`}
-        </pre>
-        <div className="field-label">TIMELINE ALIGNMENT</div>
-        <div className="alignment-row">
-          <span>Data Captured</span>
-          <b>T-01:10</b>
-        </div>
-        <div className="alignment-row">
-          <span>Debate Ingest</span>
-          <b>T-00:04</b>
-        </div>
+        {!snapshot ? (
+          <EmptyPanel
+            icon="database"
+            title="No Evidence Payload"
+            message="Tool, source, evidence, run input, or run output payloads will appear here."
+          />
+        ) : (
+          <>
+            <div className="source-card">
+              <div className="field-label">RECORD IDENTIFIER</div>
+              <h1>{selectedEvidence?.id ?? run?.id ?? "RUN PAYLOAD"}</h1>
+              <div className="source-tags">
+                <span>{selectedEvidence?.type ?? run?.kind ?? "record"}</span>
+                <span>{run?.status ?? "loaded"}</span>
+              </div>
+            </div>
+            <div className="field-label">RAW DATA SNAPSHOT</div>
+            <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
+            <div className="field-label">TIMELINE ALIGNMENT</div>
+            <div className="alignment-row">
+              <span>Run Created</span>
+              <b>{run ? timeOnly(run.createdAt) : "-"}</b>
+            </div>
+            <div className="alignment-row">
+              <span>Last Event</span>
+              <b>{events.at(-1) ? timeOnly(events.at(-1)!.timestamp) : "-"}</b>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ branch }: { branch: BranchRecord }) {
+  const thresholds = branch.config?.thresholds;
+
   return (
     <section className="side-panel">
       <div className="section-title">
         <Icon name="tune" /> BRANCH SETTINGS
       </div>
-      <FieldLabel label="Paper Position Limit">
-        <input readOnly value="2.5% portfolio notional" />
+      <FieldLabel label="Notify Confidence">
+        <input
+          readOnly
+          value={formatConfidence(thresholds?.notifyConfidence)}
+        />
       </FieldLabel>
-      <FieldLabel label="Agent Confidence Threshold">
-        <input readOnly value="85%" />
+      <FieldLabel label="Paper Trade Draft Threshold">
+        <input readOnly value={formatConfidence(thresholds?.buyConfidence)} />
       </FieldLabel>
       <FieldLabel label="Operational Mode">
         <div className="mode-list">
@@ -791,34 +931,40 @@ function SettingsPanel() {
           <button type="button">MANUAL ESCALATION</button>
         </div>
       </FieldLabel>
-      <div className="risk-toggle">
-        <span>Halt on 5% Drawdown</span>
-        <b />
-      </div>
     </section>
   );
 }
 
-function EscalationCard() {
+function EscalationCard({ runs }: { runs: RunRecord[] }) {
+  const escalatedRuns = runs.filter(
+    (run) => run.kind === "debate" || run.status === "failed",
+  );
+
   return (
     <section className="side-panel grow">
       <div className="section-title">
         <Icon name="warning" /> ACTIVE ESCALATIONS
       </div>
-      <div className="escalation-card">
-        <div>
-          <b>SOURCE_CONFLICT</b>
-          <span>2m ago</span>
-        </div>
-        <p>
-          Exa result velocity is high, but primary-source confirmation is still
-          missing. Debate confidence is below notification threshold.
-        </p>
-        <div className="button-row">
-          <button className="command-button danger" type="button">ACKNOWLEDGE</button>
-          <button className="command-button" type="button">VIEW LOGS</button>
-        </div>
-      </div>
+      {escalatedRuns.length === 0 ? (
+        <EmptyPanel
+          icon="warning"
+          title="No Active Escalations"
+          message="Debate runs and failed runs for this branch will appear here."
+        />
+      ) : (
+        escalatedRuns.map((run) => (
+          <div className="escalation-card" key={run.id}>
+            <div>
+              <b>{run.kind.toUpperCase()}</b>
+              <span>{timeOnly(run.createdAt)}</span>
+            </div>
+            <p>{String(run.output?.summary ?? run.status)}</p>
+            <div className="button-row">
+              <button className="command-button" type="button">VIEW RUN</button>
+            </div>
+          </div>
+        ))
+      )}
     </section>
   );
 }
@@ -940,14 +1086,30 @@ function Metric({
   );
 }
 
-function Slider({ label, value }: { label: string; value: string }) {
+function Slider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange?: (value: number) => void;
+}) {
+  const numericValue = Number(value.replace("%", ""));
   return (
     <div className="slider-block">
       <div>
         <span>{label}</span>
         <b>{value}</b>
       </div>
-      <input max="100" min="0" readOnly type="range" value={Number(value.replace("%", ""))} />
+      <input
+        max="100"
+        min="0"
+        onChange={(event) => onChange?.(Number(event.target.value))}
+        readOnly={!onChange}
+        type="range"
+        value={numericValue}
+      />
       <div>
         <small>0%</small>
         <small>Confidence Score</small>
@@ -955,6 +1117,49 @@ function Slider({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   );
+}
+
+function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
+  const config = branch.config ?? {};
+  const legacyConfig = config as JsonRecord;
+  const heartbeat = config.heartbeat ?? {};
+  const legacyInterval =
+    typeof legacyConfig.heartbeat === "string"
+      ? parseHeartbeatIntervalMinutes(legacyConfig.heartbeat)
+      : undefined;
+
+  return {
+    ...config,
+    assets: config.assets ?? readAssets(branch),
+    heartbeat: {
+      intervalMinutes:
+        heartbeat.intervalMinutes ?? legacyInterval ?? 5,
+      seedWindowDays: heartbeat.seedWindowDays ?? 30,
+      maxToolSteps: heartbeat.maxToolSteps ?? 3,
+    },
+    tools: {
+      ...config.tools,
+      information: {
+        exa_search: { enabled: true },
+        exa_research: { enabled: true },
+        exa_contents: { enabled: true },
+        finnhub_filings: { enabled: true },
+        supermemory_search: { enabled: true },
+        ...config.tools?.information,
+      },
+    },
+    thresholds: {
+      notifyConfidence: 0.75,
+      buyConfidence: 0.9,
+      ...config.thresholds,
+    },
+    research: {
+      dataPacket: "equities",
+      exaInstruction:
+        "Find recent, citeable evidence relevant to the branch law. Prefer primary sources and source diversity.",
+      ...config.research,
+    },
+  };
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -1005,7 +1210,8 @@ function getEscalations(branch: BranchRecord) {
 function formatHeartbeat(branch: BranchRecord) {
   const value = branch.metadata?.heartbeatMs;
   if (typeof value === "number") return `${value}ms`;
-  return branch.enabled ? String(branch.config?.heartbeat ?? "5m") : "-";
+  const interval = branch.config?.heartbeat?.intervalMinutes;
+  return branch.enabled ? `${interval ?? 5}m` : "-";
 }
 
 function readAssets(branch: BranchRecord): string[] {
@@ -1013,6 +1219,19 @@ function readAssets(branch: BranchRecord): string[] {
   return Array.isArray(assets)
     ? assets.filter((asset): asset is string => typeof asset === "string")
     : [];
+}
+
+function parseHeartbeatIntervalMinutes(value: string): number | undefined {
+  const match = value.match(/^(\d+(?:\.\d+)?)(s|m|h)?$/);
+  if (!match) return undefined;
+
+  const amount = Number(match[1]);
+  const unit = match[2] ?? "m";
+
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  if (unit === "s") return amount / 60;
+  if (unit === "h") return amount * 60;
+  return amount;
 }
 
 function timeOnly(value: string) {
