@@ -66,6 +66,24 @@ export type OpenRouterModelRecord = {
   outputModalities: string[];
 };
 
+export type TradeSymbolRecord = {
+  symbol: string;
+  name?: string;
+  exchange?: string;
+  assetClass?: string;
+  tradable: boolean;
+  marginable?: boolean;
+  shortable?: boolean;
+  easyToBorrow?: boolean;
+  fractionable?: boolean;
+  price?: number;
+  previousClose?: number;
+  dayChangePercent?: number;
+  dailyVolume?: number;
+  updatedAt?: string;
+  source: "alpaca";
+};
+
 export type ModelRoleDefaults = Partial<
   Record<
     KairosConfigModelRole,
@@ -196,6 +214,19 @@ export async function getOpenRouterModels(): Promise<{
   }));
 }
 
+export async function getTradeSymbols(input: {
+  query?: string;
+  limit?: number;
+} = {}): Promise<TradeSymbolRecord[]> {
+  const params = new URLSearchParams();
+  if (input.query) params.set("query", input.query);
+  params.set("limit", String(input.limit ?? 500));
+  return request<{
+    symbols: TradeSymbolRecord[];
+    error?: string;
+  }>(`/market/symbols?${params.toString()}`).then((response) => response.symbols);
+}
+
 export async function getPortfolio(): Promise<PortfolioSnapshot> {
   return request<JsonRecord>("/portfolio?refresh=true").then(normalizePortfolioResponse);
 }
@@ -240,7 +271,6 @@ export async function getRouterMessages(
 export async function sendRouterMessage(input: {
   chatId: string;
   text: string;
-  dryRun?: boolean;
 }): Promise<{
   userMessage: RouterMessageRecord;
   assistantMessage: RouterMessageRecord;
@@ -256,7 +286,7 @@ export async function sendRouterMessage(input: {
     method: "POST",
     body: JSON.stringify({
       text: input.text,
-      dryRun: input.dryRun ?? false,
+      dryRun: false,
     }),
   });
 }
@@ -264,23 +294,21 @@ export async function sendRouterMessage(input: {
 export async function triggerHeartbeat(
   branchId: string,
   input: JsonRecord = {},
-  options: { dryRun?: boolean } = {},
 ): Promise<RunRecord> {
   return request<{ run: RunRecord }>(`/branches/${branchId}/heartbeat-runs`, {
     method: "POST",
-    body: JSON.stringify({ dryRun: options.dryRun ?? false, input }),
+    body: JSON.stringify({ dryRun: false, input }),
   }).then((response) => response.run);
 }
 
 export async function createDebate(input: {
   branchId?: string;
   escalation?: JsonRecord;
-  dryRun?: boolean;
 }): Promise<RunRecord> {
   return request<{ run: RunRecord }>("/debates", {
     method: "POST",
     body: JSON.stringify({
-      dryRun: input.dryRun ?? false,
+      dryRun: false,
       escalation: input.escalation,
       input: { branchId: input.branchId },
     }),
