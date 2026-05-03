@@ -35,19 +35,51 @@ const IGNORED_TICKER_TOKENS = new Set([
 ]);
 
 const supermemoryProfileInputSchema = z.object({
-  containerTag: z.string(),
-  query: z.string(),
-  threshold: z.number().min(0).max(1).optional(),
+  containerTag: z
+    .string()
+    .describe("Branch-scoped memory container tag, for example branch_pltr_deals."),
+  query: z
+    .string()
+    .describe("Plain-language query describing the branch law, catalyst, or memory context to retrieve."),
+  threshold: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Optional similarity threshold from 0 to 1. Leave unset unless stricter memory relevance is needed."),
 });
 const supermemorySearchInputSchema = z.object({
-  containerTag: z.string(),
-  query: z.string(),
-  limit: z.number().int().min(1).max(20).optional(),
-  threshold: z.number().min(0).max(1).optional(),
+  containerTag: z
+    .string()
+    .describe("Branch-scoped memory container tag, for example branch_pltr_deals."),
+  query: z
+    .string()
+    .describe("Plain-language search query for prior events, human corrections, false positives, or branch preferences."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .describe("Maximum memories to return. Use small limits such as 3-5 for heartbeat triage."),
+  threshold: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Optional similarity threshold from 0 to 1. Leave unset unless stricter duplicate checks are needed."),
 });
 const exaNewsSearchInputSchema = z.object({
-  query: z.string(),
-  numResults: z.number().int().min(1).max(10).optional(),
+  query: z
+    .string()
+    .describe("Specific current-news query for one catalyst, company, asset, or claim. Example: PLTR new government contract May 2026."),
+  numResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .optional()
+    .describe("Number of news results to return. Use 3-5 for focused corroboration."),
 });
 
 function compactText(value: string | undefined, maxLength: number): string {
