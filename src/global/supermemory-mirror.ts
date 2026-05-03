@@ -60,7 +60,7 @@ export type SupermemoryMirror = {
 const DEFAULT_MAX_CONTENT_CHARS = 200_000;
 const SECRET_KEY_PATTERN = /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)/i;
 const SECRET_TEXT_PATTERN =
-  /\b(api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)\b\s*[:=]\s*["']?[^"',\s}]+/gi;
+  /\b(api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\n,}]+)/gi;
 
 export function createSupermemoryMirror(
   options: SupermemoryMirrorOptions,
