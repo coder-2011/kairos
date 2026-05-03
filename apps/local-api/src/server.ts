@@ -15,7 +15,13 @@ import {
   type TradeIntent,
   type TradingConfig,
 } from "../../../src/trading/index.js";
+import {
+  createTradingSmsNotifierFromEnv,
+  type TradingSmsNotificationInput,
+  type TradingSmsNotifier,
+} from "../../../src/notifications/index.js";
 import { createRuntimeStore } from "./runtime.js";
+import { SupabaseKairosStore } from "./supabase-store.js";
 import {
   MemoryKairosStore,
   type AppendRunEventInput,
@@ -30,6 +36,7 @@ export type LocalApiDependencies = {
   runHeartbeat?: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate?: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   tradingBroker?: PaperTradingBroker;
+  notificationSender?: TradingSmsNotifier;
 };
 
 export type LocalApiOptions = {
@@ -42,6 +49,7 @@ export type LocalApiContext = {
   runHeartbeat: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   tradingBroker?: PaperTradingBroker;
+  notificationSender?: TradingSmsNotifier;
 };
 
 type HeartbeatTriggerInput = {
@@ -102,12 +110,19 @@ const paperSubmitSchema = z.object({
 });
 
 export async function createLocalApiContext(options: LocalApiOptions = {}): Promise<LocalApiContext> {
-  const store = options.dependencies?.store ?? await createRuntimeStore({ dataDir: options.dataDir });
+  const store =
+    options.dependencies?.store ??
+    (process.env.KAIROS_STORE === "supabase"
+      ? new SupabaseKairosStore()
+      : await createRuntimeStore({ dataDir: options.dataDir }));
   return {
     store,
     runHeartbeat: options.dependencies?.runHeartbeat ?? deterministicHeartbeat,
     createDebate: options.dependencies?.createDebate ?? deterministicDebate,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
+    notificationSender:
+      options.dependencies?.notificationSender ??
+      createTradingSmsNotifierFromEnv(),
   };
 }
 
@@ -390,7 +405,7 @@ async function applyTradingPolicyToDebate(
     });
   }
 
-  await context.store.createMessage({
+  const thresholdMessage = await context.store.createMessage({
     type: messageType,
     severity: policy.permittedAction === "message_human" ? "info" : "action",
     title:
@@ -407,6 +422,24 @@ async function applyTradingPolicyToDebate(
       thresholdPolicy: policy,
       citations: decision.citations,
     },
+  });
+  await sendTradingSmsNotification(context, {
+    branchId: branch?.id,
+    lawId: branch?.lawId,
+    runId: run.id,
+    symbol: intent?.symbol ?? firstConfiguredSymbol(branch),
+    confidence: decision.confidence,
+    threshold: policy.notifyThreshold,
+    finalAnswer: decision.summary,
+    permittedAction: policy.permittedAction,
+    tradeIntent: intent,
+    debateTranscript: await context.store.listRunEvents(run.id),
+  }, {
+    branchId: branch?.id,
+    lawId: branch?.lawId,
+    sourceRunId: run.id,
+    tradeIntentId: intent?.id ?? thresholdMessage.tradeIntentId,
+    confidence: decision.confidence,
   });
 
   if (policy.permittedAction !== "paper_order" || !intent) {
@@ -583,6 +616,22 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
       confidence: input.confidence,
       metadata: { policy },
     });
+    await sendTradingSmsNotification(context, {
+      branchId: input.branchId,
+      lawId: input.lawId,
+      runId: input.sourceRunId,
+      symbol: input.symbol,
+      confidence: input.confidence,
+      threshold: policy.notifyThreshold,
+      finalAnswer: input.reasoning,
+      permittedAction: policy.permittedAction,
+      debateTranscript: [input],
+    }, {
+      branchId: input.branchId,
+      lawId: input.lawId,
+      sourceRunId: input.sourceRunId,
+      confidence: input.confidence,
+    });
     return json({ policy, tradeIntent: null, messages: [message] }, 201);
   }
 
@@ -605,6 +654,24 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
     tradeIntentId: tradeIntent.id,
     confidence: input.confidence,
     metadata: { policy },
+  });
+  await sendTradingSmsNotification(context, {
+    branchId: input.branchId,
+    lawId: input.lawId,
+    runId: input.sourceRunId,
+    symbol: input.symbol,
+    confidence: input.confidence,
+    threshold: policy.notifyThreshold,
+    finalAnswer: input.reasoning,
+    permittedAction: policy.permittedAction,
+    tradeIntent,
+    debateTranscript: [input],
+  }, {
+    branchId: input.branchId,
+    lawId: input.lawId,
+    sourceRunId: input.sourceRunId,
+    tradeIntentId: tradeIntent.id,
+    confidence: input.confidence,
   });
 
   if (!policy.paperAutoBuyEnabled) {
@@ -691,6 +758,54 @@ async function submitPaperTradeIntent(
     messages: [message],
     preflight: result.preflight,
   }, 201);
+}
+
+async function sendTradingSmsNotification(
+  context: LocalApiContext,
+  input: TradingSmsNotificationInput,
+  messageContext: {
+    branchId?: string;
+    lawId?: string;
+    sourceRunId?: string;
+    tradeIntentId?: string;
+    confidence?: number;
+  },
+): Promise<void> {
+  if (!context.notificationSender) {
+    return;
+  }
+
+  try {
+    const result = await context.notificationSender.send(input);
+    await context.store.createMessage({
+      type: "sms_notification_sent",
+      severity: "info",
+      title: "SMS notification sent",
+      body: result.body,
+      branchId: messageContext.branchId,
+      lawId: messageContext.lawId,
+      sourceRunId: messageContext.sourceRunId,
+      tradeIntentId: messageContext.tradeIntentId,
+      confidence: messageContext.confidence,
+      metadata: {
+        provider: result.provider,
+        sid: result.sid,
+        status: result.status,
+      },
+    });
+  } catch (error) {
+    await context.store.createMessage({
+      type: "sms_notification_failed",
+      severity: "warning",
+      title: "SMS notification failed",
+      body: error instanceof Error ? error.message : "Unknown SMS notification error.",
+      branchId: messageContext.branchId,
+      lawId: messageContext.lawId,
+      sourceRunId: messageContext.sourceRunId,
+      tradeIntentId: messageContext.tradeIntentId,
+      confidence: messageContext.confidence,
+    });
+  }
 }
 
 async function streamRunEvents(context: LocalApiContext, runId: string): Promise<Response> {

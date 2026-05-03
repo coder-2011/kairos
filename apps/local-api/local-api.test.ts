@@ -10,6 +10,7 @@ import {
   type LocalApiContext,
 } from "./src/server.js";
 import type { PaperTradingBroker } from "../../src/trading/index.js";
+import type { TradingSmsNotifier } from "../../src/notifications/index.js";
 
 const baseUrl = "http://kairos.local";
 
@@ -255,6 +256,41 @@ describe("local API handler", () => {
     expect(brokerOrders.body.brokerOrders).toHaveLength(0);
   });
 
+  it("sends an SMS notification when confidence crosses the notify threshold", async () => {
+    const sent: unknown[] = [];
+    const { requestJson } = makeClient({
+      notificationSender: {
+        async send(input) {
+          sent.push(input);
+          return {
+            body: "PLTR alert 90%",
+            provider: "twilio",
+            sid: "SM_test",
+            status: "queued",
+            sent: true,
+          };
+        },
+      },
+    });
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      confidence: 0.7,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(sent).toHaveLength(1);
+
+    const messages = await requestJson("GET", "/messages");
+    expect(messages.body.messages.map((message: { type: string }) => message.type)).toEqual([
+      "threshold_notify",
+      "sms_notification_sent",
+    ]);
+  });
+
   it("preflights and submits an Alpaca paper order when paper auto-buy is enabled", async () => {
     const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
 
@@ -310,7 +346,10 @@ describe("local API handler", () => {
   });
 });
 
-function makeClient(options: { tradingBroker?: PaperTradingBroker } = {}) {
+function makeClient(options: {
+  tradingBroker?: PaperTradingBroker;
+  notificationSender?: TradingSmsNotifier;
+} = {}) {
   const store = new MemoryKairosStore();
   const context: LocalApiContext = {
     store,
@@ -329,6 +368,7 @@ function makeClient(options: { tradingBroker?: PaperTradingBroker } = {}) {
       ],
     }),
     tradingBroker: options.tradingBroker,
+    notificationSender: options.notificationSender,
   };
   const handler = createLocalApiHandler(context);
 
