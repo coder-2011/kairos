@@ -11,7 +11,6 @@ import type {
   DebateConfigToolName,
   HeartbeatToolName,
   InformationConfigToolName,
-  KairosBranchAgentConfig,
   KairosConfigModelRole,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
@@ -19,28 +18,38 @@ import {
   appendInterjection,
   createDebate,
   getBranches,
+  getMessages,
   getOpenRouterModels,
+  getPortfolio,
   getRunEvents,
   getRuns,
+  getTradeIntents,
   triggerHeartbeat,
   updateBranch,
+  type AllowedOrderType,
   type BranchRecord,
   type JsonRecord,
+  type MessageRecord,
   type OpenRouterModelRecord,
+  type PortfolioSnapshot,
   type RunEventRecord,
   type RunRecord,
+  type TradingMode,
+  type TradeIntentRecord,
+  type WebBranchConfig,
 } from "./api";
 
-type View = "branches" | "monitoring" | "runDeepDive" | "config";
+type View = "branches" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
 type ThemeMode = "light" | "dark";
-type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
+type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
 const THEME_STORAGE_KEY = "kairos-theme";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
+  { id: "portfolio", label: "Portfolio", icon: "account_balance" },
   { id: "runDeepDive", label: "Run Deep-Dive", icon: "timeline" },
   { id: "config", label: "Branch Configuration", icon: "settings" },
 ];
@@ -122,15 +131,15 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
 
 const defaultInformationToolPolicies = Object.fromEntries(
   informationToolFields.map((tool) => [tool.key, { enabled: true }]),
-) as NonNullable<KairosBranchAgentConfig["tools"]>["information"];
+) as NonNullable<WebBranchConfig["tools"]>["information"];
 
 const defaultHeartbeatToolPolicies = Object.fromEntries(
   heartbeatToolFields.map((tool) => [tool.key, { enabled: true }]),
-) as NonNullable<KairosBranchAgentConfig["tools"]>["heartbeat"];
+) as NonNullable<WebBranchConfig["tools"]>["heartbeat"];
 
 const defaultDebateToolPolicies = Object.fromEntries(
   debateToolFields.map((tool) => [tool.key, { enabled: true }]),
-) as NonNullable<KairosBranchAgentConfig["tools"]>["debate"];
+) as NonNullable<WebBranchConfig["tools"]>["debate"];
 
 export function App() {
   const [view, setView] = useState<View>("branches");
@@ -851,51 +860,17 @@ function RunDeepDive({
   );
 }
 
-function RunModeSwitch({
-  mode,
-  onChange,
-}: {
-  mode: RunMode;
-  onChange: (mode: RunMode) => void;
-}) {
-  return (
-    <div
-      className="run-mode-switch"
-      title="Choose whether branch actions run the real agent path or deterministic dry-run fixtures."
-    >
-      <button
-        className={mode === "agent" ? "active" : ""}
-        onClick={() => onChange("agent")}
-        type="button"
-      >
-        AGENT
-      </button>
-      <button
-        className={mode === "dry" ? "active" : ""}
-        onClick={() => onChange("dry")}
-        type="button"
-      >
-        DRY
-      </button>
-    </div>
-  );
-}
-
 function BranchConfig({
   branch,
   openRouterModels,
-  runMode,
   onRunHeartbeat,
   onEscalate,
-  onRunModeChange,
   onSave,
 }: {
   branch: BranchRecord;
   openRouterModels: OpenRouterModelRecord[];
-  runMode: RunMode;
   onRunHeartbeat: () => void;
   onEscalate: () => void;
-  onRunModeChange: (mode: RunMode) => void;
   onSave: (input: {
     config: KairosBranchAgentConfig;
     lawText: string;
@@ -932,12 +907,11 @@ function BranchConfig({
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
-          <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
           <button className="command-button" onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> {runMode === "dry" ? "DRY" : "AGENT"} HEARTBEAT
+            <Icon name="play_arrow" /> DRY HEARTBEAT
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="warning" /> {runMode === "dry" ? "DRY" : "AGENT"} ESCALATION
+            <Icon name="warning" /> DRY ESCALATION
           </button>
           <button
             className="command-button"
