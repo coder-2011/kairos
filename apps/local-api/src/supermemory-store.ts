@@ -314,15 +314,20 @@ class SupermemoryMirroredStore implements KairosLocalStore {
   private async mirrorRecord(
     record: Parameters<SupermemoryMirror["mirrorRecord"]>[0],
   ): Promise<void> {
-    try {
-      await this.mirror.mirrorRecord(record);
-    } catch (error) {
+    const mirror = this.mirror.mirrorRecord(record).catch((error: unknown) => {
       if (this.options.required) {
         throw error;
       }
       // Supermemory mirrors local state; it is not the local source of truth.
       // Preserve the successful local write even if external memory is down.
+    });
+
+    if (this.options.required) {
+      await mirror;
+      return;
     }
+
+    void mirror;
   }
 }
 
