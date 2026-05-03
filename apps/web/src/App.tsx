@@ -2368,14 +2368,14 @@ function TradeSymbolDropdown({
         <input
           className="multi-select-search"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Alpaca symbols"
+          placeholder="Search tickers"
           value={query}
         />
         {activeLoadState === "loading" && (
           <span className="empty-option">Loading Alpaca symbol catalog.</span>
         )}
         {activeLoadState === "offline" && activeCatalog.length === 0 && (
-          <span className="empty-option">Alpaca symbols unavailable. Add tracked tickers manually.</span>
+          <span className="empty-option">Symbol lookup unavailable. Add tracked tickers manually.</span>
         )}
         {visibleOptions.length === 0 ? (
           <span className="empty-option">No matching symbols.</span>
@@ -2567,7 +2567,13 @@ function TimelineEvent({
   const isError = event.type.includes("escalation") || event.type.includes("failed");
   const isDebate = event.type.includes("debate");
   const title = String(event.payload.title ?? titleize(event.type));
-  const summary = String(event.payload.summary ?? event.type);
+  const summary = String(
+    event.payload.summary ??
+      event.payload.message ??
+      event.payload.error ??
+      event.payload.status ??
+      event.type,
+  );
 
   return (
     <div className={`timeline-item ${last ? "last" : ""} ${isError ? "error" : ""} ${isDebate ? "primary" : ""}`}>
