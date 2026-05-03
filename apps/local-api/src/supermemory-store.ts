@@ -13,7 +13,11 @@ import type {
   AppendRunEventInput,
   BranchRecord,
   CreateBranchInput,
+  CreateDeepResearchChatInput,
+  CreateDeepResearchMessageInput,
   CreateRunInput,
+  DeepResearchChatRecord,
+  DeepResearchMessageRecord,
   CreateRouterChatInput,
   CreateRouterMessageInput,
   KairosLocalStore,
@@ -214,6 +218,58 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         attachment_count: message.attachments?.length ?? 0,
       },
       customId: `kairos:router_message:${message.id}`,
+    });
+    return message;
+  }
+
+  listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
+    return this.store.listDeepResearchChats();
+  }
+
+  async createDeepResearchChat(
+    input?: CreateDeepResearchChatInput,
+  ): Promise<DeepResearchChatRecord> {
+    const chat = await this.store.createDeepResearchChat(input);
+    await this.mirrorRecord({
+      type: "deep_research_chat.created",
+      scope: "research",
+      timestamp: chat.createdAt,
+      artifactId: chat.id,
+      title: chat.title ?? `Kairos deep research chat ${chat.id}`,
+      summary: "Deep Research chat created.",
+      data: chat,
+      customId: `kairos:deep_research_chat:${chat.id}`,
+    });
+    return chat;
+  }
+
+  getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
+    return this.store.getDeepResearchChat(id);
+  }
+
+  listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
+    return this.store.listDeepResearchMessages(chatId);
+  }
+
+  async createDeepResearchMessage(
+    input: CreateDeepResearchMessageInput,
+  ): Promise<DeepResearchMessageRecord> {
+    const message = await this.store.createDeepResearchMessage(input);
+    await this.mirrorRecord({
+      type: `deep_research_message.${message.role}`,
+      scope: "research",
+      timestamp: message.createdAt,
+      artifactId: message.id,
+      actor: message.role === "user" ? "human" : "deep_research",
+      title: `Kairos deep research ${message.role} message`,
+      summary: message.text ?? "Deep Research message.",
+      data: message,
+      metadata: {
+        chat_id: message.chatId,
+        model: message.model,
+        tool_call_count: message.toolCalls?.length ?? 0,
+      },
+      customId: `kairos:deep_research_message:${message.id}`,
     });
     return message;
   }
