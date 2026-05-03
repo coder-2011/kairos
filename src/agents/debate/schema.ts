@@ -1,0 +1,106 @@
+import { z } from "zod";
+
+export const citationSchema = z
+  .object({
+    title: z.string().optional(),
+    url: z.string(),
+    source: z.string().optional(),
+  })
+  .strict();
+
+export const basicFinancialsSchema = z.record(z.string(), z.unknown());
+
+export const debateStartInputSchema = z
+  .object({
+    summary: z.string().min(1),
+    basicFinancials: basicFinancialsSchema,
+  })
+  .strict();
+
+export const debateMessageSchema = z
+  .object({
+    agentName: z.enum(["judge", "bull", "bear", "tool_agent"]),
+    messageType: z.enum(["argument", "plan", "tool_result", "final"]),
+    argument: z.string().min(1),
+    confidence: z.number().min(0).max(1).optional(),
+  })
+  .strict();
+
+export const humanInterjectionSchema = z
+  .object({
+    timestamp: z.string(),
+    summary: z.string().min(1),
+  })
+  .strict();
+
+export const debateDecisionSchema = z
+  .object({
+    summary: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    citations: z.array(citationSchema),
+  })
+  .strict();
+
+export const debateToolRequestSchema = z
+  .object({
+    toolName: z.enum(["exa_search", "exa_research", "information"]),
+    input: z.string().min(1),
+  })
+  .strict();
+
+export const judgePlanSchema = z
+  .object({
+    plan: z.string().min(1),
+    nextNode: z.enum(["bull", "bear", "final"]),
+  })
+  .strict();
+
+export const debateAgentOutputSchema = z
+  .object({
+    argument: z.string().min(1),
+    confidence: z.number().min(0).max(1).optional(),
+    toolRequest: debateToolRequestSchema.nullish(),
+  })
+  .strict();
+
+export const debateToolResultSchema = z
+  .object({
+    summary: z.string().min(1),
+    citations: z.array(citationSchema).optional(),
+    outputRef: z.string().optional(),
+  })
+  .strict();
+
+export const debateToolEventSchema = z
+  .object({
+    toolEventId: z.string(),
+    debateId: z.string(),
+    toolName: z.enum(["exa_search", "exa_research", "information"]),
+    requestedBy: z.enum(["judge", "bull", "bear"]),
+    input: z.string(),
+    summary: z.string(),
+    outputRef: z.string().optional(),
+    citations: z.array(citationSchema),
+    status: z.enum(["started", "completed", "failed"]),
+    error: z.string().optional(),
+    startedAt: z.string(),
+    completedAt: z.string().optional(),
+  })
+  .strict();
+
+export const debateBudgetsSchema = z
+  .object({
+    maxTurns: z.number().int().positive(),
+    maxToolCalls: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const defaultDebateBudgets = {
+  maxTurns: 6,
+  maxToolCalls: 3,
+} as const;
+
+export type DebateStartInputFromSchema = z.infer<
+  typeof debateStartInputSchema
+>;
+export type DebateDecisionFromSchema = z.infer<typeof debateDecisionSchema>;
