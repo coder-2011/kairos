@@ -529,6 +529,11 @@ describe("API clients", () => {
     };
     const seedBundle = emptySeedBundle(output);
     const event = createEscalationEvent(output, seedBundle);
+    const expectedEscalationCustomId =
+      `heartbeat-escalation:${event!.branchId}:${event!.timestamp}`.replace(
+        /[^a-zA-Z0-9_:-]/g,
+        "_",
+      );
 
     await api.writeHeartbeatOutput({
       containerTag: "law_branch",
@@ -598,7 +603,7 @@ describe("API clients", () => {
         method: "POST",
         body: {
           containerTag: "law_branch",
-          customId: "heartbeat-escalation:branch:2026-05-03T12:00:00.000Z",
+          customId: expectedEscalationCustomId,
           metadata: {
             type: "heartbeat_escalation",
             branch_id: "branch",

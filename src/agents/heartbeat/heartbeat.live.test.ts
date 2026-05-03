@@ -8,11 +8,10 @@ import {
   ExaApi,
   FinnhubApi,
   SupermemoryApi,
-  createHeartbeatSeedProviders,
-  createHeartbeatTools,
   createOpenRouterModel,
   validateKairosEnv,
 } from "../../api/index.js";
+import { createHeartbeatSeedProviders, createHeartbeatTools } from "./index.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { runHeartbeatOnce } from "./heartbeat.js";
 import type { BranchConfig } from "./types.js";
@@ -20,7 +19,8 @@ import type { BranchConfig } from "./types.js";
 loadDotEnvLocal();
 
 const env = validateKairosEnv();
-const describeIfLive = env.ok ? describe : describe.skip;
+const describeIfLive =
+  process.env.KAIROS_LIVE_TESTS === "1" && env.ok ? describe : describe.skip;
 
 describeIfLive("heartbeat live", () => {
   it("runs the full heartbeat path against live APIs", async () => {

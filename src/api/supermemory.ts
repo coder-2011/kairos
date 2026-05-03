@@ -228,7 +228,9 @@ export class SupermemoryApi {
 
     return this.addContent({
       containerTag,
-      customId: `heartbeat-escalation:${event.branchId}:${event.timestamp}`,
+      customId: safeCustomId(
+        `heartbeat-escalation:${event.branchId}:${event.timestamp}`,
+      ),
       content: JSON.stringify(
         {
           type: "heartbeat_escalation",
@@ -328,6 +330,10 @@ export class SupermemoryApi {
 
     return response.json() as Promise<T>;
   }
+}
+
+function safeCustomId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_:-]/g, "_");
 }
 
 function formatConversation(

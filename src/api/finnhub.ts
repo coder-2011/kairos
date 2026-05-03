@@ -537,7 +537,9 @@ async function getDailyCandles(
 ): Promise<FinnhubCandleResponse> {
   const to = Math.floor(Date.parse(timestamp) / 1000);
   const from = to - days * DAY_SECONDS;
-  const candles = await finnhub.stockCandles({ symbol, resolution: "D", from, to });
+  const candles = await finnhub.stockCandles({ symbol, resolution: "D", from, to }).catch(() => {
+    return { s: "no_data" } satisfies FinnhubCandleResponse;
+  });
   return candles.s === "ok" ? candles : { s: "no_data" };
 }
 
