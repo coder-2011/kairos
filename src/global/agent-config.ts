@@ -1,0 +1,208 @@
+import { z } from "zod";
+
+export const kairosModelRoleSchema = z.enum([
+  "heartbeat",
+  "informationPlanner",
+  "informationSynthesis",
+  "debateJudge",
+  "debateBull",
+  "debateBear",
+  "debateFinal",
+]);
+
+export const kairosReasoningEffortSchema = z.enum([
+  "xhigh",
+  "high",
+  "medium",
+  "low",
+  "minimal",
+  "none",
+]);
+
+export const heartbeatToolNameSchema = z.enum([
+  "supermemory_profile",
+  "supermemory_search",
+  "exa_news_search",
+]);
+
+export const debateToolNameSchema = z.enum([
+  "exa_search",
+  "exa_research",
+  "information",
+]);
+
+export const informationToolNameSchema = z.enum([
+  "exa_search",
+  "exa_research",
+  "exa_contents",
+  "finnhub_api_request",
+  "finnhub_quote",
+  "finnhub_company_news",
+  "finnhub_stock_candles",
+  "finnhub_aggregate_indicator",
+  "finnhub_basic_financials",
+  "finnhub_company_earnings",
+  "finnhub_company_eps_estimates",
+  "finnhub_company_peers",
+  "finnhub_company_profile",
+  "finnhub_earnings_calendar",
+  "finnhub_filings",
+  "finnhub_financials_reported",
+  "finnhub_insider_transactions",
+  "finnhub_news_sentiment",
+  "finnhub_ownership",
+  "finnhub_press_releases",
+  "finnhub_recommendation_trends",
+  "finnhub_social_sentiment",
+  "finnhub_supply_chain_relationships",
+  "finnhub_upgrade_downgrade",
+  "supermemory_search",
+]);
+
+const confidenceSchema = z.number().min(0).max(1);
+
+export const kairosToolPolicySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxCallsPerRun: z.number().int().min(0).optional(),
+    description: z.string().optional(),
+    inputHint: z.string().optional(),
+    requiresPremium: z.boolean().optional(),
+  })
+  .strict();
+
+export const heartbeatToolConfigSchema = z
+  .object({
+    supermemory_profile: kairosToolPolicySchema.optional(),
+    supermemory_search: kairosToolPolicySchema.optional(),
+    exa_news_search: kairosToolPolicySchema.optional(),
+  })
+  .strict();
+
+export const debateToolConfigSchema = z
+  .object({
+    exa_search: kairosToolPolicySchema.optional(),
+    exa_research: kairosToolPolicySchema.optional(),
+    information: kairosToolPolicySchema.optional(),
+  })
+  .strict();
+
+export const informationToolConfigSchema = z
+  .object({
+    exa_search: kairosToolPolicySchema.optional(),
+    exa_research: kairosToolPolicySchema.optional(),
+    exa_contents: kairosToolPolicySchema.optional(),
+    finnhub_api_request: kairosToolPolicySchema.optional(),
+    finnhub_quote: kairosToolPolicySchema.optional(),
+    finnhub_company_news: kairosToolPolicySchema.optional(),
+    finnhub_stock_candles: kairosToolPolicySchema.optional(),
+    finnhub_aggregate_indicator: kairosToolPolicySchema.optional(),
+    finnhub_basic_financials: kairosToolPolicySchema.optional(),
+    finnhub_company_earnings: kairosToolPolicySchema.optional(),
+    finnhub_company_eps_estimates: kairosToolPolicySchema.optional(),
+    finnhub_company_peers: kairosToolPolicySchema.optional(),
+    finnhub_company_profile: kairosToolPolicySchema.optional(),
+    finnhub_earnings_calendar: kairosToolPolicySchema.optional(),
+    finnhub_filings: kairosToolPolicySchema.optional(),
+    finnhub_financials_reported: kairosToolPolicySchema.optional(),
+    finnhub_insider_transactions: kairosToolPolicySchema.optional(),
+    finnhub_news_sentiment: kairosToolPolicySchema.optional(),
+    finnhub_ownership: kairosToolPolicySchema.optional(),
+    finnhub_press_releases: kairosToolPolicySchema.optional(),
+    finnhub_recommendation_trends: kairosToolPolicySchema.optional(),
+    finnhub_social_sentiment: kairosToolPolicySchema.optional(),
+    finnhub_supply_chain_relationships: kairosToolPolicySchema.optional(),
+    finnhub_upgrade_downgrade: kairosToolPolicySchema.optional(),
+    supermemory_search: kairosToolPolicySchema.optional(),
+  })
+  .strict();
+
+export const kairosBranchAgentConfigSchema = z
+  .object({
+    assets: z.array(z.string().min(1)).optional(),
+    riskLevel: z.enum(["low", "medium", "high"]).optional(),
+    heartbeat: z
+      .object({
+        intervalMinutes: z.number().positive().optional(),
+        seedWindowDays: z.number().int().positive().optional(),
+        maxToolSteps: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
+    seededData: z
+      .object({
+        optionalSources: z.record(z.string(), z.boolean()).optional(),
+      })
+      .strict()
+      .optional(),
+    models: z
+      .partialRecord(
+        kairosModelRoleSchema,
+        z
+          .object({
+            model: z.string().min(1).optional(),
+            reasoningEffort: kairosReasoningEffortSchema.optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    prompts: z
+      .object({
+        heartbeatSystemPrompt: z.string().optional(),
+        debateJudgeSystemPrompt: z.string().optional(),
+        debateBullSystemPrompt: z.string().optional(),
+        debateBearSystemPrompt: z.string().optional(),
+        debateFinalSystemPrompt: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    tools: z
+      .object({
+        heartbeat: heartbeatToolConfigSchema.optional(),
+        debate: debateToolConfigSchema.optional(),
+        information: informationToolConfigSchema.optional(),
+        finnhubPremiumAccess: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    budgets: z
+      .object({
+        debateMaxTurns: z.number().int().positive().optional(),
+        debateMaxToolCalls: z.number().int().min(0).optional(),
+        informationMaxToolCalls: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
+    thresholds: z
+      .object({
+        notifyConfidence: confidenceSchema.optional(),
+        buyConfidence: confidenceSchema.optional(),
+        paperTradeDraftConfidence: confidenceSchema.optional(),
+        escalationInfo: confidenceSchema.optional(),
+        escalationWarn: confidenceSchema.optional(),
+        escalationCritical: confidenceSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    research: z
+      .object({
+        exaInstruction: z.string().optional(),
+        dataPacket: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export type KairosModelRole = z.infer<typeof kairosModelRoleSchema>;
+export type KairosReasoningEffort = z.infer<typeof kairosReasoningEffortSchema>;
+export type HeartbeatToolName = z.infer<typeof heartbeatToolNameSchema>;
+export type DebateConfigToolName = z.infer<typeof debateToolNameSchema>;
+export type InformationConfigToolName = z.infer<typeof informationToolNameSchema>;
+export type KairosToolPolicy = z.infer<typeof kairosToolPolicySchema>;
+export type HeartbeatToolConfig = z.infer<typeof heartbeatToolConfigSchema>;
+export type DebateToolConfig = z.infer<typeof debateToolConfigSchema>;
+export type InformationToolConfig = z.infer<typeof informationToolConfigSchema>;
+export type KairosBranchAgentConfig = z.infer<
+  typeof kairosBranchAgentConfigSchema
+>;

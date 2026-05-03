@@ -1,3 +1,5 @@
+import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+
 export type JsonRecord = Record<string, unknown>;
 
 export type BranchRecord = {
@@ -9,7 +11,7 @@ export type BranchRecord = {
   createdAt: string;
   updatedAt: string;
   law?: JsonRecord;
-  config?: JsonRecord;
+  config?: KairosBranchAgentConfig;
   metadata?: JsonRecord;
 };
 
@@ -44,7 +46,7 @@ export type CreateBranchInput = {
   description?: string;
   enabled?: boolean;
   law?: JsonRecord;
-  config?: JsonRecord;
+  config?: KairosBranchAgentConfig;
   metadata?: JsonRecord;
 };
 

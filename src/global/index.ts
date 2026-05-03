@@ -1,4 +1,5 @@
 export * from "./agent-runtime.js";
+export * from "./agent-config.js";
 export * from "./env.js";
 export * from "./finnhub-catalog.js";
 export * from "./memory.js";

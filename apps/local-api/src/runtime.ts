@@ -4,6 +4,10 @@ import {
   type KairosEvent,
   type KairosRun,
 } from "../../../src/runtime/index.js";
+import {
+  kairosBranchAgentConfigSchema,
+  type KairosBranchAgentConfig,
+} from "../../../src/global/agent-config.js";
 import type {
   AppendRunEventInput,
   BranchRecord,
@@ -200,7 +204,7 @@ function toOptional<T, U>(value: T | null, map: (value: T) => U): U | undefined 
 
 function readBranchPayload(branch: KairosBranch): {
   law?: Record<string, unknown>;
-  config?: Record<string, unknown>;
+  config?: KairosBranchAgentConfig;
   metadata?: Record<string, unknown>;
 } {
   if (!isJsonRecord(branch.payload)) {
@@ -209,9 +213,7 @@ function readBranchPayload(branch: KairosBranch): {
 
   return {
     law: isJsonRecord(branch.payload.law) ? branch.payload.law : undefined,
-    config: isJsonRecord(branch.payload.config)
-      ? branch.payload.config
-      : undefined,
+    config: parseBranchAgentConfig(branch.payload.config),
     metadata: isJsonRecord(branch.payload.metadata)
       ? branch.payload.metadata
       : undefined,
@@ -223,6 +225,11 @@ function getAssets(input: Pick<CreateBranchInput, "config">): string[] {
   return Array.isArray(assets)
     ? assets.filter((asset): asset is string => typeof asset === "string")
     : [];
+}
+
+function parseBranchAgentConfig(value: unknown): KairosBranchAgentConfig | undefined {
+  const parsed = kairosBranchAgentConfigSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function slugId(value: string): string {

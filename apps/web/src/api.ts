@@ -1,3 +1,5 @@
+import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+
 export type JsonRecord = Record<string, unknown>;
 
 export type BranchRecord = {
@@ -9,7 +11,7 @@ export type BranchRecord = {
   createdAt: string;
   updatedAt: string;
   law?: JsonRecord;
-  config?: JsonRecord;
+  config?: KairosBranchAgentConfig;
   metadata?: JsonRecord;
 };
 
@@ -86,6 +88,16 @@ export async function appendInterjection(
     method: "POST",
     body: JSON.stringify({ message }),
   }).then((response) => response.event);
+}
+
+export async function updateBranchConfig(
+  branchId: string,
+  config: KairosBranchAgentConfig,
+): Promise<BranchRecord> {
+  return request<{ branch: BranchRecord }>(`/branches/${branchId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ config }),
+  }).then((response) => response.branch);
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
