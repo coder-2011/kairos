@@ -50,6 +50,14 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Keep the initial data pipeline simple: store tracked-stock and tracked-sector corpora locally, build embeddings over yearly data, and maintain rolling recent windows for heartbeat and debate agents.
 - Down the line, support continuously updated data packets: deep, compact, citeable summaries for tickers, sectors, laws, branches, sources, and catalysts.
 
+## Schema Design Rules
+- Keep schemas as minimal as possible while preserving behavior, auditability, and replay.
+- Omit metadata fields that do not directly contribute to functionality, routing, retrieval, audit, or user-visible output.
+- Avoid duplicate semantic fields. For example, do not store both `reasoning` and `summary` unless they serve distinct code paths.
+- Keep different types of information in the same modality separated when separation affects handling. For example, chat text, PDF text, image-derived text, and retrieved webpage text may share a text modality, but they should remain source-distinct because extraction, trust, and replay differ.
+- Prefer simple final agent outputs that downstream code can execute directly, such as selected branch IDs, action, and short user-facing text.
+- Add richer schemas only after there is a concrete consumer for each field.
+
 ## Agent Behavior Rules for This Repo
 - Before implementing non-trivial behavior, read `spec.md`.
 - Treat OpenRouter, LangChain, LangGraph, Exa, Supermemory, Alpaca, Finnhub, and TypeScript as current stack decisions unless the user changes them.
