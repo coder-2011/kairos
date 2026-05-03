@@ -1319,7 +1319,45 @@ function lazyAlpacaPaperBroker(): PaperTradingBroker {
     getPortfolioSnapshot: () => current().getPortfolioSnapshot(),
     getClock: () => current().getClock(),
     getAsset: (symbol) => current().getAsset(symbol),
+    listPaperOrders: (input) => current().listPaperOrders(input),
     submitPaperOrder: (input) => current().submitPaperOrder(input),
+  };
+}
+
+async function listMarketSymbols(
+  context: LocalApiContext,
+  params: URLSearchParams,
+): Promise<Response> {
+  try {
+    const symbols = await getMarketSymbolProvider(context).listMarketSymbols({
+      query: params.get("query") ?? undefined,
+      limit: parsePositiveInteger(params.get("limit")) ?? 500,
+    });
+    return json({ symbols, count: symbols.length, source: "alpaca" });
+  } catch (error) {
+    return json({
+      symbols: [],
+      count: 0,
+      source: "alpaca",
+      error: error instanceof Error ? error.message : "Unable to load market symbols.",
+    });
+  }
+}
+
+function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
+  context.marketSymbolProvider ??= lazyAlpacaMarketSymbolProvider();
+  return context.marketSymbolProvider;
+}
+
+function lazyAlpacaMarketSymbolProvider(): MarketSymbolProvider {
+  let client: ReturnType<typeof createAlpacaTradingClient> | undefined;
+  const current = () => {
+    client ??= createAlpacaTradingClient();
+    return client;
+  };
+
+  return {
+    listMarketSymbols: (input) => current().listMarketSymbols(input),
   };
 }
 
@@ -1771,6 +1809,12 @@ function firstNonEmptyString(...values: Array<string | undefined>): string | und
   return values.find((value) => value !== undefined && value.trim().length > 0);
 }
 
+function parsePositiveInteger(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function openRouterModelDefaults(): JsonRecord {
   const roles: KairosModelRole[] = [
     "heartbeat",
@@ -1825,6 +1869,7 @@ function normalizePortfolioAccountForFrontend(account: unknown): JsonRecord {
 type Route =
   | { name: "health"; params: Record<string, never> }
   | { name: "listOpenRouterModels"; params: Record<string, never> }
+  | { name: "listMarketSymbols"; params: Record<string, never> }
   | { name: "listBranches"; params: Record<string, never> }
   | { name: "createBranch"; params: Record<string, never> }
   | { name: "getBranch"; params: { branchId: string } }
@@ -1858,6 +1903,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
 
   if (method === "GET" && pathname === "/health") return { name: "health", params: {} };
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
+  if (method === "GET" && pathname === "/market/symbols") return { name: "listMarketSymbols", params: {} };
   if (method === "GET" && pathname === "/portfolio") return { name: "getPortfolio", params: {} };
   if (method === "POST" && pathname === "/portfolio/refresh") return { name: "refreshPortfolio", params: {} };
   if (segments.length === 2 && segments[0] === "router" && segments[1] === "chats") {
