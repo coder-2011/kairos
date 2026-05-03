@@ -1207,6 +1207,29 @@ function BranchConfig({
             value={lawText}
           />
         </FieldLabel>
+        <div>
+          <div className="field-label">AGENT SYSTEM PROMPTS</div>
+          <div className="prompt-grid">
+            {promptFields.map((field) => (
+              <FieldLabel label={field.role} key={field.key}>
+                <textarea
+                  className="prompt-area"
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      prompts: {
+                        ...current.prompts,
+                        [field.key]: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder={field.description}
+                  value={config.prompts?.[field.key] ?? field.defaultText}
+                />
+              </FieldLabel>
+            ))}
+          </div>
+        </div>
         <section className={`trading-panel ${paperAutoBuyEnabled ? "auto-buy" : ""}`}>
           <div className="trading-panel-head">
             <div>
@@ -1363,29 +1386,6 @@ function BranchConfig({
             </div>
           </div>
         </section>
-        <div>
-          <div className="field-label">AGENT SYSTEM PROMPTS</div>
-          <div className="prompt-grid">
-            {promptFields.map((field) => (
-              <FieldLabel label={field.role} key={field.key}>
-                <textarea
-                  className="prompt-area"
-                  onChange={(event) =>
-                    setConfig((current) => ({
-                      ...current,
-                      prompts: {
-                        ...current.prompts,
-                        [field.key]: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder={field.description}
-                  value={config.prompts?.[field.key] ?? field.defaultText}
-                />
-              </FieldLabel>
-            ))}
-          </div>
-        </div>
         <div>
           <div className="field-label">MODEL ROLE CONFIGURATION</div>
           <div className="model-grid">

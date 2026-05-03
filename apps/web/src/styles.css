@@ -608,6 +608,12 @@ a {
   padding: 3px 6px;
 }
 
+.source-pill.warning {
+  background: var(--error-container);
+  border-color: rgba(186, 26, 26, 0.2);
+  color: var(--on-error-container);
+}
+
 .divider {
   background: #e2e8f0;
   height: 16px;
@@ -901,6 +907,165 @@ select:focus {
 .run-deep-dive {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) minmax(300px, 32%);
+}
+
+.portfolio-canvas {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.portfolio-main,
+.portfolio-side {
+  background: var(--surface-lowest);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.portfolio-main {
+  border-right: 1px solid var(--outline-variant);
+}
+
+.portfolio-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.portfolio-safety-strip {
+  align-items: center;
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.portfolio-safety-strip b,
+.portfolio-safety-strip span {
+  display: block;
+}
+
+.portfolio-safety-strip b {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.portfolio-safety-strip span {
+  color: var(--on-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.portfolio-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.portfolio-section {
+  min-width: 0;
+}
+
+.compact-panel {
+  max-height: 280px;
+}
+
+.portfolio-table {
+  min-width: 720px;
+}
+
+.portfolio-side {
+  background: var(--surface-low);
+}
+
+.portfolio-card-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.portfolio-card-list.messages {
+  flex-basis: 42%;
+}
+
+.portfolio-card {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-left: 3px solid var(--primary);
+  padding: 10px;
+}
+
+.portfolio-card.message-card {
+  border-left-color: var(--secondary);
+}
+
+.portfolio-card-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.portfolio-card-head b,
+.portfolio-card-head span,
+.portfolio-card-grid span {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.portfolio-card-head b {
+  color: var(--on-surface);
+}
+
+.portfolio-card-head span {
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  padding: 2px 6px;
+}
+
+.portfolio-card p {
+  color: var(--on-variant);
+  font-size: 12px;
+  line-height: 16px;
+  margin: 8px 0 0;
+}
+
+.portfolio-card-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.portfolio-card-grid span {
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  overflow: hidden;
+  padding: 4px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-list-pane,
@@ -1543,6 +1708,34 @@ select:focus {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
+.run-mode-switch {
+  align-items: center;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(48px, 1fr));
+  min-height: 28px;
+  padding: 2px;
+}
+
+.run-mode-switch button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  min-height: 22px;
+  padding: 3px 8px;
+}
+
+.run-mode-switch button.active {
+  background: var(--surface);
+  border-color: var(--outline-variant);
+  color: var(--on-surface);
+}
+
 .editor-body,
 .config-body {
   display: flex;
@@ -1736,6 +1929,101 @@ select:focus {
   text-transform: uppercase;
 }
 
+.trading-panel {
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-left: 4px solid var(--outline);
+}
+
+.trading-panel.auto-buy {
+  border-left-color: var(--error);
+}
+
+.trading-panel-head {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.trading-panel-head h2 {
+  color: var(--on-surface);
+  font-size: 18px;
+  line-height: 24px;
+  margin: 4px 0;
+}
+
+.trading-panel-head p {
+  color: var(--on-variant);
+  margin: 0;
+}
+
+.risk-pill {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
+.risk-pill.enabled {
+  background: var(--error-container);
+  border-color: var(--error);
+  color: var(--on-error-container);
+}
+
+.trading-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.checkbox-card {
+  align-items: center;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  display: flex;
+  gap: 10px;
+  min-height: 62px;
+  padding: 10px;
+}
+
+.checkbox-card input {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.checkbox-card b,
+.checkbox-card small {
+  display: block;
+}
+
+.checkbox-card b {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.checkbox-card small {
+  color: var(--on-variant);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.threshold-inline {
+  grid-column: 1 / -1;
+}
+
 .config-grid,
 .threshold-wide {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1881,6 +2169,19 @@ select:focus {
     grid-template-columns: minmax(220px, 30%) minmax(420px, 1fr);
   }
 
+  .portfolio-canvas {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .portfolio-main {
+    border-right: 0;
+  }
+
+  .portfolio-side {
+    min-height: 520px;
+  }
+
   .evidence {
     display: none;
   }
@@ -1948,6 +2249,21 @@ select:focus {
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  .portfolio-canvas {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .portfolio-metrics,
+  .trading-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trading-panel-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .pane {
