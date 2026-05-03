@@ -24,6 +24,28 @@ export type OpenRouterModelConfig = OpenRouterConfig & {
 export type OpenRouterProvider = ReturnType<typeof createOpenRouter>;
 export type OpenRouterAiSdkChatModel = ReturnType<OpenRouterProvider["chat"]>;
 
+export type OpenRouterModelInfo = {
+  id: string;
+  name: string;
+  contextLength?: number;
+  supportedParameters: string[];
+  inputModalities: string[];
+  outputModalities: string[];
+};
+
+type OpenRouterModelsResponse = {
+  data?: Array<{
+    id?: string;
+    name?: string;
+    context_length?: number;
+    supported_parameters?: string[];
+    architecture?: {
+      input_modalities?: string[];
+      output_modalities?: string[];
+    };
+  }>;
+};
+
 export function createOpenRouterProvider(
   config: OpenRouterConfig = {},
 ): OpenRouterProvider {
@@ -72,6 +94,45 @@ export function createOpenRouterChatModel(config: OpenRouterModelConfig) {
       ...(reasoning ? { reasoning } : {}),
     },
   });
+}
+
+export async function listOpenRouterModels(input: {
+  apiKey?: string;
+  baseURL?: string;
+  fetchImpl?: typeof fetch;
+  requireTools?: boolean;
+} = {}): Promise<OpenRouterModelInfo[]> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const baseURL = input.baseURL ?? "https://openrouter.ai/api/v1";
+  const url = new URL(`${baseURL.replace(/\/$/, "")}/models`);
+  if (input.requireTools) {
+    url.searchParams.set("supported_parameters", "tools");
+  }
+
+  const headers: Record<string, string> = {};
+  const apiKey = input.apiKey ?? process.env.OPENROUTER_API_KEY;
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetchImpl(url, { headers });
+  if (!response.ok) {
+    throw new Error(`OpenRouter models request failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = (await response.json()) as OpenRouterModelsResponse;
+  return (payload.data ?? [])
+    .filter((model): model is Required<Pick<NonNullable<OpenRouterModelsResponse["data"]>[number], "id">> & NonNullable<OpenRouterModelsResponse["data"]>[number] =>
+      typeof model.id === "string" && model.id.length > 0,
+    )
+    .map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+      contextLength: model.context_length,
+      supportedParameters: model.supported_parameters ?? [],
+      inputModalities: model.architecture?.input_modalities ?? [],
+      outputModalities: model.architecture?.output_modalities ?? [],
+    }));
 }
 
 export function assertOpenRouterToolCapableModel(model: string): void {
