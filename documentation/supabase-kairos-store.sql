@@ -20,5 +20,5 @@ drop policy if exists "kairos_records_service_role_all" on public.kairos_records
 create policy "kairos_records_service_role_all"
   on public.kairos_records
   for all
-  using (auth.role() = 'service_role')
-  with check (auth.role() = 'service_role');
+  using ((select auth.role()) = 'service_role')
+  with check ((select auth.role()) = 'service_role');
