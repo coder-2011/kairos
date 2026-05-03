@@ -9,6 +9,7 @@ import {
   MemoryKairosStore,
   type LocalApiContext,
 } from "./src/server.js";
+import { SupabaseKairosStore } from "./src/supabase-store.js";
 import type { PaperTradingBroker } from "../../src/trading/index.js";
 import type { TradingSmsNotifier } from "../../src/notifications/index.js";
 
@@ -221,6 +222,72 @@ describe("local API handler", () => {
     }
   });
 
+  it("can use Supabase as the same API store backend", async () => {
+    const requests: Array<{ method: string; url: string; body?: unknown }> = [];
+    const records = new Map<string, { collection: string; id: string; record: unknown }>();
+    const store = new SupabaseKairosStore({
+      url: "https://example.supabase.co",
+      serviceRoleKey: "service_role_test",
+      fetchImpl: (async (input, init) => {
+        const url = new URL(String(input));
+        const method = init?.method ?? "GET";
+        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+        requests.push({ method, url: url.toString(), body });
+
+        if (method === "POST" && body) {
+          records.set(`${body.collection}:${body.id}`, body);
+          return jsonResponse(null);
+        }
+
+        if (method === "GET") {
+          const collection = url.searchParams.get("collection")?.replace(/^eq\\./, "");
+          const id = url.searchParams.get("id")?.replace(/^eq\\./, "");
+          const runId = url.searchParams.get("record->>runId")?.replace(/^eq\\./, "");
+          const rows = [...records.values()].filter((row) => {
+            const record = row.record as { runId?: string };
+            return (
+              (!collection || row.collection === collection) &&
+              (!id || row.id === id) &&
+              (!runId || record.runId === runId)
+            );
+          });
+          return jsonResponse(rows);
+        }
+
+        if (method === "DELETE") {
+          const collection = url.searchParams.get("collection")?.replace(/^eq\\./, "");
+          const id = url.searchParams.get("id")?.replace(/^eq\\./, "");
+          const key = `${collection}:${id}`;
+          const row = records.get(key);
+          records.delete(key);
+          return jsonResponse(row ? [row] : []);
+        }
+
+        return jsonResponse({ error: "unexpected request" }, 500);
+      }) as typeof fetch,
+    });
+    const { requestJson } = makeClient({ store });
+
+    const created = await requestJson("POST", "/branches", {
+      id: "branch_supabase",
+      name: "Supabase branch",
+    });
+    const run = await requestJson("POST", "/branches/branch_supabase/heartbeat-runs", {
+      input: { ticker: "PLTR" },
+    });
+    const events = await requestJson("GET", `/runs/${run.body.run.id}/events`);
+
+    expect(created.status).toBe(201);
+    expect(run.status).toBe(201);
+    expect(events.body.events.map((event: { type: string }) => event.type)).toEqual([
+      "run.started",
+      "heartbeat.seeded",
+      "heartbeat.decision",
+      "run.completed",
+    ]);
+    expect(requests.some((request) => request.url.includes("/rest/v1/kairos_records"))).toBe(true);
+  });
+
   it("creates a message and paper trade intent when confidence crosses paper threshold without auto-buy", async () => {
     const { requestJson } = makeClient();
 
@@ -347,10 +414,11 @@ describe("local API handler", () => {
 });
 
 function makeClient(options: {
+  store?: MemoryKairosStore | SupabaseKairosStore;
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
 } = {}) {
-  const store = new MemoryKairosStore();
+  const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
     store,
     runHeartbeat: async ({ branchId, dryRun, payload }) => ({
@@ -390,6 +458,13 @@ function makeClient(options: {
   }
 
   return { request, requestJson };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(body === null ? null : JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function tradeIntentPayload(overrides: Record<string, unknown> = {}) {
