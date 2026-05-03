@@ -52,7 +52,19 @@ describe("local API handler", () => {
 
   it("triggers deterministic dry-run heartbeat runs and exposes run events", async () => {
     const { requestJson } = makeClient();
-    await requestJson("POST", "/branches", { id: "branch_1", name: "Branch 1" });
+    await requestJson("POST", "/branches", {
+      id: "branch_1",
+      name: "Branch 1",
+      config: {
+        assets: ["PLTR"],
+        heartbeat: { intervalMinutes: 5, seedWindowDays: 30 },
+        tools: {
+          information: {
+            exa_search: { enabled: false },
+          },
+        },
+      },
+    });
 
     const created = await requestJson("POST", "/branches/branch_1/heartbeat-runs", {
       input: { ticker: "PLTR" },
@@ -66,6 +78,7 @@ describe("local API handler", () => {
       dryRun: true,
     });
     expect(created.body.run.output.decision).toBe("monitor");
+    expect(created.body.run.input.branch.config.tools.information.exa_search.enabled).toBe(false);
 
     const listedRuns = await requestJson("GET", "/runs");
     expect(listedRuns.body.runs).toHaveLength(1);
@@ -84,6 +97,15 @@ describe("local API handler", () => {
 
   it("creates deterministic debate runs from escalation-like payloads", async () => {
     const { requestJson } = makeClient();
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_deals",
+      name: "PLTR deals",
+      config: {
+        prompts: {
+          debateBullSystemPrompt: "Custom bull",
+        },
+      },
+    });
 
     const response = await requestJson("POST", "/debates", {
       escalation: {
@@ -99,6 +121,9 @@ describe("local API handler", () => {
       branchId: "branch_pltr_deals",
       dryRun: true,
     });
+    expect(response.body.run.input.branch.config.prompts.debateBullSystemPrompt).toBe(
+      "Custom bull",
+    );
     expect(response.body.run.output.decision).toBe("needs_review");
   });
 
