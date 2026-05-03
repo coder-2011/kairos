@@ -1708,34 +1708,6 @@ select:focus {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
-.run-mode-switch {
-  align-items: center;
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(48px, 1fr));
-  min-height: 28px;
-  padding: 2px;
-}
-
-.run-mode-switch button {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--on-variant);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  min-height: 22px;
-  padding: 3px 8px;
-}
-
-.run-mode-switch button.active {
-  background: var(--surface);
-  border-color: var(--outline-variant);
-  color: var(--on-surface);
-}
-
 .editor-body,
 .config-body {
   display: flex;
