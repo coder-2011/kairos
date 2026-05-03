@@ -320,7 +320,10 @@ export async function createDebate(input: {
     method: "POST",
     body: JSON.stringify({
       escalation: input.escalation,
-      input: { branchId: input.branchId },
+      input: {
+        branchId: input.branchId ?? readStringField(input.escalation, "branchId"),
+        escalation: input.escalation,
+      },
     }),
   }).then((response) => response.run);
 }
@@ -438,6 +441,10 @@ function isJsonRecord(value: unknown): value is JsonRecord {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function readStringField(value: unknown, key: string): string | undefined {
+  return isJsonRecord(value) ? readString(value[key]) : undefined;
 }
 
 function readBoolean(value: unknown): boolean | undefined {

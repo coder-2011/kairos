@@ -542,10 +542,11 @@ export function App() {
     }
   }
 
-  async function startDebate(branchId: string) {
+  async function startDebate(branchId: string, escalation?: JsonRecord) {
     try {
       const run = await createDebate({
         branchId,
+        escalation,
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -675,6 +676,9 @@ export function App() {
           <MonitoringView
             events={events}
             onInject={injectHumanContext}
+            onStartDebateFromEscalation={(branchId, escalation) =>
+              void startDebate(branchId, escalation)
+            }
             run={selectedRun}
           />
         )}
@@ -1088,15 +1092,18 @@ function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
 
 function MonitoringView({
   events,
+  onStartDebateFromEscalation,
   run,
   onInject,
 }: {
   events: RunEventRecord[];
   run?: RunRecord;
+  onStartDebateFromEscalation: (branchId: string, escalation: JsonRecord) => void;
   onInject: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
   const [showEvidence, setShowEvidence] = useState(true);
+  const heartbeatEscalation = getHeartbeatEscalation(run);
   const transcriptEvents = events.filter(
     (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
@@ -1138,11 +1145,22 @@ function MonitoringView({
           title="DEBATE"
         />
         <div className="transcript-scroll">
+          {run?.kind === "heartbeat" && (
+            <HeartbeatHandoffPanel
+              escalation={heartbeatEscalation}
+              run={run}
+              onStartDebate={onStartDebateFromEscalation}
+            />
+          )}
           {transcriptEvents.length === 0 ? (
             <EmptyPanel
               icon="forum"
-              message="No transcript yet."
-              title="No Debate Transcript"
+              message={
+                run?.kind === "heartbeat"
+                  ? "Heartbeat results appear here first. If it escalates, start the debate from the heartbeat packet."
+                  : "No transcript yet."
+              }
+              title={run?.kind === "heartbeat" ? "No Debate Started" : "No Debate Transcript"}
             />
           ) : (
             transcriptEvents.map((event) => (
@@ -1202,6 +1220,47 @@ function MonitoringView({
         />
       )}
     </main>
+  );
+}
+
+function HeartbeatHandoffPanel({
+  escalation,
+  run,
+  onStartDebate,
+}: {
+  escalation?: JsonRecord;
+  run: RunRecord;
+  onStartDebate: (branchId: string, escalation: JsonRecord) => void;
+}) {
+  const decision = readDisplay(run.output?.decision, "unknown");
+  const branchId = readDisplay(run.branchId, "");
+  const canStartDebate = Boolean(escalation && branchId);
+
+  return (
+    <article className={`heartbeat-handoff ${canStartDebate ? "escalated" : ""}`}>
+      <div>
+        <span>
+          <Icon name={canStartDebate ? "alt_route" : "monitor_heart"} />
+          HEARTBEAT RESULT
+        </span>
+        <b>{decision}</b>
+      </div>
+      <p>{readDisplay(run.output?.summary, "Heartbeat completed without a summary.")}</p>
+      {canStartDebate ? (
+        <button
+          className="command-button primary"
+          onClick={() => onStartDebate(branchId, escalation)}
+          type="button"
+        >
+          <Icon name="forum" /> START DEBATE FROM HEARTBEAT
+        </button>
+      ) : (
+        <small>
+          No escalation packet was produced, so this heartbeat does not have a
+          debate handoff.
+        </small>
+      )}
+    </article>
   );
 }
 
@@ -1740,10 +1799,10 @@ function BranchConfig({
         </div>
         <div className="button-row">
           <button className="command-button" onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> RUN HEARTBEAT
+            <Icon name="play_arrow" /> RUN HEARTBEAT CHECK
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="forum" /> START DEBATE
+            <Icon name="forum" /> START MANUAL DEBATE
           </button>
           <button
             className="command-button danger-outline"
@@ -3137,6 +3196,14 @@ function compactValue(value: unknown, fallback = "-") {
     return keys.length === 0 ? fallback : keys.slice(0, 4).join(", ");
   }
   return fallback;
+}
+
+function getHeartbeatEscalation(run: RunRecord | undefined): JsonRecord | undefined {
+  const outputEscalation = run?.output?.escalationEvent;
+  if (isJsonRecord(outputEscalation)) return outputEscalation;
+
+  const inputEscalation = run?.input?.escalation;
+  return isJsonRecord(inputEscalation) ? inputEscalation : undefined;
 }
 
 function isUnresolvedStatus(value: unknown) {
