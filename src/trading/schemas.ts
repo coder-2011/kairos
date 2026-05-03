@@ -142,6 +142,8 @@ export const tradingMessageSchema = z
       "paper_trade_candidate",
       "paper_order_submitted",
       "paper_order_blocked",
+      "sms_notification_sent",
+      "sms_notification_failed",
       "manual",
     ]),
     severity: z.enum(["info", "action", "warning"]),

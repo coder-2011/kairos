@@ -67,9 +67,15 @@ export const informationToolNameSchema = z.enum([
 const confidenceSchema = z.number().min(0).max(1);
 const tradingConfigSchema = z
   .object({
+    mode: z.enum(["disabled", "paper"]).optional(),
     notifyConfidenceThreshold: confidenceSchema.optional(),
     paperTradeConfidenceThreshold: confidenceSchema.optional(),
     paperAutoBuyEnabled: z.boolean().optional(),
+    notifyOnBuySignal: z.boolean().optional(),
+    maxNotionalPerOrder: z.number().positive().optional(),
+    maxOpenPositionNotionalPerSymbol: z.number().positive().optional(),
+    allowedOrderType: z.enum(["market", "limit", "bracket"]).optional(),
+    allowQueuedOrdersWhenMarketClosed: z.boolean().optional(),
     maxNotionalUsd: z.number().positive().optional(),
     defaultOrderType: z.enum(["market", "limit"]).optional(),
     defaultTimeInForce: z
