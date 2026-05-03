@@ -32,6 +32,18 @@ export type BranchRecord = {
 export type RunKind = "heartbeat" | "debate" | "router";
 export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "canceled";
 
+export type RunLifecycle = {
+  stage: string;
+  lastEventAt?: string;
+  elapsedMs: number;
+  currentOperation?: string;
+  childRunIds: string[];
+  parentRunId?: string;
+  blockingExternalService?: string;
+  retryable: boolean;
+  cancelable: boolean;
+};
+
 export type RunRecord = {
   id: string;
   kind: RunKind;
@@ -42,6 +54,7 @@ export type RunRecord = {
   input: JsonRecord;
   output?: JsonRecord;
   metadata?: JsonRecord;
+  lifecycle?: RunLifecycle;
 };
 
 export type RunEventRecord = {
@@ -126,6 +139,7 @@ export type CreateRunInput = {
   input?: JsonRecord;
   output?: JsonRecord;
   metadata?: JsonRecord;
+  lifecycle?: RunLifecycle;
 };
 
 export type AppendRunEventInput = {
@@ -177,7 +191,7 @@ export type KairosLocalStore = {
   listRuns(): Promise<RunRecord[]>;
   getRun(id: string): Promise<RunRecord | undefined>;
   createRun(input: CreateRunInput): Promise<RunRecord>;
-  updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata">>): Promise<RunRecord | undefined>;
+  updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>): Promise<RunRecord | undefined>;
   listRunEvents(runId: string): Promise<RunEventRecord[]>;
   appendRunEvent(runId: string, input: AppendRunEventInput): Promise<RunEventRecord>;
   subscribeToRunEvents?(runId: string, subscriber: RunEventSubscriber): () => void;
