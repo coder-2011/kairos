@@ -153,13 +153,65 @@ function deterministicAgentOutput(
   };
 }
 
+function hasCompletedToolResultFor(
+  state: DebateState,
+  role: "bull" | "bear",
+): boolean {
+  return state.toolEvents.some(
+    (event) => event.requestedBy === role && event.status === "completed",
+  );
+}
+
+function hasToolImplementation(
+  state: DebateState,
+  deps: DebateGraphDependencies,
+  toolName: PendingToolRequest["toolName"],
+): boolean {
+  return Boolean(
+    deps.tools?.[toolName] ??
+      deps.globalTools?.[toolName as GlobalToolName],
+  );
+}
+
+function defaultInformationRequest(
+  role: "bull" | "bear",
+  state: DebateState,
+): PendingToolRequest {
+  const focus =
+    role === "bull"
+      ? "the strongest cited bull case, including possible positive catalysts and why the market may be underpricing them"
+      : "the strongest cited bear case, including risks, weak evidence, valuation pressure, customer concentration, and whether the catalyst may already be priced in";
+
+  return {
+    toolName: "information",
+    input: `Gather ${focus} for this escalated event:\n${state.startInput.summary}`,
+    requestedBy: role,
+  };
+}
+
 function deterministicFinalDecision(state: DebateState): DebateDecision {
-  const citations = state.toolEvents.flatMap((event) => event.citations);
+  const citations = uniqueCitations(
+    state.toolEvents.flatMap((event) => event.citations),
+  );
   return {
     summary: `Final synthesis based on ${state.messages.length} messages and ${state.toolEvents.length} tool result(s).`,
     confidence: 0.5,
     citations,
   };
+}
+
+function uniqueCitations(
+  citations: DebateDecision["citations"],
+): DebateDecision["citations"] {
+  const seen = new Set<string>();
+  return citations.filter((citation) => {
+    if (seen.has(citation.url)) {
+      return false;
+    }
+
+    seen.add(citation.url);
+    return true;
+  });
 }
 
 export function createDebateGraph(deps: DebateGraphDependencies = {}) {
@@ -212,10 +264,18 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           )
         : deterministicAgentOutput(role, state);
       const output = debateAgentOutputSchema.parse(rawOutput);
+      const shouldForceSideEvidence =
+        state.budgets.toolCallsUsed < state.budgets.maxToolCalls &&
+        !hasCompletedToolResultFor(state, role) &&
+        hasToolImplementation(state, deps, "information");
+      const requestedTool = output.toolRequest
+        ? { ...output.toolRequest, requestedBy: role }
+        : shouldForceSideEvidence
+          ? defaultInformationRequest(role, state)
+          : null;
       const toolRequest =
-        output.toolRequest &&
-        state.budgets.toolCallsUsed < state.budgets.maxToolCalls
-          ? { ...output.toolRequest, requestedBy: role }
+        requestedTool && state.budgets.toolCallsUsed < state.budgets.maxToolCalls
+          ? requestedTool
           : null;
 
       return {
@@ -370,7 +430,11 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           buildModelInput(state, FINAL_SYSTEM_PROMPT),
         )
       : deterministicFinalDecision(state);
-    const decision = debateDecisionSchema.parse(rawDecision);
+    const parsedDecision = debateDecisionSchema.parse(rawDecision);
+    const decision = {
+      ...parsedDecision,
+      citations: uniqueCitations(parsedDecision.citations),
+    };
 
     return {
       messages: [

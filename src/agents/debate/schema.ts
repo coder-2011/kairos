@@ -3,7 +3,7 @@ import { z } from "zod";
 export const citationSchema = z
   .object({
     title: z.string().optional(),
-    url: z.string(),
+    url: z.string().min(1),
     source: z.string().optional(),
   })
   .strict();
