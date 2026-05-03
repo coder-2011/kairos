@@ -583,8 +583,8 @@ async function applyTradingPolicyToDebate(
       await context.store.createMessage({
         type: "paper_order_blocked",
         severity: "warning",
-        title: "Paper trade blocked",
-        body: "The debate crossed the paper trade threshold, but this branch has no configured asset symbol.",
+        title: "Trade blocked",
+        body: "The debate crossed the trading threshold, but this branch has no configured asset symbol.",
         branchId: branch?.id,
         lawId: branch?.lawId,
         sourceRunId: run.id,
@@ -599,7 +599,7 @@ async function applyTradingPolicyToDebate(
       await context.store.createMessage({
         type: "paper_order_blocked",
         severity: "warning",
-        title: `${symbol} paper sell blocked`,
+        title: `${symbol} sell blocked`,
         body: "The debate selected sell, but Kairos has no cached position for this symbol. Refresh the portfolio before creating a sell intent.",
         branchId: branch?.id,
         lawId: branch?.lawId,
@@ -640,8 +640,8 @@ async function applyTradingPolicyToDebate(
       timeHorizon: "Branch-defined event horizon.",
       positionSizingRationale:
         tradeSide === "buy"
-          ? `Uses configured max paper notional ${defaultNotional}.`
-          : `Uses cached ${symbol} paper position quantity ${currentPosition?.qty}.`,
+          ? `Uses configured max order notional ${defaultNotional}.`
+          : `Uses cached ${symbol} position quantity ${currentPosition?.qty}.`,
       invalidationCondition: "Evidence is stale, contradicted, immaterial, or already priced in.",
       exitCondition: "Manual review or future branch-specific exit law.",
       approvalsRequired:
@@ -651,7 +651,7 @@ async function applyTradingPolicyToDebate(
       metadata: {
         thresholdPolicy: policy,
         action: decision.action,
-        autoTradeEnabled: policy.paperAutoTradeEnabled,
+        autoTradeEnabled: policy.autoTradeEnabled,
         portfolioContext: compactPortfolioContext(portfolioSnapshot),
       },
     });
@@ -668,7 +668,7 @@ async function applyTradingPolicyToDebate(
     title:
       policy.permittedAction === "message_human"
         ? "Signal crossed notification threshold"
-        : `${tradeSide.toUpperCase()} signal crossed paper trade threshold`,
+        : `${tradeSide.toUpperCase()} signal crossed trading threshold`,
     body: decision.summary,
     branchId: branch?.id,
     lawId: branch?.lawId,
@@ -1199,9 +1199,9 @@ function portfolioStorageStatus(input: {
     persistent: true,
     mode: "paper",
     store: "kairos_runtime_store",
-    scope: "paper_trading_audit",
+    scope: "trading_audit",
     detail:
-      "Kairos stores paper trade intents, submitted paper broker orders, trading messages, and portfolio snapshots in the configured runtime store.",
+      "Kairos stores trade intents, submitted broker orders, trading messages, and portfolio snapshots in the configured runtime store.",
     brokerOrderCount: input.brokerOrders.length,
     tradeIntentCount: input.tradeIntents.length,
     messageCount: input.messages.length,
@@ -1262,10 +1262,10 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
   const candidateMessage = await context.store.createMessage({
     type: "paper_trade_candidate",
     severity: "action",
-    title: `${input.symbol} paper trade candidate`,
-    body: policy.paperAutoTradeEnabled
-      ? "Confidence crossed the paper threshold. Paper auto-trading is enabled; preflight will run before submission."
-      : "Confidence crossed the paper threshold. Paper auto-trading is disabled, so this is recorded as a paper trade intent only.",
+    title: `${input.symbol} trade candidate`,
+    body: policy.autoTradeEnabled
+      ? "Confidence crossed the trading threshold. Auto-submit is enabled; preflight will run before submission."
+      : "Confidence crossed the trading threshold. Auto-submit is disabled, so this is recorded as a trade intent only.",
     branchId: input.branchId,
     lawId: input.lawId,
     sourceRunId: input.sourceRunId,
@@ -1292,7 +1292,7 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
     confidence: input.confidence,
   });
 
-  if (!policy.paperAutoTradeEnabled) {
+  if (!policy.autoTradeEnabled) {
     return json({ policy, tradeIntent, messages: [candidateMessage] }, 201);
   }
 
@@ -1331,7 +1331,7 @@ async function submitPaperTradeIntent(
     const message = await context.store.createMessage({
       type: "paper_order_blocked",
       severity: "warning",
-      title: `${tradeIntent.symbol} paper order blocked`,
+      title: `${tradeIntent.symbol} order blocked`,
       body: result.preflight.reasons.join(" "),
       branchId: tradeIntent.branchId,
       lawId: tradeIntent.lawId,
@@ -1359,8 +1359,8 @@ async function submitPaperTradeIntent(
   const message = await context.store.createMessage({
     type: "paper_order_submitted",
     severity: "action",
-    title: `${tradeIntent.symbol} paper order submitted`,
-    body: `Submitted ${tradeIntent.side} ${tradeIntent.orderType} paper order to Alpaca.`,
+    title: `${tradeIntent.symbol} order submitted`,
+    body: `Submitted ${tradeIntent.side} ${tradeIntent.orderType} order to Alpaca.`,
     branchId: tradeIntent.branchId,
     lawId: tradeIntent.lawId,
     sourceRunId: tradeIntent.sourceRunId,
