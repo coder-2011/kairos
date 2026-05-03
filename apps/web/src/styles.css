@@ -172,6 +172,13 @@ a {
   width: 32px;
 }
 
+.brand-logo {
+  border: 1px solid var(--outline-variant);
+  border-radius: 6px;
+  height: 40px;
+  width: 40px;
+}
+
 .brand {
   color: #0f172a;
   font-family: var(--mono);

@@ -52,7 +52,7 @@ type RunMode = "agent" | "dry";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
-const THEME_STORAGE_KEY = "kairos-theme";
+const THEME_STORAGE_KEY = "kairos-theme-v2";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
@@ -98,43 +98,14 @@ const promptFields: Array<{
 const modelRoleFields: Array<{
   label: string;
   key: KairosConfigModelRole;
-  description: string;
 }> = [
-  {
-    label: "Heartbeat",
-    key: "heartbeat",
-    description: "Frequent branch monitor.",
-  },
-  {
-    label: "Information Planner",
-    key: "informationPlanner",
-    description: "Chooses search, research, market-data, and memory tools.",
-  },
-  {
-    label: "Information Synthesis",
-    key: "informationSynthesis",
-    description: "Turns tool results into compact cited context.",
-  },
-  {
-    label: "Debate Judge",
-    key: "debateJudge",
-    description: "Controls debate turns and stopping conditions.",
-  },
-  {
-    label: "Debate Bull",
-    key: "debateBull",
-    description: "Argues the positive/actionable case.",
-  },
-  {
-    label: "Debate Bear",
-    key: "debateBear",
-    description: "Argues the risk, stale, and priced-in case.",
-  },
-  {
-    label: "Debate Final",
-    key: "debateFinal",
-    description: "Produces the final structured decision.",
-  },
+  { label: "Heartbeat", key: "heartbeat" },
+  { label: "Information Planner", key: "informationPlanner" },
+  { label: "Information Synthesis", key: "informationSynthesis" },
+  { label: "Debate Judge", key: "debateJudge" },
+  { label: "Debate Bull", key: "debateBull" },
+  { label: "Debate Bear", key: "debateBear" },
+  { label: "Debate Final", key: "debateFinal" },
 ];
 
 const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
@@ -511,7 +482,7 @@ export function App() {
         onThemeModeChange={setThemeMode}
       />
       <div className="workspace">
-        <TopBar loadState={loadState} />
+        <TopBar />
         {view === "branches" && (
           <BranchList
             branches={branches}
@@ -577,7 +548,7 @@ export function App() {
         {view === "config" && !selectedBranch && (
           <EmptyCanvas
             icon="settings"
-            message="Select a branch from Branch List. Branch Configuration is where laws and branch-agent settings are edited."
+            message="Choose a branch."
             title="No Branch Configuration"
           />
         )}
@@ -606,9 +577,11 @@ function SideNav({
   return (
     <nav className="side-nav">
       <div className="brand-block">
-        <div className="operator-avatar">
-          <Icon name="person" />
-        </div>
+        <img
+          alt="Kairos Command"
+          className="brand-logo"
+          src="/kairos-logo.png"
+        />
         <div>
           <div className="brand">KAIROS</div>
           <div className="version">v1.0.4-alpha</div>
@@ -682,25 +655,18 @@ function ThemeSwitch({
       </span>
       <span className="theme-toggle-copy">
         <b>{mode === "dark" ? "Dark Mode" : "Light Mode"}</b>
-        <small>Flick display theme</small>
+        <small>Theme</small>
       </span>
     </button>
   );
 }
 
-function TopBar({ loadState }: { loadState: LoadState }) {
+function TopBar() {
   return (
     <header className="top-bar">
       <div className="status-cluster">
         <span className="top-status">STATUS: BRANCH_ACTIVE</span>
         <span className="status-light" />
-        <span className="source-pill">
-          {loadState === "loading"
-            ? "SYNCING"
-            : loadState === "api"
-              ? "LOCAL API"
-            : "API OFFLINE"}
-        </span>
       </div>
     </header>
   );
@@ -784,7 +750,7 @@ function BranchList({
             {branches.length === 0 ? (
               <tr>
                 <td className="empty-table-cell" colSpan={6}>
-                  No branches returned by the local API.
+                  No branches returned.
                 </td>
               </tr>
             ) : (
@@ -862,7 +828,7 @@ function RouterView({
           {chats.length === 0 ? (
             <EmptyPanel
               icon="route"
-              message="Create a router chat to send links, notes, and attachments into branch monitoring."
+              message="No chats yet."
               title="No Router Chats"
             />
           ) : (
@@ -885,16 +851,12 @@ function RouterView({
         <div className="detail-head">
           <div>
             <h1>Router Agent</h1>
-            <p>
-              Paste a link or note. The router selects branch IDs and wakes
-              their heartbeat agents with router-origin context.
-            </p>
           </div>
           <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
             {loadState === "loading"
               ? "SYNCING"
               : loadState === "api"
-                ? "LOCAL ROUTER"
+                ? "ROUTER ONLINE"
                 : "ROUTER OFFLINE"}
           </span>
         </div>
@@ -902,7 +864,7 @@ function RouterView({
           {messages.length === 0 ? (
             <EmptyPanel
               icon="forum"
-              message="Router replies and selected branch IDs will appear here."
+              message="No messages yet."
               title="No Messages"
             />
           ) : (
@@ -912,10 +874,6 @@ function RouterView({
           )}
         </div>
         <div className="router-composer">
-          <div className="router-drop-zone">
-            <Icon name="attach_file" />
-            <span>Attachment upload reserved for PDF/image extraction.</span>
-          </div>
           <textarea
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -947,7 +905,7 @@ function RouterView({
           {heartbeatRuns.length === 0 ? (
             <EmptyPanel
               icon="monitor_heart"
-              message="The latest router run has not woken any heartbeat agents."
+              message="No heartbeat runs yet."
               title="No Wakeups"
             />
           ) : (
@@ -957,7 +915,7 @@ function RouterView({
                   <b>{run.branchId ?? "NO_BRANCH"}</b>
                   <span>{run.status}</span>
                 </div>
-                <p>{readDisplay(run.output?.summary, "Heartbeat run created.")}</p>
+                <p>{readDisplay(run.output?.summary, "Heartbeat created.")}</p>
                 <div className="portfolio-card-grid">
                   <span>{run.kind}</span>
                   <span>{timeOnly(run.createdAt)}</span>
@@ -979,13 +937,6 @@ function RouterMessageBubble({ message }: { message: RouterMessageRecord }) {
         <span>{timeOnly(message.createdAt)}</span>
       </div>
       <p>{message.text}</p>
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="router-tool-calls">
-          {message.toolCalls.map((toolCall) => (
-            <RouterToolCall call={toolCall} key={toolCall.id} />
-          ))}
-        </div>
-      )}
     </article>
   );
 }
@@ -1037,14 +988,14 @@ function MonitoringView({
       <section className="event-stream pane narrow">
         <PaneHeader
           icon="stream"
-          meta={`ID: ${run?.id ?? "NO RUN"}`}
-          title="RUN EVENT STREAM"
+          meta={run ? run.status.toUpperCase() : "NO RUN"}
+          title="EVENTS"
         />
         <div className="timeline-scroll">
           {events.length === 0 ? (
             <EmptyPanel
               icon="stream"
-              message="Select or create a real run to populate the event stream."
+              message="No events yet."
               title="No Run Events"
             />
           ) : (
@@ -1062,14 +1013,14 @@ function MonitoringView({
         <PaneHeader
           action="EXPORT"
           icon="forum"
-          meta="PROTOCOL: DELPHI-3"
-          title="DEBATE TRANSCRIPT"
+          meta=""
+          title="DEBATE"
         />
         <div className="transcript-scroll">
           {transcriptEvents.length === 0 ? (
             <EmptyPanel
               icon="forum"
-              message="Debate and human interjection events from the selected run will appear here."
+              message="No transcript yet."
               title="No Debate Transcript"
             />
           ) : (
@@ -1150,17 +1101,13 @@ function PortfolioView({
         <div className="detail-head">
           <div>
             <h1>Portfolio</h1>
-            <p>
-              Alpaca paper account, positions, orders, trade intents, and
-              trading-system messages from the local API.
-            </p>
           </div>
           <div className="button-row">
             <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
               {loadState === "loading"
                 ? "SYNCING"
                 : loadState === "api"
-                  ? "PAPER API"
+                  ? "PAPER ONLINE"
                   : "ENDPOINTS OFFLINE"}
             </span>
             <button className="command-button" onClick={onRefresh} type="button">
@@ -1172,11 +1119,8 @@ function PortfolioView({
           <div className="portfolio-safety-strip">
             <Icon name="verified_user" />
             <div>
-              <b>Paper trading monitor</b>
-              <span>
-                Live trading controls are not exposed here. Auto-buy remains a
-                per-branch paper-mode opt-in.
-              </span>
+              <b>Paper trading only</b>
+              <span>Live orders unavailable.</span>
             </div>
           </div>
           <div className="portfolio-metrics">
@@ -1203,7 +1147,7 @@ function PortfolioView({
           </div>
           <PortfolioTable
             columns={["SYMBOL", "QTY", "MARKET VALUE", "UNREALIZED P/L", "SIDE"]}
-            emptyMessage="No paper positions returned by /portfolio."
+            emptyMessage="No paper positions."
             rows={positions.map((position) => [
               readDisplay(position.symbol),
               readDisplay(position.qty),
@@ -1215,7 +1159,7 @@ function PortfolioView({
           />
           <PortfolioTable
             columns={["SYMBOL", "SIDE", "TYPE", "STATUS", "NOTIONAL", "SUBMITTED"]}
-            emptyMessage="No paper orders returned by /portfolio."
+            emptyMessage="No paper orders."
             rows={orders.map((order) => [
               readDisplay(order.symbol),
               readDisplay(order.side),
@@ -1238,7 +1182,7 @@ function PortfolioView({
           {tradeIntents.length === 0 ? (
             <EmptyPanel
               icon="receipt_long"
-              message="Pending paper trade intents from /trade-intents will appear here."
+              message="No trade intents yet."
               title="No Trade Intents"
             />
           ) : (
@@ -1256,7 +1200,7 @@ function PortfolioView({
           {messages.length === 0 ? (
             <EmptyPanel
               icon="mark_unread_chat_alt"
-              message="Trading notifications and broker adapter messages from /messages will appear here."
+              message="No messages yet."
               title="No Messages"
             />
           ) : (
@@ -1369,13 +1313,13 @@ function RunDeepDive({
         <PaneHeader
           icon="receipt_long"
           meta={`${runs.length} RUNS`}
-          title="RECORDED RUNS"
+          title="RUNS"
         />
         <div className="run-list">
           {runs.length === 0 ? (
             <EmptyPanel
               icon="history"
-              message="Heartbeat and debate runs recorded by the local API will appear here for trace review."
+              message="No runs yet."
               title="No Recorded Runs"
             />
           ) : (
@@ -1404,36 +1348,36 @@ function RunDeepDive({
             <p>
               {selectedRun
                 ? `${selectedRun.kind.toUpperCase()} | ${selectedRun.status} | ${selectedBranch?.name ?? "No branch"}`
-                : "Select a recorded run to review agent trace events, inputs, and outputs."}
+                : "Choose a run."}
             </p>
           </div>
         </div>
         {!selectedRun ? (
           <EmptyPanel
             icon="timeline"
-            message="Run Deep-Dive is for reviewing previous agent traces and durable run payloads."
+            message="Choose a run."
             title="No Run Selected"
           />
         ) : (
           <div className="run-deep-grid">
             <section className="trace-section">
-              <div className="section-title">RUN INPUT</div>
+              <div className="section-title">INPUT</div>
               <pre className="json-block">
                 {JSON.stringify(selectedRun.input, null, 2)}
               </pre>
             </section>
             <section className="trace-section">
-              <div className="section-title">RUN OUTPUT</div>
+              <div className="section-title">OUTPUT</div>
               <pre className="json-block">
                 {JSON.stringify(selectedRun.output ?? {}, null, 2)}
               </pre>
             </section>
             <section className="trace-section full">
-              <div className="section-title">AGENT TRACE EVENTS</div>
+              <div className="section-title">EVENTS</div>
               {events.length === 0 ? (
                 <EmptyPanel
                   icon="stream"
-                  message="No events were recorded for this run."
+                  message="No events yet."
                   title="No Trace Events"
                 />
               ) : (
@@ -1460,10 +1404,7 @@ function RunModeSwitch({
   onChange: (mode: RunMode) => void;
 }) {
   return (
-    <div
-      className="run-mode-switch"
-      title="Choose whether branch actions use the runtime agent path or dry-run validation path."
-    >
+    <div className="run-mode-switch">
       <button
         className={mode === "agent" ? "active" : ""}
         onClick={() => onChange("agent")}
@@ -1541,10 +1482,6 @@ function BranchConfig({
       <div className="editor-head sticky">
         <div>
           <h1>Branch Configuration</h1>
-          <p>
-            Editing {branch.name || branch.id}. Model roles, prompts, tools,
-            thresholds, and paper-order controls apply only to this branch.
-          </p>
         </div>
         <div className="button-row">
           <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
@@ -1614,10 +1551,6 @@ function BranchConfig({
                   ? "Paper trading enabled"
                   : "Trading disabled"}
               </h2>
-              <p>
-                Paper orders are opt-in per branch. Live order permissions stay
-                outside this configuration screen.
-              </p>
             </div>
             <span className={paperAutoBuyEnabled ? "risk-pill enabled" : "risk-pill"}>
               {paperAutoBuyEnabled ? "AUTO ORDER OPTED IN" : "AUTO ORDER OFF"}
@@ -1669,7 +1602,6 @@ function BranchConfig({
               />
               <span>
                 <b>Auto buy enabled</b>
-                <small>Allows backend paper orders after branch gates pass.</small>
               </span>
             </label>
             <label className="checkbox-card">
@@ -1688,7 +1620,6 @@ function BranchConfig({
               />
               <span>
                 <b>Notify on buy signal</b>
-                <small>Emits a message even when paper auto-buy is off.</small>
               </span>
             </label>
             <FieldLabel label="Max Notional Per Order">
@@ -2591,7 +2522,7 @@ function toolCallIcon(call: RouterToolCallRecord): string {
 }
 
 function readStoredThemeMode(): ThemeMode {
-  return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  return localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
 }
 
 function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
