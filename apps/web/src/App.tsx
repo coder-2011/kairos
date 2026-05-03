@@ -33,7 +33,6 @@ import {
 
 type View = "branches" | "monitoring" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
-type RunMode = "agent" | "dry";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
 
@@ -142,7 +141,6 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
-  const [runMode, setRunMode] = useState<RunMode>("agent");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
 
   const selectedBranch =
@@ -224,12 +222,12 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runHeartbeat(branchId: string) {
+  async function runDryHeartbeat(branchId: string) {
     try {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: runMode === "dry" },
+        { dryRun: true },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -241,11 +239,11 @@ export function App() {
     }
   }
 
-  async function startDebate(branchId: string) {
+  async function startDryDebate(branchId: string) {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: runMode === "dry",
+        dryRun: true,
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -364,10 +362,8 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
-            runMode={runMode}
-            onEscalate={() => void startDebate(selectedBranch.id)}
-            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
-            onRunModeChange={setRunMode}
+            onEscalate={() => void startDryDebate(selectedBranch.id)}
+            onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
