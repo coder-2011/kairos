@@ -1,7 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { z } from "zod";
-import { kairosBranchAgentConfigSchema } from "../../../src/global/agent-config.js";
+import {
+  kairosBranchAgentConfigSchema,
+  listOpenRouterModels,
+} from "../../../src/global/index.js";
 import { createRuntimeStore } from "./runtime.js";
 import {
   MemoryKairosStore,
@@ -102,6 +105,9 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
       switch (route.name) {
         case "health":
           return json({ ok: true, service: "kairos-local-api", mode: "local" });
+
+        case "listOpenRouterModels":
+          return json({ models: await listOpenRouterModels({ requireTools: true }) });
 
         case "listBranches":
           return json({ branches: await context.store.listBranches() });
@@ -215,12 +221,26 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   });
   await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "heartbeat", branchId, dryRun: input.dryRun } });
 
-  const result = await context.runHeartbeat({
-    branchId,
-    dryRun: input.dryRun,
-    payload: runPayload,
-    branch,
-  });
+  let result: HeartbeatRunResult;
+  try {
+    result = await context.runHeartbeat({
+      branchId,
+      dryRun: input.dryRun,
+      payload: runPayload,
+      branch,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: message },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: message },
+    });
+    return json({ run: failed, error: "run_failed", message }, 500);
+  }
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
@@ -254,11 +274,25 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   });
   await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate", dryRun: input.dryRun } });
 
-  const result = await context.createDebate({
-    dryRun: input.dryRun,
-    payload: runPayload,
-    branch,
-  });
+  let result: DebateCreateResult;
+  try {
+    result = await context.createDebate({
+      dryRun: input.dryRun,
+      payload: runPayload,
+      branch,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: message },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: message },
+    });
+    return json({ run: failed, error: "run_failed", message }, 500);
+  }
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
@@ -321,6 +355,10 @@ async function streamRunEvents(context: LocalApiContext, runId: string): Promise
 }
 
 function deterministicHeartbeat(input: HeartbeatTriggerInput): Promise<HeartbeatRunResult> {
+  if (!input.dryRun) {
+    throw new Error("Agent pipeline heartbeat is not configured for this local API process.");
+  }
+
   const summary = input.dryRun
     ? `Dry-run heartbeat checked branch ${input.branchId}.`
     : `Local heartbeat placeholder checked branch ${input.branchId}.`;
@@ -340,6 +378,10 @@ function deterministicHeartbeat(input: HeartbeatTriggerInput): Promise<Heartbeat
 }
 
 function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
+  if (!input.dryRun) {
+    throw new Error("Agent pipeline debate is not configured for this local API process.");
+  }
+
   return Promise.resolve({
     output: {
       decision: "needs_review",
@@ -370,6 +412,7 @@ function branchRunContext(branch: BranchRecord): JsonRecord {
 
 type Route =
   | { name: "health"; params: Record<string, never> }
+  | { name: "listOpenRouterModels"; params: Record<string, never> }
   | { name: "listBranches"; params: Record<string, never> }
   | { name: "createBranch"; params: Record<string, never> }
   | { name: "getBranch"; params: { branchId: string } }
@@ -387,6 +430,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
   if (method === "GET" && pathname === "/health") return { name: "health", params: {} };
+  if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
   if (segments.length === 1 && segments[0] === "branches") {
     if (method === "GET") return { name: "listBranches", params: {} };
     if (method === "POST") return { name: "createBranch", params: {} };
