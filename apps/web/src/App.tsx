@@ -41,6 +41,7 @@ import {
 
 type View = "branches" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
+type RunMode = "agent" | "dry";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
@@ -153,6 +154,7 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [runMode, setRunMode] = useState<RunMode>("dry");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
     useState<LoadState>("loading");
@@ -267,7 +269,7 @@ export function App() {
       const run = await triggerHeartbeat(
         branchId,
         { source: "web_command" },
-        { dryRun: true },
+        { dryRun: runMode === "dry" },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -283,7 +285,7 @@ export function App() {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: true,
+        dryRun: runMode === "dry",
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -411,8 +413,10 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
+            runMode={runMode}
             onEscalate={() => void startDebate(selectedBranch.id)}
             onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
+            onRunModeChange={setRunMode}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
