@@ -76,7 +76,7 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Keep interfaces provider-agnostic where practical.
 - Prefer explicit schemas for laws, branch state, source events, escalations, debate transcripts, decisions, and trade intents.
 - Do not implement live trading, broker orders, or account-affecting actions unless the user explicitly asks in that turn.
-- If adding trade execution code, default to paper trading or dry-run mode unless explicitly told otherwise.
+- If adding trade execution code, default to paper trading unless live execution is explicitly requested.
 - Surface financial, reliability, and safety assumptions directly. Do not bury them in implementation details.
 
 ## Documentation Structure
