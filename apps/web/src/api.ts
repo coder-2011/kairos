@@ -6,6 +6,7 @@ export type AllowedOrderType = "market" | "limit" | "bracket";
 
 export type BranchTradingConfig = {
   mode?: TradingMode;
+  symbol?: string;
   paperAutoBuyEnabled?: boolean;
   notifyOnBuySignal?: boolean;
   maxNotionalPerOrder?: number;

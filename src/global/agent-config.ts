@@ -198,6 +198,9 @@ export const kairosBranchAgentConfigSchema = z
       .object({
         exaInstruction: z.string().optional(),
         dataPacket: z.string().optional(),
+        dataPacketType: z
+          .enum(["ticker", "sector", "law", "branch", "source", "catalyst"])
+          .optional(),
       })
       .strict()
       .optional(),
@@ -290,8 +293,11 @@ export function resolveDebateAgentConfig(
 export function resolveInformationAgentConfig(
   config: KairosBranchAgentConfig | undefined,
 ): InformationAgentConfigSelection {
+  const enabledTools = toolPoliciesToEnabledMap(config?.tools?.information) ?? {};
+  enabledTools.supermemory_search = true;
+
   return {
-    enabledTools: toolPoliciesToEnabledMap(config?.tools?.information),
+    enabledTools,
     requiredTools: toolPoliciesToRequiredMap(config?.tools?.information),
     maxToolCalls: config?.budgets?.informationMaxToolCalls,
     finnhubPremiumAccess: config?.tools?.finnhubPremiumAccess,
