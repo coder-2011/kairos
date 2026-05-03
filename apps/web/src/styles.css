@@ -2299,6 +2299,17 @@ select:focus {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .router-canvas {
+    grid-template-columns: minmax(220px, 28%) minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .router-side {
+    border-top: 1px solid var(--outline-variant);
+    grid-column: 1 / -1;
+    min-height: 240px;
+  }
+
   .detail-side,
   .snippet-side {
     display: none;
@@ -2380,6 +2391,48 @@ select:focus {
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  .router-canvas {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .router-chat-pane {
+    border-right: 0;
+    min-height: calc(100dvh - 180px);
+    order: 1;
+  }
+
+  .router-side {
+    border-right: 0;
+    min-height: 260px;
+    order: 2;
+  }
+
+  .router-chat-list {
+    border-right: 0;
+    min-height: 280px;
+    order: 3;
+  }
+
+  .router-message {
+    max-width: 100%;
+  }
+
+  .router-composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .router-composer textarea,
+  .router-composer .command-button,
+  .router-drop-zone {
+    grid-column: 1;
+  }
+
+  .router-composer .command-button {
+    width: 100%;
   }
 
   .portfolio-main,
