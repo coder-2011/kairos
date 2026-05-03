@@ -102,6 +102,18 @@ export type RouterMessageRecord = {
   text?: string;
   attachments?: RouterAttachmentRecord[];
   runId?: string;
+  toolCalls?: RouterToolCallRecord[];
+};
+
+export type RouterToolCallRecord = {
+  id: string;
+  name: string;
+  status: "succeeded" | "failed" | "skipped";
+  summary: string;
+  input?: JsonRecord;
+  output?: JsonRecord;
+  error?: string;
+  createdAt: string;
 };
 
 export type TradeIntentRecord = JsonRecord & {
