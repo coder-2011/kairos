@@ -6,7 +6,10 @@ import {
   JUDGE_SYSTEM_PROMPT,
 } from "../../../src/agents/debate/prompt.js";
 import { HEARTBEAT_SYSTEM_PROMPT } from "../../../src/agents/heartbeat/prompt.js";
+import { INFORMATION_TOOL_CATALOG } from "../../../src/agents/information/tool-catalog.js";
 import type {
+  DebateConfigToolName,
+  HeartbeatToolName,
   InformationConfigToolName,
   KairosBranchAgentConfig,
   KairosConfigModelRole,
@@ -26,18 +29,16 @@ import {
   type RunRecord,
 } from "./api";
 
-type View = "branches" | "debate" | "detail" | "draft" | "config";
+type View = "branches" | "monitoring" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
-type RunMode = "dry" | "live";
+type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
-  { id: "debate", label: "Monitoring", icon: "monitoring" },
-  { id: "detail", label: "Run Deep-Dive", icon: "timeline" },
+  { id: "monitoring", label: "Monitoring", icon: "monitoring" },
+  { id: "runDeepDive", label: "Run Deep-Dive", icon: "timeline" },
   { id: "config", label: "Branch Configuration", icon: "settings" },
 ];
-
-type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
 
 const promptFields: Array<{
   role: string;
@@ -66,7 +67,7 @@ const promptFields: Array<{
   {
     role: "Debate Bear",
     key: "debateBearSystemPrompt",
-    description: "Noise, risk, stale-evidence, and priced-in argument instructions.",
+    description: "Noise, stale-evidence, source risk, and priced-in argument instructions.",
     defaultText: BEAR_SYSTEM_PROMPT,
   },
 ];
@@ -91,17 +92,41 @@ const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
   "xhigh",
 ];
 
-const informationToolFields: Array<{ label: string; key: InformationConfigToolName }> = [
-  { label: "SEC Filings", key: "finnhub_filings" },
-  { label: "Exa News Search", key: "exa_search" },
-  { label: "Exa Research", key: "exa_research" },
-  { label: "Source Reader", key: "exa_contents" },
+const informationToolFields: Array<{
+  label: string;
+  key: InformationConfigToolName;
+  access: "free" | "premium" | "mixed";
+  purpose: string;
+}> = INFORMATION_TOOL_CATALOG.map((tool) => ({
+  label: humanizeToolName(tool.name),
+  key: tool.name,
+  access: tool.access,
+  purpose: tool.purpose,
+}));
+
+const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName }> = [
+  { label: "Supermemory Profile", key: "supermemory_profile" },
   { label: "Supermemory Search", key: "supermemory_search" },
-  { label: "Finnhub Company News", key: "finnhub_company_news" },
-  { label: "Finnhub Basic Financials", key: "finnhub_basic_financials" },
-  { label: "Finnhub Earnings", key: "finnhub_company_earnings" },
-  { label: "Finnhub Insider Transactions", key: "finnhub_insider_transactions" },
+  { label: "Exa News Search", key: "exa_news_search" },
 ];
+
+const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
+  { label: "Exa Search", key: "exa_search" },
+  { label: "Exa Research", key: "exa_research" },
+  { label: "Information Agent", key: "information" },
+];
+
+const defaultInformationToolPolicies = Object.fromEntries(
+  informationToolFields.map((tool) => [tool.key, { enabled: true }]),
+) as NonNullable<KairosBranchAgentConfig["tools"]>["information"];
+
+const defaultHeartbeatToolPolicies = Object.fromEntries(
+  heartbeatToolFields.map((tool) => [tool.key, { enabled: true }]),
+) as NonNullable<KairosBranchAgentConfig["tools"]>["heartbeat"];
+
+const defaultDebateToolPolicies = Object.fromEntries(
+  debateToolFields.map((tool) => [tool.key, { enabled: true }]),
+) as NonNullable<KairosBranchAgentConfig["tools"]>["debate"];
 
 export function App() {
   const [view, setView] = useState<View>("branches");
@@ -111,7 +136,6 @@ export function App() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
-  const [runMode, setRunMode] = useState<RunMode>("dry");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -128,7 +152,6 @@ export function App() {
         ]);
 
         if (cancelled) return;
-
         setBranches(apiBranches);
         setRuns(apiRuns);
         setSelectedBranchId(apiBranches[0]?.id ?? "");
@@ -150,14 +173,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRun?.id || loadState !== "api") return;
-    let cancelled = false;
+    if (!selectedRun?.id || loadState !== "api") {
+      setEvents([]);
+      return;
+    }
 
+    let cancelled = false;
     getRunEvents(selectedRun.id)
       .then((nextEvents) => {
-        if (!cancelled) {
-          setEvents(nextEvents);
-        }
+        if (!cancelled) setEvents(nextEvents);
       })
       .catch(() => {
         if (!cancelled) setEvents([]);
@@ -168,43 +192,39 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runHeartbeat(branchId: string) {
-    const dryRun = runMode === "dry";
+  async function runDryHeartbeat(branchId: string) {
     try {
       const run = await triggerHeartbeat(
         branchId,
-        { source: "web_command", runMode },
-        { dryRun },
+        { source: "web_command", runMode: "dry" },
+        { dryRun: true },
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
-      setView("debate");
+      setView("monitoring");
       setLoadState("api");
     } catch {
-      setView("debate");
+      setView("monitoring");
       setLoadState("offline");
     }
   }
 
-  async function startDebate(branchId: string) {
-    const dryRun = runMode === "dry";
+  async function startDryDebate(branchId: string) {
     try {
       const run = await createDebate({
         branchId,
-        dryRun,
+        dryRun: true,
         escalation: {
           branchId,
-          summary: dryRun
-            ? "Manual dry-run escalation opened from the web command center."
-            : "Manual live escalation opened from the web command center.",
+          summary: "Manual dry-run escalation opened from the web command center.",
         },
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
-      setView("debate");
+      setView("monitoring");
       setLoadState("api");
     } catch {
-      setView("debate");
+      setView("monitoring");
       setLoadState("offline");
     }
   }
@@ -256,36 +276,34 @@ export function App() {
           <BranchList
             branches={branches}
             runs={runs}
+            onCreate={() => setView("config")}
             onSelect={(branch) => {
               setSelectedBranchId(branch.id);
               setView("config");
             }}
-            onCreate={() => setView("config")}
           />
         )}
-        {view === "debate" && (
-          <DebateView
+        {view === "monitoring" && (
+          <MonitoringView
             events={events}
-            run={selectedRun}
             onInject={injectHumanContext}
+            run={selectedRun}
           />
         )}
-        {view === "detail" && (
+        {view === "runDeepDive" && (
           <RunDeepDive
             branches={branches}
             events={events}
+            onSelectRun={setSelectedRunId}
             runs={runs}
             selectedRun={selectedRun}
-            onSelectRun={setSelectedRunId}
           />
         )}
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
-            runMode={runMode}
-            onRunModeChange={setRunMode}
-            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
-            onEscalate={() => void startDebate(selectedBranch.id)}
+            onEscalate={() => void startDryDebate(selectedBranch.id)}
+            onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -294,11 +312,19 @@ export function App() {
         {view === "config" && !selectedBranch && (
           <EmptyCanvas
             icon="settings"
-            title="No Branch Configuration"
             message="Select a branch from Branch List. Branch Configuration is where laws and branch-agent settings are edited."
+            title="No Branch Configuration"
           />
         )}
-        <Footer active={view === "debate" ? "human" : view === "detail" ? "manual" : "dry"} />
+        <Footer
+          active={
+            view === "monitoring"
+              ? "human"
+              : view === "runDeepDive"
+                ? "manual"
+                : "dry"
+          }
+        />
       </div>
     </div>
   );
@@ -405,6 +431,7 @@ function BranchList({
           </FieldLabel>
           <FieldLabel label="Asset Class">
             <select>
+              <option>ALL ASSETS</option>
               <option>EQUITIES</option>
               <option>CRYPTO</option>
               <option>MACRO</option>
@@ -421,10 +448,18 @@ function BranchList({
         </div>
         <div className="toolbar-metrics">
           <Metric label="RUNS" value={runs.length.toString()} />
-          <Metric label="ESCALATIONS" value={totalEscalations.toString()} alert={totalEscalations > 0} />
-          <button className="command-button primary create-button" onClick={onCreate} type="button">
-            <Icon name="add" />
-            CREATE NEW BRANCH
+          <Metric
+            alert={totalEscalations > 0}
+            label="ESCALATIONS"
+            value={totalEscalations.toString()}
+          />
+          <button
+            className="command-button primary create-button"
+            onClick={onCreate}
+            type="button"
+          >
+            <Icon name="settings" />
+            OPEN BRANCH CONFIG
           </button>
         </div>
       </section>
@@ -456,8 +491,12 @@ function BranchList({
                     <StatusBadge status={getBranchStatus(branch)} />
                   </td>
                   <td className="muted">{formatHeartbeat(branch)}</td>
-                  <td>{String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}</td>
-                  <td className={`right ${getEscalations(branch) > 0 ? "danger-text" : ""}`}>
+                  <td>
+                    {String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}
+                  </td>
+                  <td
+                    className={`right ${getEscalations(branch) > 0 ? "danger-text" : ""}`}
+                  >
                     {getEscalations(branch)}
                   </td>
                 </tr>
@@ -470,7 +509,7 @@ function BranchList({
   );
 }
 
-function DebateView({
+function MonitoringView({
   events,
   run,
   onInject,
@@ -480,20 +519,24 @@ function DebateView({
   onInject: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
-  const transcriptEvents = events.filter((event) =>
-    event.type.startsWith("debate.") || event.type.startsWith("human."),
+  const transcriptEvents = events.filter(
+    (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
 
   return (
     <main className="split-canvas">
       <section className="event-stream pane narrow">
-        <PaneHeader icon="stream" title="RUN EVENT STREAM" meta={`ID: ${run?.id ?? "NO RUN"}`} />
+        <PaneHeader
+          icon="stream"
+          meta={`ID: ${run?.id ?? "NO RUN"}`}
+          title="RUN EVENT STREAM"
+        />
         <div className="timeline-scroll">
           {events.length === 0 ? (
             <EmptyPanel
               icon="stream"
-              title="No Run Events"
               message="Select or create a real run to populate the event stream."
+              title="No Run Events"
             />
           ) : (
             events.map((event, index) => (
@@ -507,13 +550,18 @@ function DebateView({
         </div>
       </section>
       <section className="transcript pane wide">
-        <PaneHeader icon="forum" title="DEBATE TRANSCRIPT" meta="PROTOCOL: DELPHI-3" action="EXPORT" />
+        <PaneHeader
+          action="EXPORT"
+          icon="forum"
+          meta="PROTOCOL: DELPHI-3"
+          title="DEBATE TRANSCRIPT"
+        />
         <div className="transcript-scroll">
           {transcriptEvents.length === 0 ? (
             <EmptyPanel
               icon="forum"
-              title="No Debate Transcript"
               message="Debate and human interjection events from the selected run will appear here."
+              title="No Debate Transcript"
             />
           ) : (
             transcriptEvents.map((event) => (
@@ -555,7 +603,10 @@ function DebateView({
               <button className="command-button compact" type="button">
                 <Icon name="update" /> STALE
               </button>
-              <button className="command-button compact primary-outline" type="button">
+              <button
+                className="command-button compact primary-outline"
+                type="button"
+              >
                 <Icon name="thumb_up" /> USEFUL
               </button>
             </div>
@@ -587,13 +638,17 @@ function RunDeepDive({
   return (
     <main className="run-deep-dive">
       <section className="run-list-pane">
-        <PaneHeader icon="receipt_long" title="RECORDED RUNS" meta={`${runs.length} RUNS`} />
+        <PaneHeader
+          icon="receipt_long"
+          meta={`${runs.length} RUNS`}
+          title="RECORDED RUNS"
+        />
         <div className="run-list">
           {runs.length === 0 ? (
             <EmptyPanel
               icon="history"
-              title="No Recorded Runs"
               message="Heartbeat and debate runs recorded by the local API will appear here for trace review."
+              title="No Recorded Runs"
             />
           ) : (
             runs.map((run) => (
@@ -606,7 +661,9 @@ function RunDeepDive({
                 <span>{run.kind.toUpperCase()}</span>
                 <b>{run.id}</b>
                 <em>{selectedBranchName(branches, run.branchId)}</em>
-                <small>{run.status} | {timeOnly(run.createdAt)}</small>
+                <small>
+                  {run.status} | {timeOnly(run.createdAt)}
+                </small>
               </button>
             ))
           )}
@@ -626,26 +683,30 @@ function RunDeepDive({
         {!selectedRun ? (
           <EmptyPanel
             icon="timeline"
-            title="No Run Selected"
             message="Run Deep-Dive is for reviewing previous agent traces and durable run payloads."
+            title="No Run Selected"
           />
         ) : (
           <div className="run-deep-grid">
             <section className="trace-section">
               <div className="section-title">RUN INPUT</div>
-              <pre className="json-block">{JSON.stringify(selectedRun.input, null, 2)}</pre>
+              <pre className="json-block">
+                {JSON.stringify(selectedRun.input, null, 2)}
+              </pre>
             </section>
             <section className="trace-section">
               <div className="section-title">RUN OUTPUT</div>
-              <pre className="json-block">{JSON.stringify(selectedRun.output ?? {}, null, 2)}</pre>
+              <pre className="json-block">
+                {JSON.stringify(selectedRun.output ?? {}, null, 2)}
+              </pre>
             </section>
             <section className="trace-section full">
               <div className="section-title">AGENT TRACE EVENTS</div>
               {events.length === 0 ? (
                 <EmptyPanel
                   icon="stream"
-                  title="No Trace Events"
                   message="No events were recorded for this run."
+                  title="No Trace Events"
                 />
               ) : (
                 <div className="trace-event-list">
@@ -663,63 +724,37 @@ function RunDeepDive({
   );
 }
 
-function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
-  if (!branchId) return "No branch";
-  return branches.find((branch) => branch.id === branchId)?.name ?? branchId;
-}
-
-function RunModeSwitch({
-  value,
-  onChange,
-}: {
-  value: RunMode;
-  onChange: (mode: RunMode) => void;
-}) {
-  return (
-    <div className="run-mode-switch" role="group" aria-label="Run mode">
-      <button
-        className={value === "dry" ? "active" : ""}
-        onClick={() => onChange("dry")}
-        type="button"
-      >
-        DRY
-      </button>
-      <button
-        className={value === "live" ? "active" : ""}
-        onClick={() => onChange("live")}
-        type="button"
-      >
-        LIVE
-      </button>
-    </div>
-  );
-}
-
 function BranchConfig({
   branch,
-  runMode,
-  onRunModeChange,
   onRunHeartbeat,
   onEscalate,
   onSave,
 }: {
   branch: BranchRecord;
-  runMode: RunMode;
-  onRunModeChange: (mode: RunMode) => void;
   onRunHeartbeat: () => void;
   onEscalate: () => void;
-  onSave: (config: KairosBranchAgentConfig) => void;
+  onSave: (input: {
+    config: KairosBranchAgentConfig;
+    lawText: string;
+  }) => void;
 }) {
   const [config, setConfig] = useState<KairosBranchAgentConfig>(() =>
     normalizeBranchConfig(branch),
   );
+  const [lawText, setLawText] = useState(readLawText(branch));
 
   useEffect(() => {
     setConfig(normalizeBranchConfig(branch));
-  }, [branch.id, branch.config]);
+    setLawText(readLawText(branch));
+  }, [branch.id, branch.config, branch.description, branch.law]);
 
   const heartbeatInterval = config.heartbeat?.intervalMinutes ?? 5;
   const seedWindowDays = config.heartbeat?.seedWindowDays ?? 30;
+  const heartbeatMaxToolSteps = config.heartbeat?.maxToolSteps ?? 3;
+  const debateMaxTurns = config.budgets?.debateMaxTurns ?? 6;
+  const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 3;
+  const informationMaxToolCalls = config.budgets?.informationMaxToolCalls ?? 5;
+  const finnhubPremiumAccess = config.tools?.finnhubPremiumAccess ?? false;
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -734,33 +769,25 @@ function BranchConfig({
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
-          <RunModeSwitch value={runMode} onChange={onRunModeChange} />
-          <button
-            className="command-button"
-            onClick={onRunHeartbeat}
-            type="button"
-          >
-            <Icon name="play_arrow" />
-            {runMode === "dry" ? "DRY HEARTBEAT" : "LIVE HEARTBEAT"}
+          <button className="command-button" onClick={onRunHeartbeat} type="button">
+            <Icon name="play_arrow" /> DRY HEARTBEAT
           </button>
-          <button
-            className="command-button primary-outline"
-            onClick={onEscalate}
-            type="button"
-          >
-            <Icon name="warning" />
-            {runMode === "dry" ? "DRY ESCALATION" : "LIVE ESCALATION"}
+          <button className="command-button primary-outline" onClick={onEscalate} type="button">
+            <Icon name="warning" /> DRY ESCALATION
           </button>
           <button
             className="command-button"
-            onClick={() => setConfig(normalizeBranchConfig(branch))}
+            onClick={() => {
+              setConfig(normalizeBranchConfig(branch));
+              setLawText(readLawText(branch));
+            }}
             type="button"
           >
             DISCARD
           </button>
           <button
             className="command-button primary"
-            onClick={() => onSave(config)}
+            onClick={() => onSave({ config, lawText })}
             type="button"
           >
             SAVE CONFIGURATION
@@ -770,10 +797,9 @@ function BranchConfig({
       <div className="config-body">
         <FieldLabel label="The Law (Primary Thesis)">
           <textarea
-            defaultValue={
-              branch.description ??
-              "Watch for credible, new, market-relevant evidence tied to this branch."
-            }
+            onChange={(event) => setLawText(event.target.value)}
+            placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
+            value={lawText}
           />
         </FieldLabel>
         <div>
@@ -793,7 +819,7 @@ function BranchConfig({
                     }))
                   }
                   placeholder={field.description}
-                  value={config.prompts?.[field.key] ?? ""}
+                  value={config.prompts?.[field.key] ?? field.defaultText}
                 />
               </FieldLabel>
             ))}
@@ -850,23 +876,80 @@ function BranchConfig({
           </div>
         </div>
         <div className="config-grid">
+          <FieldLabel label="Finnhub Access">
+            <div className="tool-picker">
+              <label>
+                <input
+                  checked={finnhubPremiumAccess}
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      tools: {
+                        ...current.tools,
+                        finnhubPremiumAccess: event.target.checked,
+                      },
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span>Premium endpoints enabled for this branch</span>
+              </label>
+            </div>
+          </FieldLabel>
           <FieldLabel label="Information Agent Tools">
             <div className="tool-picker">
-              {informationToolFields.map((tool) => (
+              {informationToolFields.map((tool) => {
+                const gatedByPremium =
+                  tool.access === "premium" && !finnhubPremiumAccess;
+
+                return (
+                  <label key={tool.key} title={tool.purpose}>
+                    <input
+                      checked={
+                        !gatedByPremium &&
+                        (config.tools?.information?.[tool.key]?.enabled ?? true)
+                      }
+                      disabled={gatedByPremium}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            information: {
+                              ...current.tools?.information,
+                              [tool.key]: {
+                                ...current.tools?.information?.[tool.key],
+                                enabled: event.target.checked,
+                              },
+                            },
+                          },
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span>
+                      {tool.label} ({tool.access})
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </FieldLabel>
+          <FieldLabel label="Debate Tools">
+            <div className="tool-picker">
+              {debateToolFields.map((tool) => (
                 <label key={tool.key}>
                   <input
-                    checked={
-                      config.tools?.information?.[tool.key]?.enabled ?? true
-                    }
+                    checked={config.tools?.debate?.[tool.key]?.enabled ?? true}
                     onChange={(event) =>
                       setConfig((current) => ({
                         ...current,
                         tools: {
                           ...current.tools,
-                          information: {
-                            ...current.tools?.information,
+                          debate: {
+                            ...current.tools?.debate,
                             [tool.key]: {
-                              ...current.tools?.information?.[tool.key],
+                              ...current.tools?.debate?.[tool.key],
                               enabled: event.target.checked,
                             },
                           },
@@ -880,24 +963,48 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel label="Data Seeding (Heartbeat & Debate)">
-            <select
+          <FieldLabel label="Heartbeat Tools">
+            <div className="tool-picker">
+              {heartbeatToolFields.map((tool) => (
+                <label key={tool.key}>
+                  <input
+                    checked={config.tools?.heartbeat?.[tool.key]?.enabled ?? true}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          heartbeat: {
+                            ...current.tools?.heartbeat,
+                            [tool.key]: {
+                              ...current.tools?.heartbeat?.[tool.key],
+                              enabled: event.target.checked,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>{tool.label}</span>
+                </label>
+              ))}
+            </div>
+          </FieldLabel>
+          <FieldLabel label="Data Packet">
+            <input
               onChange={(event) =>
                 setConfig((current) => ({
                   ...current,
                   research: {
                     ...current.research,
-                    dataPacket: event.target.value,
+                    dataPacket: event.target.value || undefined,
                   },
                 }))
               }
-              value={config.research?.dataPacket ?? "equities"}
-            >
-              <option value="equities">Tracked equities rolling 30-day packet</option>
-              <option value="crypto">Crypto liquidity packet</option>
-              <option value="earnings">Tech earnings calendar packet</option>
-              <option value="regulatory">Regulatory catalyst packet</option>
-            </select>
+              placeholder="ticker, sector, law, or custom packet id"
+              value={config.research?.dataPacket ?? ""}
+            />
           </FieldLabel>
         </div>
         <FieldLabel label="Research Seeding (Exa)">
@@ -907,14 +1014,12 @@ function BranchConfig({
                 ...current,
                 research: {
                   ...current.research,
-                  exaInstruction: event.target.value,
+                  exaInstruction: event.target.value || undefined,
                 },
               }))
             }
-            value={
-              config.research?.exaInstruction ??
-              "Find recent, citeable evidence relevant to the branch law. Prefer primary sources and source diversity."
-            }
+            placeholder="Persistent research instruction for this branch."
+            value={config.research?.exaInstruction ?? ""}
           />
         </FieldLabel>
         <div className="config-grid">
@@ -950,9 +1055,73 @@ function BranchConfig({
               value={seedWindowDays}
             />
           </FieldLabel>
+          <FieldLabel label="Heartbeat Max Tool Steps">
+            <input
+              min="0"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  heartbeat: {
+                    ...current.heartbeat,
+                    maxToolSteps: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={heartbeatMaxToolSteps}
+            />
+          </FieldLabel>
+          <FieldLabel label="Debate Max Turns">
+            <input
+              min="1"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  budgets: {
+                    ...current.budgets,
+                    debateMaxTurns: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={debateMaxTurns}
+            />
+          </FieldLabel>
+          <FieldLabel label="Debate Max Tool Calls">
+            <input
+              min="0"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  budgets: {
+                    ...current.budgets,
+                    debateMaxToolCalls: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={debateMaxToolCalls}
+            />
+          </FieldLabel>
+          <FieldLabel label="Information Max Tool Calls">
+            <input
+              min="0"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  budgets: {
+                    ...current.budgets,
+                    informationMaxToolCalls: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={informationMaxToolCalls}
+            />
+          </FieldLabel>
         </div>
         <div>
-          <div className="field-label">EXECUTION THRESHOLDS</div>
+          <div className="field-label">ESCALATION AND REVIEW THRESHOLDS</div>
           <div className="threshold-wide">
             <Slider
               label="Notification Threshold"
@@ -982,13 +1151,6 @@ function BranchConfig({
             />
           </div>
         </div>
-        <button
-          className="command-button primary"
-          onClick={() => onSave(config)}
-          type="button"
-        >
-          SAVE CONFIGURATION
-        </button>
       </div>
     </main>
   );
@@ -1056,10 +1218,7 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
         <Icon name="tune" /> BRANCH SETTINGS
       </div>
       <FieldLabel label="Notify Confidence">
-        <input
-          readOnly
-          value={formatConfidence(thresholds?.notifyConfidence)}
-        />
+        <input readOnly value={formatConfidence(thresholds?.notifyConfidence)} />
       </FieldLabel>
       <FieldLabel label="Paper Trade Draft Threshold">
         <input
@@ -1114,41 +1273,6 @@ function EscalationCard({ runs }: { runs: RunRecord[] }) {
   );
 }
 
-function AgentMessage({
-  agent,
-  icon,
-  confidence,
-  tone,
-  sources = [],
-  children,
-}: {
-  agent: string;
-  icon: string;
-  confidence: string;
-  tone: "primary" | "secondary" | "judge";
-  sources?: string[];
-  children: ReactNode;
-}) {
-  return (
-    <article className={`agent-card ${tone}`}>
-      <div className="agent-card-head">
-        <span>
-          <Icon name={icon} /> AGENT: {agent}
-        </span>
-        <b>{confidence.includes("%") ? `CONF: ${confidence}` : confidence}</b>
-      </div>
-      <p>{children}</p>
-      {sources.length > 0 && (
-        <div className="source-list">
-          {sources.map((source) => (
-            <span key={source}>{source}</span>
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
-
 function EventRecordCard({ event }: { event: RunEventRecord }) {
   const actor =
     event.type.startsWith("human.") ? "HUMAN" : event.type.split(".")[0].toUpperCase();
@@ -1165,40 +1289,6 @@ function EventRecordCard({ event }: { event: RunEventRecord }) {
       <p>{String(event.payload.summary ?? event.payload.message ?? titleize(event.type))}</p>
       <pre className="event-json">{JSON.stringify(event.payload, null, 2)}</pre>
     </article>
-  );
-}
-
-function EmptyCanvas({
-  icon,
-  title,
-  message,
-}: {
-  icon: string;
-  title: string;
-  message: string;
-}) {
-  return (
-    <main className="empty-canvas">
-      <EmptyPanel icon={icon} title={title} message={message} />
-    </main>
-  );
-}
-
-function EmptyPanel({
-  icon,
-  title,
-  message,
-}: {
-  icon: string;
-  title: string;
-  message: string;
-}) {
-  return (
-    <div className="empty-panel">
-      <Icon name={icon} />
-      <h3>{title}</h3>
-      <p>{message}</p>
-    </div>
   );
 }
 
@@ -1317,47 +1407,38 @@ function Slider({
   );
 }
 
-function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
-  const config = branch.config ?? {};
-  const legacyConfig = config as JsonRecord;
-  const heartbeat = config.heartbeat ?? {};
-  const legacyInterval =
-    typeof legacyConfig.heartbeat === "string"
-      ? parseHeartbeatIntervalMinutes(legacyConfig.heartbeat)
-      : undefined;
+function EmptyCanvas({
+  icon,
+  title,
+  message,
+}: {
+  icon: string;
+  title: string;
+  message: string;
+}) {
+  return (
+    <main className="empty-canvas">
+      <EmptyPanel icon={icon} title={title} message={message} />
+    </main>
+  );
+}
 
-  return {
-    ...config,
-    assets: config.assets ?? readAssets(branch),
-    heartbeat: {
-      intervalMinutes:
-        heartbeat.intervalMinutes ?? legacyInterval ?? 5,
-      seedWindowDays: heartbeat.seedWindowDays ?? 30,
-      maxToolSteps: heartbeat.maxToolSteps ?? 3,
-    },
-    tools: {
-      ...config.tools,
-      information: {
-        exa_search: { enabled: true },
-        exa_research: { enabled: true },
-        exa_contents: { enabled: true },
-        finnhub_filings: { enabled: true },
-        supermemory_search: { enabled: true },
-        ...config.tools?.information,
-      },
-    },
-    thresholds: {
-      notifyConfidence: 0.75,
-      paperTradeDraftConfidence: 0.9,
-      ...config.thresholds,
-    },
-    research: {
-      dataPacket: "equities",
-      exaInstruction:
-        "Find recent, citeable evidence relevant to the branch law. Prefer primary sources and source diversity.",
-      ...config.research,
-    },
-  };
+function EmptyPanel({
+  icon,
+  title,
+  message,
+}: {
+  icon: string;
+  title: string;
+  message: string;
+}) {
+  return (
+    <div className="empty-panel">
+      <Icon name={icon} />
+      <h3>{title}</h3>
+      <p>{message}</p>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -1394,6 +1475,85 @@ function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
 }
 
+function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
+  const config = branch.config ?? {};
+  const legacyConfig = config as JsonRecord;
+  const heartbeat = config.heartbeat ?? {};
+  const legacyInterval =
+    typeof legacyConfig.heartbeat === "string"
+      ? parseHeartbeatIntervalMinutes(legacyConfig.heartbeat)
+      : undefined;
+
+  return {
+    ...config,
+    assets: config.assets ?? readAssets(branch),
+    heartbeat: {
+      intervalMinutes: heartbeat.intervalMinutes ?? legacyInterval ?? 5,
+      seedWindowDays: heartbeat.seedWindowDays ?? 30,
+      maxToolSteps: heartbeat.maxToolSteps ?? 3,
+    },
+    prompts: {
+      ...config.prompts,
+      heartbeatSystemPrompt:
+        config.prompts?.heartbeatSystemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
+      debateJudgeSystemPrompt:
+        config.prompts?.debateJudgeSystemPrompt ?? JUDGE_SYSTEM_PROMPT,
+      debateBullSystemPrompt:
+        config.prompts?.debateBullSystemPrompt ?? BULL_SYSTEM_PROMPT,
+      debateBearSystemPrompt:
+        config.prompts?.debateBearSystemPrompt ?? BEAR_SYSTEM_PROMPT,
+    },
+    tools: {
+      ...config.tools,
+      heartbeat: {
+        ...defaultHeartbeatToolPolicies,
+        ...config.tools?.heartbeat,
+      },
+      debate: {
+        ...defaultDebateToolPolicies,
+        ...config.tools?.debate,
+      },
+      information: {
+        ...defaultInformationToolPolicies,
+        ...config.tools?.information,
+      },
+      finnhubPremiumAccess: config.tools?.finnhubPremiumAccess ?? false,
+    },
+    budgets: {
+      debateMaxTurns: 6,
+      debateMaxToolCalls: 3,
+      informationMaxToolCalls: 5,
+      ...config.budgets,
+    },
+    thresholds: {
+      notifyConfidence: 0.75,
+      paperTradeDraftConfidence: 0.9,
+      ...config.thresholds,
+    },
+    research: {
+      ...config.research,
+    },
+  };
+}
+
+function readLawText(branch: BranchRecord): string {
+  return typeof branch.law?.thesis === "string"
+    ? branch.law.thesis
+    : branch.description ?? "";
+}
+
+function humanizeToolName(toolName: InformationConfigToolName): string {
+  return toolName
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
+  if (!branchId) return "No branch";
+  return branches.find((branch) => branch.id === branchId)?.name ?? branchId;
+}
+
 function getBranchStatus(branch: BranchRecord) {
   if (!branch.enabled) return "paused";
   const status = String(branch.metadata?.status ?? "running").toLowerCase();
@@ -1414,7 +1574,9 @@ function formatHeartbeat(branch: BranchRecord) {
 }
 
 function formatConfidence(value: number | undefined) {
-  return typeof value === "number" ? `${Math.round(value * 100)}%` : "Not configured";
+  return typeof value === "number"
+    ? `${Math.round(value * 100)}%`
+    : "Not configured";
 }
 
 function readAssets(branch: BranchRecord): string[] {
