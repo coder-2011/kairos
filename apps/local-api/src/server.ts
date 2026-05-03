@@ -3,7 +3,10 @@ import { Readable } from "node:stream";
 import { z } from "zod";
 import {
   kairosBranchAgentConfigSchema,
+  createSupermemoryMemoryApi,
+  createSupermemoryMirror,
   listOpenRouterModels,
+  type SupermemoryMirror,
 } from "../../../src/global/index.js";
 import {
   createAlpacaPaperBroker,
@@ -29,6 +32,8 @@ import {
   type JsonRecord,
   type RunRecord,
 } from "./store.js";
+import { SupabaseKairosStore } from "./supabase-store.js";
+import { createSupermemoryMirroredStore } from "./supermemory-store.js";
 
 export type LocalApiDependencies = {
   store?: KairosLocalStore;
@@ -36,6 +41,7 @@ export type LocalApiDependencies = {
   createDebate?: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
+  supermemoryMirror?: SupermemoryMirror;
 };
 
 export type LocalApiOptions = {
@@ -49,6 +55,7 @@ export type LocalApiContext = {
   createDebate: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
+  supermemoryMirror?: SupermemoryMirror;
 };
 
 type HeartbeatTriggerInput = {
@@ -109,9 +116,16 @@ const paperSubmitSchema = z.object({
 });
 
 export async function createLocalApiContext(options: LocalApiOptions = {}): Promise<LocalApiContext> {
-  const store =
+  const rawStore =
     options.dependencies?.store ??
-    await createRuntimeStore({ dataDir: options.dataDir });
+    (process.env.KAIROS_STORE === "supabase"
+      ? new SupabaseKairosStore()
+      : await createRuntimeStore({ dataDir: options.dataDir }));
+  const supermemoryMirror =
+    options.dependencies?.supermemoryMirror ?? createLocalApiSupermemoryMirror();
+  const store = createSupermemoryMirroredStore(rawStore, supermemoryMirror, {
+    required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
+  });
   return {
     store,
     runHeartbeat: options.dependencies?.runHeartbeat ?? deterministicHeartbeat,
@@ -120,7 +134,26 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     notificationSender:
       options.dependencies?.notificationSender ??
       createTradingSmsNotifierFromEnv(),
+    supermemoryMirror,
   };
+}
+
+function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
+  if (!process.env.SUPERMEMORY_API_KEY) {
+    return undefined;
+  }
+
+  return createSupermemoryMirror({
+    memory: createSupermemoryMemoryApi(),
+    required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
+    onError(error, record) {
+      console.warn(
+        `[kairos] Supermemory mirror failed for ${record.scope}.${record.type}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    },
+  });
 }
 
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
@@ -175,22 +208,22 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         }
 
         case "triggerHeartbeat":
-          return triggerHeartbeat(context, route.params.branchId, await readJson(request));
+          return await triggerHeartbeat(context, route.params.branchId, await readJson(request));
 
         case "createDebate":
-          return createDebate(context, await readJson(request));
+          return await createDebate(context, await readJson(request));
 
         case "appendInterjection":
-          return appendInterjection(context, route.params.runId, await readJson(request));
+          return await appendInterjection(context, route.params.runId, await readJson(request));
 
         case "streamRunEvents":
           return streamRunEvents(context, route.params.runId);
 
         case "getPortfolio":
-          return getPortfolio(context, url.searchParams);
+          return await getPortfolio(context, url.searchParams);
 
         case "refreshPortfolio":
-          return refreshPortfolio(context);
+          return await refreshPortfolio(context);
 
         case "listMessages":
           return json({ messages: await context.store.listMessages() });
@@ -199,10 +232,10 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
           return json({ tradeIntents: await context.store.listTradeIntents() });
 
         case "createTradeIntent":
-          return createTradeIntent(context, await readJson(request));
+          return await createTradeIntent(context, await readJson(request));
 
         case "submitPaperTradeIntent":
-          return submitPaperTradeIntent(
+          return await submitPaperTradeIntent(
             context,
             route.params.tradeIntentId,
             paperSubmitSchema.parse(await readJson(request)).tradingConfig,
@@ -522,11 +555,29 @@ async function getPortfolio(
   searchParams: URLSearchParams,
 ): Promise<Response> {
   if (searchParams.get("refresh") === "true") {
-    return refreshPortfolio(context);
+    try {
+      return await refreshPortfolio(context);
+    } catch (error) {
+      return portfolioSnapshotResponse(
+        context,
+        error instanceof Error ? error.message : "Unable to refresh Alpaca portfolio.",
+        true,
+      );
+    }
   }
 
+  return portfolioSnapshotResponse(context, "No cached Alpaca portfolio snapshot.");
+}
+
+async function portfolioSnapshotResponse(
+  context: LocalApiContext,
+  fallbackError: string,
+  reportFallbackWithCachedSnapshot = false,
+): Promise<Response> {
   const latestSnapshot = await context.store.latestPortfolioSnapshot();
-  const portfolioError = latestSnapshot ? undefined : "No cached Alpaca portfolio snapshot.";
+  const portfolioError = latestSnapshot && !reportFallbackWithCachedSnapshot
+    ? undefined
+    : fallbackError;
 
   const [snapshots, brokerOrders, tradeIntents, messages] =
     await Promise.all([
@@ -1076,4 +1127,4 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export { MemoryKairosStore };
+export { MemoryKairosStore, SupabaseKairosStore };
