@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -518,6 +524,44 @@ describe("heartbeat de-dupe", () => {
         new HeartbeatEscalationDeduper(3, storePath).suppressDuplicate(escalation)
           .decision,
       ).toBe("no_escalation");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves corrupted duplicate suppression stores and reports the corruption", () => {
+    const directory = mkdtempSync(join(tmpdir(), "kairos-dedupe-"));
+    const storePath = join(directory, "dedupe.json");
+    const onStoreCorruption = vi.fn();
+
+    try {
+      writeFileSync(storePath, "{not valid json", "utf8");
+
+      const deduper = new HeartbeatEscalationDeduper(
+        3,
+        storePath,
+        onStoreCorruption,
+      );
+      const output = deduper.suppressDuplicate({
+        branch_id: "branch",
+        timestamp: "2026-05-03T12:00:00.000Z",
+        decision: "escalate",
+        summary: "PLTR contract may be material.",
+      });
+
+      expect(output.decision).toBe("escalate");
+      expect(onStoreCorruption).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storePath,
+          preservedPath: expect.stringContaining("dedupe.json.corrupt-"),
+        }),
+      );
+      expect(readdirSync(directory)).toEqual(
+        expect.arrayContaining([
+          "dedupe.json",
+          expect.stringContaining("dedupe.json.corrupt-"),
+        ]),
+      );
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
