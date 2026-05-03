@@ -20,7 +20,6 @@ import {
   createHeartbeatTools,
   runHeartbeatThenDebate,
 } from "./index.js";
-import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { buildHeartbeatUserMessage, resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import type { BranchConfig } from "./types.js";
@@ -133,10 +132,6 @@ describeIfLive("heartbeat full live pipeline", () => {
             }),
             maxToolSteps: 3,
             prompts: resolveHeartbeatPrompts(),
-            deduper: new HeartbeatEscalationDeduper(
-              3,
-              join(tempDir, "heartbeat-dedupe.json"),
-            ),
             memoryWriter: supermemory,
           },
           {

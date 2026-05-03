@@ -10,12 +10,10 @@ import {
   observeAgentEvent,
 } from "../../global/index.js";
 import type { BranchConfig, HeartbeatMemoryWriter } from "./types.js";
-import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { createEscalationEvent } from "./escalation.js";
 import { getSupermemoryContainerTag } from "./memory.js";
 
 export type HeartbeatOnceDependencies = HeartbeatAgentDependencies & {
-  deduper?: HeartbeatEscalationDeduper;
   memoryWriter?: HeartbeatMemoryWriter;
 };
 
@@ -42,16 +40,16 @@ export async function runHeartbeatOnce(
     await observeAgentError(runtime, "run_error", error);
     throw error;
   }
-  const output = deps.deduper?.suppressDuplicate(result.output) ?? result.output;
+  const output = result.output;
   const escalationEvent = createEscalationEvent(output, result.seedBundle);
   const containerTag = getSupermemoryContainerTag(branch);
 
   await observeAgentEvent(
     runtime,
-    "dedupe_complete",
+    "memory_dedupe_context_evaluated",
     {
-      decisionBeforeDedupe: result.output.decision,
-      decisionAfterDedupe: output.decision,
+      decision: output.decision,
+      priorDecisionCount: result.seedBundle.priorDecisions.length,
       summary: output.summary,
     },
     result.seedBundle.timestamp,

@@ -13,7 +13,6 @@ import {
   validateKairosEnv,
 } from "../../api/index.js";
 import { createHeartbeatSeedProviders, createHeartbeatTools } from "./index.js";
-import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { runHeartbeatOnce } from "./heartbeat.js";
 import type { BranchConfig } from "./types.js";
 
@@ -63,10 +62,6 @@ describeIfLive("heartbeat live", () => {
           supermemory,
         }),
         maxToolSteps: 3,
-        deduper: new HeartbeatEscalationDeduper(
-          3,
-          join(tempDir, "heartbeat-dedupe.json"),
-        ),
         memoryWriter: supermemory,
       });
 
