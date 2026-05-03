@@ -1236,6 +1236,73 @@ select:focus {
   white-space: pre-wrap;
 }
 
+.router-tool-calls {
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.router-tool-call {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+}
+
+.router-tool-call summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  justify-content: space-between;
+  letter-spacing: 0.05em;
+  padding: 8px;
+  text-transform: uppercase;
+}
+
+.router-tool-call summary span {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.router-tool-call summary b {
+  color: var(--on-variant);
+  font-size: 10px;
+}
+
+.router-tool-call.succeeded summary span,
+.router-tool-call.succeeded summary b {
+  color: var(--primary);
+}
+
+.router-tool-call.failed summary span,
+.router-tool-call.failed summary b {
+  color: var(--error);
+}
+
+.router-tool-call p {
+  color: var(--on-variant);
+  font-size: 11px;
+  line-height: 14px;
+  padding: 0 8px 8px;
+}
+
+.router-tool-call pre {
+  background: #0f172a;
+  color: #cbd5e1;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 14px;
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+}
+
 .router-composer {
   background: var(--surface-lowest);
   border-top: 1px solid var(--outline-variant);
@@ -1591,7 +1658,9 @@ select:focus {
   margin: 0 0 4px;
 }
 
-.detail-head p {
+.detail-head p,
+.editor-head p,
+.config-note {
   color: var(--on-variant);
   font-size: 11px;
   line-height: 14px;
@@ -2009,7 +2078,7 @@ select:focus {
 }
 
 .prompt-area {
-  min-height: 172px;
+  min-height: 96px;
 }
 
 .model-grid {
@@ -2023,18 +2092,30 @@ select:focus {
   background: var(--surface-lowest);
   display: grid;
   gap: 12px;
-  grid-template-columns: 180px minmax(0, 1fr) 180px;
+  grid-template-columns: 220px minmax(0, 1fr) 170px;
   min-height: 48px;
   padding: 8px;
 }
 
 .model-row span {
   color: var(--on-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-row span b {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.model-row span small {
+  color: var(--on-variant);
+  font-size: 11px;
+  line-height: 14px;
 }
 
 .trading-panel {
