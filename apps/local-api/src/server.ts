@@ -44,6 +44,7 @@ import {
   resolveDebateAgentConfig,
   resolveInformationAgentConfig,
   resolveKairosModelConfig,
+  isProbablyOpenRouterToolCapableModel,
   type KairosModelRole,
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
@@ -230,14 +231,25 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
     return undefined;
   }
 
+  const warningTimestamps = new Map<string, number>();
+  const warningQuietMillis = 5 * 60_000;
   return createSupermemoryMirror({
     memory: createSupermemoryMemoryApi(),
     required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
     onError(error, record) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isQuotaNoise =
+        /(?:^|\s)429(?:\s|$)/.test(message) ||
+        /token limit reached|quota|rate limit/i.test(message);
+      const warningKey = isQuotaNoise ? "quota" : `${record.scope}.${record.type}`;
+      const now = Date.now();
+      const lastWarning = warningTimestamps.get(warningKey) ?? 0;
+      if (now - lastWarning < warningQuietMillis) {
+        return;
+      }
+      warningTimestamps.set(warningKey, now);
       console.warn(
-        `[kairos] Supermemory mirror failed for ${record.scope}.${record.type}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `[kairos] Supermemory mirror failed for ${record.scope}.${record.type}: ${message}`,
       );
     },
   });
@@ -913,11 +925,15 @@ async function createRouterMessage(
     const heartbeatRuns = heartbeatResults
       .map((result) => result.heartbeatRun)
       .filter((heartbeatRun): heartbeatRun is RunRecord => Boolean(heartbeatRun));
+    const heartbeatAttemptRuns = heartbeatResults
+      .flatMap((result) => [result.heartbeatRun, result.failedRun])
+      .filter((heartbeatRun): heartbeatRun is RunRecord => Boolean(heartbeatRun));
     const heartbeatFailures = heartbeatResults
       .filter((result) => result.error)
       .map((result) => ({
         branchId: result.branchId,
         runId: result.failedRun?.id,
+        run: result.failedRun,
         error: result.error,
       }));
 
@@ -983,6 +999,7 @@ async function createRouterMessage(
       assistantMessage,
       run: completed,
       heartbeatRuns,
+      heartbeatAttemptRuns,
       heartbeatFailures,
     }, 201);
   } catch (error) {
@@ -1546,24 +1563,32 @@ async function runConfiguredHeartbeat(input: HeartbeatTriggerInput): Promise<Hea
   const alpaca = process.env.ALPACA_API_KEY && process.env.ALPACA_SECRET_KEY
     ? createAlpacaTradingClient()
     : undefined;
+  const resolvedHeartbeatModel = branchConfig.heartbeat.model;
+  const toolCapableModel = isProbablyOpenRouterToolCapableModel(resolvedHeartbeatModel);
+  const enabledTools = heartbeatEnabledTools(input.branch);
+  const tools = toolCapableModel
+    ? createHeartbeatTools({
+        exa,
+        memory,
+        supermemory: memory,
+      })
+    : undefined;
   const result = await runHeartbeatOnce(branchConfig, {
     model: createOpenRouterAiSdkModelForRole("heartbeat", { modelOverrides }),
     prompts: {
       systemPrompt: input.branch.config?.prompts?.heartbeatSystemPrompt,
     },
-    enabledTools: heartbeatEnabledTools(input.branch),
+    enabledTools,
     seedProviders: createHeartbeatSeedProviders({
       alpaca,
       finnhub,
       memory,
       supermemory: memory,
     }),
-    tools: createHeartbeatTools({
-      exa,
-      memory,
-      supermemory: memory,
-    }),
-    maxToolSteps: input.branch.config?.heartbeat?.maxToolSteps ?? 3,
+    tools,
+    maxToolSteps: toolCapableModel
+      ? input.branch.config?.heartbeat?.maxToolSteps ?? 3
+      : 0,
     runId: readString(input.payload.runId),
     seedPolicy: { allowPartialSeedBundle: true },
   });

@@ -661,9 +661,21 @@ describe("local API handler", () => {
     expect(response.status).toBe(201);
     expect(response.body.run.status).toBe("succeeded");
     expect(response.body.heartbeatRuns).toHaveLength(1);
+    expect(response.body.heartbeatAttemptRuns).toEqual([
+      expect.objectContaining({ id: response.body.heartbeatRuns[0].id }),
+      expect.objectContaining({
+        branchId: "branch_pltr_fail",
+        status: "failed",
+        output: { error: "branch model unavailable" },
+      }),
+    ]);
     expect(response.body.heartbeatFailures).toEqual([
       expect.objectContaining({
         branchId: "branch_pltr_fail",
+        run: expect.objectContaining({
+          branchId: "branch_pltr_fail",
+          status: "failed",
+        }),
         error: "branch model unavailable",
       }),
     ]);
