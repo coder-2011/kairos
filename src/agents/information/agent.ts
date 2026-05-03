@@ -10,6 +10,7 @@ import {
   type GlobalToolCitation,
   GLOBAL_MEMORY_CONTAINER_TAG,
   hasFinnhubPremiumAccess,
+  observe,
 } from "../../global/index.js";
 import {
   buildInformationPlannerMessage,
@@ -208,6 +209,16 @@ async function executeToolCall(input: {
     deps.supermemoryContainerTag ?? GLOBAL_MEMORY_CONTAINER_TAG;
 
   try {
+    await observe(deps.observer, {
+      agent: "information",
+      type: "tool_start",
+      runId: deps.runId,
+      payload: {
+        toolName,
+        input: toolInput,
+        query: request.query,
+      },
+    });
     const result = await executeGlobalTool({
       registry,
       toolName: toolName as GlobalToolName,
@@ -219,14 +230,36 @@ async function executeToolCall(input: {
       },
     });
 
-    return informationToolResultSchema.parse({
+    const parsed = informationToolResultSchema.parse({
       toolName,
       input: toolInput,
       summary: result.summary,
       citations: normalizeCitations(result.citations ?? []),
       raw: result.raw,
     });
+    await observe(deps.observer, {
+      agent: "information",
+      type: "tool_complete",
+      runId: deps.runId,
+      payload: {
+        toolName,
+        input: toolInput,
+        citationCount: parsed.citations.length,
+        summaryLength: parsed.summary.length,
+      },
+    });
+    return parsed;
   } catch (error) {
+    await observe(deps.observer, {
+      agent: "information",
+      type: "tool_error",
+      runId: deps.runId,
+      payload: {
+        toolName,
+        input: toolInput,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return informationToolResultSchema.parse({
       toolName,
       input: toolInput,
@@ -272,9 +305,16 @@ export function createInformationAgentGraph(
   const planNode = async (
     state: InformationStateType,
   ): Promise<{ plan: InformationPlan }> => {
-    const rawPlan = deps.model
+    await observe(deps.observer, {
+      agent: "information",
+      type: "plan_start",
+      runId: deps.runId,
+      payload: { query: state.request.query },
+    });
+    const plannerModel = deps.plannerModel ?? deps.model;
+    const rawPlan = plannerModel
       ? await invokeStructured<InformationPlan>(
-          deps.model,
+          plannerModel,
           informationPlanSchema,
           [
             new SystemMessage(INFORMATION_PLANNER_SYSTEM_PROMPT),
@@ -288,6 +328,15 @@ export function createInformationAgentGraph(
       : deterministicPlan(state.request, deps);
 
     const plan = informationPlanSchema.parse(rawPlan);
+    await observe(deps.observer, {
+      agent: "information",
+      type: "plan_complete",
+      runId: deps.runId,
+      payload: {
+        reasoning: plan.reasoning,
+        toolCalls: plan.toolCalls,
+      },
+    });
     return {
       plan: {
         ...plan,
@@ -302,6 +351,15 @@ export function createInformationAgentGraph(
     if (!state.plan) {
       throw new Error("Information plan was not created before tool execution.");
     }
+    await observe(deps.observer, {
+      agent: "information",
+      type: "tools_start",
+      runId: deps.runId,
+      payload: {
+        toolCallCount: state.plan.toolCalls.length,
+        toolNames: state.plan.toolCalls.map((toolCall) => toolCall.toolName),
+      },
+    });
 
     const toolResults = await Promise.all(
       state.plan.toolCalls.map((toolCall) =>
@@ -314,6 +372,15 @@ export function createInformationAgentGraph(
         }),
       ),
     );
+    await observe(deps.observer, {
+      agent: "information",
+      type: "tools_complete",
+      runId: deps.runId,
+      payload: {
+        toolResultCount: toolResults.length,
+        citationCount: toolResults.flatMap((result) => result.citations).length,
+      },
+    });
 
     return { toolResults };
   };
@@ -321,9 +388,19 @@ export function createInformationAgentGraph(
   const synthesizeNode = async (
     state: InformationStateType,
   ): Promise<{ result: InformationResult }> => {
-    const rawResult = deps.model
+    await observe(deps.observer, {
+      agent: "information",
+      type: "synthesis_start",
+      runId: deps.runId,
+      payload: {
+        query: state.request.query,
+        toolResultCount: state.toolResults.length,
+      },
+    });
+    const synthesisModel = deps.synthesisModel ?? deps.model;
+    const rawResult = synthesisModel
       ? await invokeStructured<InformationResult>(
-          deps.model,
+          synthesisModel,
           informationResultSchema,
           [
             new SystemMessage(INFORMATION_SYNTHESIS_SYSTEM_PROMPT),
@@ -338,6 +415,15 @@ export function createInformationAgentGraph(
       : deterministicSynthesis(state.toolResults);
 
     const parsed = informationResultSchema.parse(rawResult);
+    await observe(deps.observer, {
+      agent: "information",
+      type: "synthesis_complete",
+      runId: deps.runId,
+      payload: {
+        summaryLength: parsed.summary.length,
+        citationCount: parsed.citations.length,
+      },
+    });
     return {
       result: parsed,
     };
@@ -359,11 +445,27 @@ export async function runInformationAgent(
   deps: InformationAgentDependencies = {},
 ): Promise<InformationResult> {
   const parsedRequest = informationRequestSchema.parse({ query });
+  await observe(deps.observer, {
+    agent: "information",
+    type: "run_start",
+    runId: deps.runId,
+    payload: { query: parsedRequest.query },
+  });
   const graph = createInformationAgentGraph(deps);
   const result = await graph.invoke({
     request: parsedRequest,
     toolResults: [],
   });
 
-  return informationResultSchema.parse(result.result);
+  const parsedResult = informationResultSchema.parse(result.result);
+  await observe(deps.observer, {
+    agent: "information",
+    type: "run_complete",
+    runId: deps.runId,
+    payload: {
+      summaryLength: parsedResult.summary.length,
+      citationCount: parsedResult.citations.length,
+    },
+  });
+  return parsedResult;
 }

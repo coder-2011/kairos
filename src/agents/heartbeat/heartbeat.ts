@@ -3,6 +3,7 @@ import {
   type HeartbeatAgentDependencies,
   type HeartbeatRunResult,
 } from "./agent.js";
+import { observe } from "../../global/observability.js";
 import type { BranchConfig, HeartbeatMemoryWriter } from "./types.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { createEscalationEvent } from "./escalation.js";
@@ -22,10 +23,31 @@ export async function runHeartbeatOnce(
   const escalationEvent = createEscalationEvent(output, result.seedBundle);
   const containerTag = getSupermemoryContainerTag(branch);
 
+  await observe(deps.observer, {
+    agent: "heartbeat",
+    type: "dedupe_complete",
+    runId: deps.runId,
+    branchId: branch.id,
+    timestamp: result.seedBundle.timestamp,
+    payload: {
+      decisionBeforeDedupe: result.output.decision,
+      decisionAfterDedupe: output.decision,
+      summary: output.summary,
+    },
+  });
+
   await deps.memoryWriter?.writeHeartbeatOutput?.({
     containerTag,
     output,
     seedBundle: result.seedBundle,
+  });
+  await observe(deps.observer, {
+    agent: "heartbeat",
+    type: "heartbeat_output_persisted",
+    runId: deps.runId,
+    branchId: branch.id,
+    timestamp: result.seedBundle.timestamp,
+    payload: { containerTag },
   });
 
   if (result.toolTraces.length > 0) {
@@ -33,12 +55,34 @@ export async function runHeartbeatOnce(
       containerTag,
       traces: result.toolTraces,
     });
+    await observe(deps.observer, {
+      agent: "heartbeat",
+      type: "tool_traces_persisted",
+      runId: deps.runId,
+      branchId: branch.id,
+      timestamp: result.seedBundle.timestamp,
+      payload: {
+        containerTag,
+        toolTraceCount: result.toolTraces.length,
+      },
+    });
   }
 
   if (escalationEvent) {
     await deps.memoryWriter?.writeEscalationEvent?.({
       containerTag,
       event: escalationEvent,
+    });
+    await observe(deps.observer, {
+      agent: "heartbeat",
+      type: "escalation_persisted",
+      runId: deps.runId,
+      branchId: branch.id,
+      timestamp: result.seedBundle.timestamp,
+      payload: {
+        containerTag,
+        decision: escalationEvent.heartbeatOutput.decision,
+      },
     });
   }
 

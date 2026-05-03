@@ -6,6 +6,7 @@ import {
   type ToolSet,
 } from "ai";
 
+import { observe, type AgentObserver } from "../../global/observability.js";
 import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
 import {
   heartbeatOutputSchema,
@@ -56,6 +57,8 @@ export type HeartbeatAgentDependencies = {
   maxToolSteps?: number;
   generateText?: HeartbeatGenerateText;
   now?: () => Date;
+  observer?: AgentObserver;
+  runId?: string;
 };
 
 export type HeartbeatRunResult = {
@@ -80,7 +83,33 @@ export async function runHeartbeatAgent(
       deps.now?.() ?? new Date(),
     ),
   );
+  await observe(deps.observer, {
+    agent: "heartbeat",
+    type: "seed_built",
+    runId: deps.runId,
+    branchId: branch.id,
+    timestamp: seedBundle.timestamp,
+    payload: {
+      assets: seedBundle.assets,
+      seedWindowDays: seedBundle.seedWindowDays,
+      defaultSourceKeys: Object.keys(seedBundle.defaultSources),
+      priorDecisionCount: seedBundle.priorDecisions.length,
+      optionalDataKeys: Object.keys(seedBundle.optionalData),
+    },
+  });
+
   const runModel = deps.generateText ?? (generateText as HeartbeatGenerateText);
+  await observe(deps.observer, {
+    agent: "heartbeat",
+    type: "model_start",
+    runId: deps.runId,
+    branchId: branch.id,
+    timestamp: seedBundle.timestamp,
+    payload: {
+      maxToolSteps: deps.maxToolSteps ?? 3,
+      hasTools: Boolean(deps.tools && Object.keys(deps.tools).length > 0),
+    },
+  });
   const result = await runModel({
     model: deps.model,
     system: HEARTBEAT_SYSTEM_PROMPT,
@@ -100,12 +129,25 @@ export async function runHeartbeatAgent(
     branch_id: seedBundle.branchId,
     timestamp: seedBundle.timestamp,
   };
+  const toolTraces = extractToolTraces(result.steps, seedBundle);
+
+  await observe(deps.observer, {
+    agent: "heartbeat",
+    type: "model_complete",
+    runId: deps.runId,
+    branchId: branch.id,
+    timestamp: seedBundle.timestamp,
+    payload: {
+      output,
+      toolTraceCount: toolTraces.length,
+    },
+  });
 
   return {
     output,
     seedBundle,
     escalationEvent: createEscalationEvent(output, seedBundle),
-    toolTraces: extractToolTraces(result.steps, seedBundle),
+    toolTraces,
   };
 }
 

@@ -8,8 +8,9 @@ import {
   ExaApi,
   FinnhubApi,
   SupermemoryApi,
-  createOpenRouterChatModel,
-  createOpenRouterModel,
+  createOpenRouterAiSdkModelForRole,
+  createOpenRouterChatModelForRole,
+  resolveKairosModelConfig,
   validateKairosEnv,
 } from "../../api/index.js";
 import { createInformationDebateTool } from "../information/tool.js";
@@ -98,18 +99,31 @@ describeIfLive("heartbeat full live pipeline", () => {
           ),
         );
 
-        const liveModel = createOpenRouterChatModel({
-          model: process.env.KAIROS_LIVE_OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+        const judgeModel = createOpenRouterChatModelForRole("debateJudge", {
           temperature: 0,
         }) as never;
+        const bullModel = createOpenRouterChatModelForRole("debateBull", {
+          temperature: 0,
+        }) as never;
+        const bearModel = createOpenRouterChatModelForRole("debateBear", {
+          temperature: 0,
+        }) as never;
+        const finalModel = createOpenRouterChatModelForRole("debateFinal", {
+          temperature: 0,
+        }) as never;
+        const informationPlannerModel = createOpenRouterChatModelForRole(
+          "informationPlanner",
+          { temperature: 0 },
+        ) as never;
+        const informationSynthesisModel = createOpenRouterChatModelForRole(
+          "informationSynthesis",
+          { temperature: 0 },
+        ) as never;
         const result = await runHeartbeatThenDebate(
           branch,
           {
-            model: createOpenRouterModel({
-              model:
-                process.env.OPENROUTER_HEARTBEAT_MODEL ??
-                process.env.KAIROS_LIVE_OPENROUTER_MODEL ??
-                "openai/gpt-4o-mini",
+            model: createOpenRouterAiSdkModelForRole("heartbeat", {
+              temperature: 0,
             }),
             seedProviders,
             tools: createHeartbeatTools({
@@ -125,14 +139,15 @@ describeIfLive("heartbeat full live pipeline", () => {
           },
           {
             models: {
-              judge: liveModel,
-              bull: liveModel,
-              bear: liveModel,
-              final: liveModel,
+              judge: judgeModel,
+              bull: bullModel,
+              bear: bearModel,
+              final: finalModel,
             },
             tools: {
               information: createInformationDebateTool({
-                model: liveModel,
+                plannerModel: informationPlannerModel,
+                synthesisModel: informationSynthesisModel,
                 exa,
                 finnhub,
                 supermemory,
@@ -222,10 +237,7 @@ function branchConfig(containerTag: string): BranchConfig {
       enabled: true,
       intervalMinutes: 5,
       seedWindowDays: 30,
-      model:
-        process.env.OPENROUTER_HEARTBEAT_MODEL ??
-        process.env.KAIROS_LIVE_OPENROUTER_MODEL ??
-        "openai/gpt-4o-mini",
+      model: resolveKairosModelConfig("heartbeat").model,
       maxSearchCalls: 2,
       maxMemoryQueries: 2,
     },

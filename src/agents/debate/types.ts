@@ -1,4 +1,5 @@
 import type { GlobalToolRegistry } from "../../global/tools.js";
+import type { AgentObserver } from "../../global/observability.js";
 
 export type DebateAgentName = "judge" | "bull" | "bear" | "tool_agent";
 
@@ -137,6 +138,8 @@ export type DebateGraphDependencies = {
   globalTools?: GlobalToolRegistry;
   now?: () => Date;
   id?: () => string;
+  observer?: AgentObserver;
+  runId?: string;
 };
 
 export type PendingToolRequest = DebateToolRequest & {

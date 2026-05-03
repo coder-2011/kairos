@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ExaApi } from "../../api/exa.js";
 import { FinnhubApi } from "../../api/finnhub.js";
-import { createOpenRouterChatModel } from "../../api/openrouter.js";
+import { createOpenRouterChatModelForRole } from "../../api/index.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { runInformationAgent } from "./agent.js";
 import type { StructuredInformationModelProvider } from "./types.js";
@@ -16,9 +16,10 @@ const liveTestsEnabled =
 
 const liveIt = liveTestsEnabled ? it : it.skip;
 
-function liveModel(): StructuredInformationModelProvider {
-  return createOpenRouterChatModel({
-    model: process.env.KAIROS_LIVE_OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+function liveModel(
+  role: Parameters<typeof createOpenRouterChatModelForRole>[0],
+): StructuredInformationModelProvider {
+  return createOpenRouterChatModelForRole(role, {
     temperature: 0,
   }) as StructuredInformationModelProvider;
 }
@@ -30,7 +31,8 @@ describe("information agent live integrations", () => {
       const result = await runInformationAgent(
         "Gather the most important recent PLTR catalyst context with cited current sources, market data, and Kairos memory.",
         {
-          model: liveModel(),
+          plannerModel: liveModel("informationPlanner"),
+          synthesisModel: liveModel("informationSynthesis"),
           exa: new ExaApi(),
           finnhub: new FinnhubApi(),
           supermemory: new SupermemoryApi(),

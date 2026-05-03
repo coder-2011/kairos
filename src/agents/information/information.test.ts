@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createGlobalToolRegistry } from "../../global/tools.js";
-import { FINNHUB_REST_ENDPOINT_CATALOG } from "../../global/finnhub-catalog.js";
+import {
+  FINNHUB_REST_ENDPOINT_CATALOG,
+  resolveKairosModelConfig,
+} from "../../global/index.js";
 import { buildInformationPlannerMessage } from "./prompt.js";
 import { runInformationAgent } from "./agent.js";
 import { informationToolNameSchema } from "./schema.js";
@@ -102,6 +105,35 @@ function fakeDeps(
 }
 
 describe("information agent", () => {
+  it("uses the configured default model map for each agent role", () => {
+    expect(resolveKairosModelConfig("heartbeat", {} as NodeJS.ProcessEnv)).toEqual({
+      model: "google/gemma-4-31b-it",
+      reasoning: undefined,
+    });
+    expect(
+      resolveKairosModelConfig("informationPlanner", {} as NodeJS.ProcessEnv),
+    ).toEqual({
+      model: "google/gemma-4-31b-it",
+      reasoning: undefined,
+    });
+    expect(resolveKairosModelConfig("debateBull", {} as NodeJS.ProcessEnv)).toEqual({
+      model: "openai/gpt-5.5",
+      reasoning: { effort: "xhigh" },
+    });
+    expect(resolveKairosModelConfig("debateBear", {} as NodeJS.ProcessEnv)).toEqual({
+      model: "google/gemini-3.1-pro-preview",
+      reasoning: { effort: "high" },
+    });
+    expect(resolveKairosModelConfig("debateJudge", {} as NodeJS.ProcessEnv)).toEqual({
+      model: "anthropic/claude-opus-4.7",
+      reasoning: { effort: "high" },
+    });
+    expect(resolveKairosModelConfig("debateFinal", {} as NodeJS.ProcessEnv)).toEqual({
+      model: "anthropic/claude-opus-4.7",
+      reasoning: { effort: "high" },
+    });
+  });
+
   it("exposes non-premium Finnhub wrapper methods by default", () => {
     const finnhub = {
       apiRequest: vi.fn(),
@@ -250,31 +282,35 @@ describe("information agent", () => {
   });
 
   it("supports model-selected tool plans and model-written synthesis", async () => {
+    const plannerModel = fakeModel([
+      {
+        reasoning: "Read the provided source URL and search memory.",
+        toolCalls: [
+          {
+            toolName: "exa_contents",
+            input: "https://example.com/source",
+          },
+          {
+            toolName: "supermemory_search",
+            input: "PLTR source review",
+          },
+        ],
+      } satisfies InformationPlan,
+    ]);
+    const synthesisModel = fakeModel([
+      {
+        summary: "Model synthesis: source text plus memory were gathered.",
+        citations: [
+          {
+            title: "Source article",
+            url: "https://example.com/source",
+          },
+        ],
+      },
+    ]);
     const deps = fakeDeps({
-      model: fakeModel([
-        {
-          reasoning: "Read the provided source URL and search memory.",
-          toolCalls: [
-            {
-              toolName: "exa_contents",
-              input: "https://example.com/source",
-            },
-            {
-              toolName: "supermemory_search",
-              input: "PLTR source review",
-            },
-          ],
-        } satisfies InformationPlan,
-        {
-          summary: "Model synthesis: source text plus memory were gathered.",
-          citations: [
-            {
-              title: "Source article",
-              url: "https://example.com/source",
-            },
-          ],
-        },
-      ]),
+      plannerModel,
+      synthesisModel,
     });
 
     const result = await runInformationAgent(

@@ -8,7 +8,8 @@ import {
   ExaApi,
   FinnhubApi,
   SupermemoryApi,
-  createOpenRouterModel,
+  createOpenRouterAiSdkModelForRole,
+  resolveKairosModelConfig,
   validateKairosEnv,
 } from "../../api/index.js";
 import { createHeartbeatSeedProviders, createHeartbeatTools } from "./index.js";
@@ -39,7 +40,7 @@ describeIfLive("heartbeat live", () => {
         enabled: true,
         intervalMinutes: 5,
         seedWindowDays: 30,
-        model: process.env.OPENROUTER_HEARTBEAT_MODEL ?? "openai/gpt-4o-mini",
+        model: resolveKairosModelConfig("heartbeat").model,
         maxSearchCalls: 2,
         maxMemoryQueries: 2,
       },
@@ -50,8 +51,8 @@ describeIfLive("heartbeat live", () => {
 
     try {
       const result = await runHeartbeatOnce(branch, {
-        model: createOpenRouterModel({
-          model: branch.heartbeat.model,
+        model: createOpenRouterAiSdkModelForRole("heartbeat", {
+          temperature: 0,
         }),
         seedProviders: createHeartbeatSeedProviders({
           finnhub: new FinnhubApi(),

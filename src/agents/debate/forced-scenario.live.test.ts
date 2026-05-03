@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ExaApi } from "../../api/exa.js";
 import { FinnhubApi } from "../../api/finnhub.js";
-import { createOpenRouterChatModel } from "../../api/openrouter.js";
+import { createOpenRouterChatModelForRole } from "../../api/index.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { createInformationDebateTool } from "../information/tool.js";
 import { runDebateAgent } from "./agent.js";
@@ -17,9 +17,10 @@ const liveTestsEnabled =
 
 const liveIt = liveTestsEnabled ? it : it.skip;
 
-function liveModel(): StructuredDebateModelProvider {
-  return createOpenRouterChatModel({
-    model: process.env.KAIROS_LIVE_OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+function liveModel(
+  role: Parameters<typeof createOpenRouterChatModelForRole>[0],
+): StructuredDebateModelProvider {
+  return createOpenRouterChatModelForRole(role, {
     temperature: 0,
   }) as StructuredDebateModelProvider;
 }
@@ -31,10 +32,16 @@ describe("forced researched debate scenario", () => {
       const exa = new ExaApi();
       const finnhub = new FinnhubApi();
       const supermemory = new SupermemoryApi();
-      const model = liveModel();
+      const judgeModel = liveModel("debateJudge");
+      const bullModel = liveModel("debateBull");
+      const bearModel = liveModel("debateBear");
+      const finalModel = liveModel("debateFinal");
+      const informationPlannerModel = liveModel("informationPlanner");
+      const informationSynthesisModel = liveModel("informationSynthesis");
 
       const informationTool: DebateTool = createInformationDebateTool({
-        model,
+        plannerModel: informationPlannerModel,
+        synthesisModel: informationSynthesisModel,
         exa,
         finnhub,
         supermemory,
@@ -77,10 +84,10 @@ describe("forced researched debate scenario", () => {
         },
         {
           models: {
-            judge: model,
-            bull: model,
-            bear: model,
-            final: model,
+            judge: judgeModel,
+            bull: bullModel,
+            bear: bearModel,
+            final: finalModel,
           },
           tools: {
             information: informationTool,

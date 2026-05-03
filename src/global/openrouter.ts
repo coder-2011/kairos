@@ -15,6 +15,10 @@ export type OpenRouterModelConfig = OpenRouterConfig & {
   maxTokens?: number;
   topP?: number;
   user?: string;
+  reasoning?: {
+    effort: "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
+  };
+  modelKwargs?: Record<string, unknown>;
 };
 
 export type OpenRouterProvider = ReturnType<typeof createOpenRouter>;
@@ -40,7 +44,7 @@ export function createOpenRouterProvider(
 export function createOpenRouterModel(
   config: OpenRouterModelConfig,
 ): OpenRouterAiSdkChatModel {
-  const { model, temperature = 0, maxTokens, topP, user } = config;
+  const { model, temperature = 0, maxTokens, topP, user, reasoning } = config;
   const provider = createOpenRouterProvider(config);
 
   return provider.chat(model, {
@@ -48,11 +52,12 @@ export function createOpenRouterModel(
     maxTokens,
     topP,
     user,
+    reasoning,
   });
 }
 
 export function createOpenRouterChatModel(config: OpenRouterModelConfig) {
-  const { model, temperature = 0 } = config;
+  const { model, temperature = 0, reasoning, modelKwargs } = config;
   const apiKey = config.apiKey ?? process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is required.");
@@ -62,5 +67,9 @@ export function createOpenRouterChatModel(config: OpenRouterModelConfig) {
     apiKey,
     model,
     temperature,
+    modelKwargs: {
+      ...modelKwargs,
+      ...(reasoning ? { reasoning } : {}),
+    },
   });
 }

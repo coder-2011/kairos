@@ -2,6 +2,7 @@ import type { Citation } from "../debate/types.js";
 import type { ExaApi } from "../../api/exa.js";
 import type { FinnhubApi } from "../../api/finnhub.js";
 import type { GlobalMemoryApi } from "../../global/memory.js";
+import type { AgentObserver } from "../../global/observability.js";
 
 export type InformationToolName =
   | "exa_search"
@@ -94,6 +95,8 @@ export type InformationSupermemoryClient = Pick<GlobalMemoryApi, "search">;
 
 export type InformationAgentDependencies = {
   model?: StructuredInformationModelProvider;
+  plannerModel?: StructuredInformationModelProvider;
+  synthesisModel?: StructuredInformationModelProvider;
   exa?: InformationExaClient;
   finnhub?: InformationFinnhubClient;
   finnhubPremiumAccess?: boolean;
@@ -101,4 +104,6 @@ export type InformationAgentDependencies = {
   supermemory?: InformationSupermemoryClient;
   supermemoryContainerTag?: string;
   now?: () => Date;
+  observer?: AgentObserver;
+  runId?: string;
 };
