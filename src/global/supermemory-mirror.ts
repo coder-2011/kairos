@@ -2,6 +2,7 @@ import type { DebateRunResult } from "../agents/debate/types.js";
 import type { InformationResult } from "../agents/information/types.js";
 import type { GlobalMemoryApi } from "./memory.js";
 import { GLOBAL_MEMORY_CONTAINER_TAG, getMemoryContainerTag } from "./memory.js";
+import type { AgentObserver } from "./observability.js";
 
 export type SupermemoryMirrorTarget = Pick<GlobalMemoryApi, "addContent" | "writeConversation">;
 
@@ -58,6 +59,8 @@ export type SupermemoryMirror = {
 
 const DEFAULT_MAX_CONTENT_CHARS = 200_000;
 const SECRET_KEY_PATTERN = /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)/i;
+const SECRET_TEXT_PATTERN =
+  /\b(api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)\b\s*[:=]\s*["']?[^"',\s}]+/gi;
 
 export function createSupermemoryMirror(
   options: SupermemoryMirrorOptions,
@@ -162,7 +165,7 @@ export function createSupermemoryMirror(
         customId: `kairos:debate:${result.debateId}:transcript`,
       };
 
-      await mirrorBestEffort(record, async (mirroredRecord) => {
+    await mirrorBestEffort(record, async (mirroredRecord) => {
         const content = truncateContent(formatMirrorRecord(mirroredRecord), maxContentChars);
         await Promise.all(
           containerTagsForRecord(mirroredRecord, globalContainerTag).map(
@@ -218,13 +221,34 @@ export function createSupermemoryMirror(
   };
 }
 
+export function createSupermemoryObserver(
+  mirror: SupermemoryMirror,
+): AgentObserver {
+  return {
+    event: (event) =>
+      mirror.mirrorRecord({
+        type: event.type,
+        scope: "agent_observation",
+        timestamp: event.timestamp,
+        runId: event.runId,
+        branchId: event.branchId,
+        actor: event.agent,
+        source: "agent_observer",
+        title: `Kairos ${event.agent} observation ${event.type}`,
+        summary: event.type,
+        data: event,
+        customId: `kairos:agent_observation:${event.runId ?? event.agent}:${event.type}:${event.timestamp}`,
+      }),
+  };
+}
+
 export function formatMirrorRecord(record: SupermemoryMirrorRecord): string {
   const timestamp = record.timestamp ?? new Date().toISOString();
   const data = redactSecrets(record.data);
   return [
-    `# ${record.title ?? `Kairos ${record.scope}.${record.type}`}`,
+    `# ${redactText(record.title ?? `Kairos ${record.scope}.${record.type}`)}`,
     "",
-    record.summary ? `Summary: ${record.summary}` : undefined,
+    record.summary ? `Summary: ${redactText(record.summary)}` : undefined,
     `Type: ${record.type}`,
     `Scope: ${record.scope}`,
     `Timestamp: ${timestamp}`,
@@ -234,7 +258,7 @@ export function formatMirrorRecord(record: SupermemoryMirrorRecord): string {
     record.debateId ? `Debate ID: ${record.debateId}` : undefined,
     record.actor ? `Actor: ${record.actor}` : undefined,
     record.source ? `Source: ${record.source}` : undefined,
-    record.content ? ["", record.content].join("\n") : undefined,
+    record.content ? ["", redactText(record.content)].join("\n") : undefined,
     data === undefined ? undefined : ["", "```json", JSON.stringify(data, null, 2), "```"].join("\n"),
   ]
     .filter((line): line is string => Boolean(line))
@@ -244,6 +268,10 @@ export function formatMirrorRecord(record: SupermemoryMirrorRecord): string {
 export function redactSecrets(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(redactSecrets);
+  }
+
+  if (typeof value === "string") {
+    return redactText(value);
   }
 
   if (!value || typeof value !== "object") {
@@ -258,6 +286,10 @@ export function redactSecrets(value: unknown): unknown {
   );
 }
 
+export function redactText(value: string): string {
+  return value.replace(SECRET_TEXT_PATTERN, (match, key: string) => `${key}=[REDACTED]`);
+}
+
 async function mirrorBestEffort(
   record: SupermemoryMirrorRecord,
   write: (record: SupermemoryMirrorRecord) => Promise<void>,
@@ -266,7 +298,11 @@ async function mirrorBestEffort(
   try {
     await write(record);
   } catch (error) {
-    await options.onError?.(error, record);
+    try {
+      await options.onError?.(error, record);
+    } catch {
+      // Reporting failures must not override best-effort mirror behavior.
+    }
     if (options.required) {
       throw error;
     }
