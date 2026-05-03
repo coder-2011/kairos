@@ -121,7 +121,7 @@ export async function getOpenRouterModels(): Promise<OpenRouterModelRecord[]> {
 }
 
 export async function getPortfolio(): Promise<PortfolioSnapshot> {
-  return request<JsonRecord>("/portfolio").then(normalizePortfolioResponse);
+  return request<JsonRecord>("/portfolio?refresh=true").then(normalizePortfolioResponse);
 }
 
 export async function getMessages(): Promise<MessageRecord[]> {

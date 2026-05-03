@@ -495,9 +495,11 @@ async function getPortfolio(
     return refreshPortfolio(context);
   }
 
-  const [snapshot, snapshots, brokerOrders, tradeIntents, messages] =
+  const latestSnapshot = await context.store.latestPortfolioSnapshot();
+  const portfolioError = latestSnapshot ? undefined : "No cached Alpaca portfolio snapshot.";
+
+  const [snapshots, brokerOrders, tradeIntents, messages] =
     await Promise.all([
-      context.store.latestPortfolioSnapshot(),
       context.store.listPortfolioSnapshots(),
       context.store.listBrokerOrders(),
       context.store.listTradeIntents(),
@@ -506,25 +508,26 @@ async function getPortfolio(
 
   return json({
     portfolio: {
-      ...(snapshot ?? {
+      ...(latestSnapshot ?? {
         provider: "alpaca",
         environment: "paper",
         account: {},
         positions: [],
       }),
-      account: normalizePortfolioAccountForFrontend(snapshot?.account),
+      account: normalizePortfolioAccountForFrontend(latestSnapshot?.account),
       orders: brokerOrders,
       tradeIntents,
       messages,
       paper: true,
-      status: snapshot ? "cached" : "not_configured",
-      updatedAt: snapshot?.capturedAt,
+      status: portfolioError ? "offline" : "ok",
+      updatedAt: latestSnapshot?.capturedAt,
     },
-    snapshot: snapshot ?? null,
+    snapshot: latestSnapshot ?? null,
     snapshots,
     brokerOrders,
     tradeIntents,
     messages,
+    error: portfolioError,
   });
 }
 

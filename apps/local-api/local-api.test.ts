@@ -9,6 +9,7 @@ import {
   MemoryKairosStore,
   type LocalApiContext,
 } from "./src/server.js";
+import type { PaperTradingBroker } from "../../src/trading/index.js";
 
 const baseUrl = "http://kairos.local";
 
@@ -219,6 +220,90 @@ describe("local API handler", () => {
     }
   });
 
+  it("creates a message and paper trade intent when confidence crosses paper threshold without auto-buy", async () => {
+    const { requestJson } = makeClient();
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      confidence: 0.9,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+        paperAutoBuyEnabled: false,
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(response.body.policy).toMatchObject({
+      thresholdResult: "paper_trade_candidate",
+      permittedAction: "paper_buy_intent",
+      paperAutoBuyEnabled: false,
+    });
+    expect(response.body.tradeIntent).toMatchObject({
+      symbol: "PLTR",
+      mode: "paper",
+      status: "paper_ready",
+    });
+    expect(response.body.messages).toHaveLength(1);
+
+    const messages = await requestJson("GET", "/messages");
+    expect(messages.body.messages).toHaveLength(1);
+
+    const intents = await requestJson("GET", "/trade-intents");
+    expect(intents.body.tradeIntents).toHaveLength(1);
+
+    const brokerOrders = await requestJson("GET", "/broker-orders");
+    expect(brokerOrders.body.brokerOrders).toHaveLength(0);
+  });
+
+  it("preflights and submits an Alpaca paper order when paper auto-buy is enabled", async () => {
+    const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      confidence: 0.91,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+        paperAutoBuyEnabled: true,
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(response.body.tradeIntent).toMatchObject({ status: "paper_submitted" });
+    expect(response.body.brokerOrder).toMatchObject({
+      provider: "alpaca",
+      environment: "paper",
+      symbol: "PLTR",
+      status: "accepted",
+    });
+    expect(response.body.preflight).toEqual({ ok: true, reasons: [] });
+
+    const brokerOrders = await requestJson("GET", "/broker-orders");
+    expect(brokerOrders.body.brokerOrders).toHaveLength(1);
+  });
+
+  it("refreshes and persists portfolio snapshots through the trading broker", async () => {
+    const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
+
+    const initial = await requestJson("GET", "/portfolio");
+    expect(initial.body.snapshot).toMatchObject({
+      provider: "alpaca",
+      environment: "paper",
+      account: { buyingPower: 100000 },
+    });
+
+    const refreshed = await requestJson("POST", "/portfolio/refresh");
+    expect(refreshed.status).toBe(201);
+    expect(refreshed.body.snapshot).toMatchObject({
+      provider: "alpaca",
+      environment: "paper",
+      account: { buyingPower: 100000 },
+      positions: [{ symbol: "PLTR" }],
+    });
+
+    const listed = await requestJson("GET", "/portfolio");
+    expect(listed.body.snapshots).toHaveLength(1);
+  });
+
   it("rejects invalid payloads with 400", async () => {
     const { requestJson } = makeClient();
 
@@ -229,7 +314,7 @@ describe("local API handler", () => {
   });
 });
 
-function makeClient() {
+function makeClient(options: { tradingBroker?: PaperTradingBroker } = {}) {
   const store = new MemoryKairosStore();
   const context: LocalApiContext = {
     store,
@@ -247,6 +332,7 @@ function makeClient() {
         { type: "debate.judge.summary", payload: { decision: "needs_review" } },
       ],
     }),
+    tradingBroker: options.tradingBroker,
   };
   const handler = createLocalApiHandler(context);
 
@@ -268,4 +354,76 @@ function makeClient() {
   }
 
   return { request, requestJson };
+}
+
+function tradeIntentPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    symbol: "PLTR",
+    side: "buy",
+    notional: 500,
+    confidence: 0.9,
+    reasoning: "Debate found a material contract catalyst.",
+    expectedCatalyst: "New material contract.",
+    risk: "Market may have priced in the news.",
+    timeHorizon: "1-4 weeks",
+    positionSizingRationale: "Small paper order for observation.",
+    invalidationCondition: "Contract report is contradicted.",
+    exitCondition: "Catalyst is priced in or thesis breaks.",
+    ...overrides,
+  };
+}
+
+function createMockTradingBroker(): PaperTradingBroker {
+  return {
+    async getPortfolioSnapshot() {
+      return {
+        id: "portfolio_1",
+        capturedAt: "2026-05-03T12:00:00.000Z",
+        provider: "alpaca",
+        environment: "paper",
+        account: {
+          status: "ACTIVE",
+          cash: 100000,
+          buyingPower: 100000,
+          portfolioValue: 100000,
+          equity: 100000,
+          daytradeCount: 0,
+        },
+        positions: [
+          {
+            symbol: "PLTR",
+            qty: 10,
+            marketValue: 250,
+            currentPrice: 25,
+          },
+        ],
+      };
+    },
+    async getClock() {
+      return { is_open: true };
+    },
+    async getAsset() {
+      return { tradable: true, status: "active" };
+    },
+    async submitPaperOrder(input) {
+      return {
+        id: "broker_order_1",
+        createdAt: "2026-05-03T12:00:00.000Z",
+        updatedAt: "2026-05-03T12:00:00.000Z",
+        provider: "alpaca",
+        environment: "paper",
+        alpacaOrderId: "alpaca_order_1",
+        clientOrderId: input.clientOrderId ?? "kairos_test",
+        status: "accepted",
+        symbol: input.symbol,
+        side: input.side,
+        orderType: input.type,
+        timeInForce: input.timeInForce,
+        qty: input.qty,
+        notional: input.notional,
+        limitPrice: input.limitPrice,
+        submittedAt: "2026-05-03T12:00:00.000Z",
+      };
+    },
+  };
 }
