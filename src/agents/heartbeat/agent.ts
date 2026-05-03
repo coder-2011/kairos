@@ -1,0 +1,109 @@
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+
+import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
+import {
+  branchConfigSchema,
+  heartbeatOutputSchema,
+  heartbeatSeedBundleSchema,
+} from "./schema.js";
+import { buildHeartbeatSeedBundle } from "./seed.js";
+import type {
+  BranchConfig,
+  EscalationEvent,
+  HeartbeatOutput,
+  HeartbeatSeedBundle,
+  HeartbeatSeedDataProviders,
+} from "./types.js";
+import { createEscalationEvent } from "./escalation.js";
+
+type StructuredHeartbeatModel = {
+  withStructuredOutput: (
+    schema: typeof heartbeatOutputSchema,
+  ) => {
+    invoke: (input: unknown) => Promise<unknown>;
+  };
+};
+
+export type HeartbeatAgentDependencies = {
+  model: StructuredHeartbeatModel;
+  seedProviders?: HeartbeatSeedDataProviders;
+  now?: () => Date;
+};
+
+export type HeartbeatRunResult = {
+  output: HeartbeatOutput;
+  seedBundle: HeartbeatSeedBundle;
+  escalationEvent: EscalationEvent | null;
+};
+
+const HeartbeatGraphState = Annotation.Root({
+  branch: Annotation<BranchConfig>(),
+  seedBundle: Annotation<HeartbeatSeedBundle | undefined>(),
+  output: Annotation<HeartbeatOutput | undefined>(),
+});
+
+export function createHeartbeatAgentGraph(deps: HeartbeatAgentDependencies) {
+  const buildSeedBundleNode = async (state: {
+    branch: BranchConfig;
+  }): Promise<{ seedBundle: HeartbeatSeedBundle }> => {
+    return {
+      seedBundle: await buildHeartbeatSeedBundle(
+        state.branch,
+        deps.seedProviders,
+        deps.now?.() ?? new Date(),
+      ),
+    };
+  };
+
+  const callHeartbeatModelNode = async (state: {
+    seedBundle?: HeartbeatSeedBundle;
+  }): Promise<{ output: HeartbeatOutput }> => {
+    if (!state.seedBundle) {
+      throw new Error("Heartbeat seed bundle was not built before model call.");
+    }
+
+    const structuredModel = deps.model.withStructuredOutput(heartbeatOutputSchema);
+    const rawOutput = await structuredModel.invoke([
+      new SystemMessage(HEARTBEAT_SYSTEM_PROMPT),
+      new HumanMessage(buildHeartbeatUserMessage(state.seedBundle)),
+    ]);
+    const parsed = heartbeatOutputSchema.parse(rawOutput);
+
+    return {
+      output: {
+        ...parsed,
+        branch_id: state.seedBundle.branchId,
+        timestamp: state.seedBundle.timestamp,
+      },
+    };
+  };
+
+  return new StateGraph(HeartbeatGraphState)
+    .addNode("buildSeedBundle", buildSeedBundleNode)
+    .addNode("callHeartbeatModel", callHeartbeatModelNode)
+    .addEdge(START, "buildSeedBundle")
+    .addEdge("buildSeedBundle", "callHeartbeatModel")
+    .addEdge("callHeartbeatModel", END)
+    .compile();
+}
+
+export async function runHeartbeatAgent(
+  branch: BranchConfig,
+  deps: HeartbeatAgentDependencies,
+): Promise<HeartbeatRunResult> {
+  if (!branch.heartbeat.enabled) {
+    throw new Error(`Heartbeat is disabled for branch ${branch.id}.`);
+  }
+
+  const graph = createHeartbeatAgentGraph(deps);
+  const result = await graph.invoke({ branch });
+  const output = heartbeatOutputSchema.parse(result.output);
+  const seedBundle = heartbeatSeedBundleSchema.parse(result.seedBundle);
+
+  return {
+    output,
+    seedBundle,
+    escalationEvent: createEscalationEvent(output, seedBundle),
+  };
+}
