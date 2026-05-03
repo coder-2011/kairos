@@ -103,7 +103,6 @@ export type LocalApiContext = {
 
 type HeartbeatTriggerInput = {
   branchId: string;
-  dryRun: boolean;
   payload: JsonRecord;
   branch: BranchRecord;
 };
@@ -114,7 +113,6 @@ type HeartbeatRunResult = {
 };
 
 type DebateCreateInput = {
-  dryRun: boolean;
   payload: JsonRecord;
   branch?: BranchRecord;
 };
@@ -133,7 +131,6 @@ type RouterExtractedSource = {
 
 type RouterUrlRetrieveInput = {
   urls: string[];
-  dryRun: boolean;
 };
 
 type MarketSymbolProvider = {
@@ -1913,7 +1910,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
   });
 
   return {
-    output: debateResultOutput(result),
+    output: debateResultOutput(result, input.dryRun),
     events: debateResultEvents(result, input.payload),
   };
 }
