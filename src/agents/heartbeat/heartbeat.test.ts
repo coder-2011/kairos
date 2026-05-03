@@ -389,11 +389,13 @@ describe("heartbeat scheduler", () => {
       await scheduler.runNow();
       expect(onResult).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
     } finally {
       scheduler.stop();
@@ -809,5 +811,29 @@ describe("API clients", () => {
         source: "Wire",
       },
     ]);
+  });
+
+  it("does not report Finnhub candle provider failures as no-data seed context", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/quote")) {
+        return jsonResponse({ c: 100, d: 2, dp: 2, pc: 98 });
+      }
+      if (url.pathname.endsWith("/stock/candle")) {
+        throw new Error("network unavailable");
+      }
+      return jsonResponse([]);
+    });
+    const finnhub = new FinnhubApi({
+      apiKey: "fh_key",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      retryAttempts: 1,
+    });
+    const providers = createFinnhubHeartbeatSeedProviders(finnhub);
+    const branch = branchConfig({ id: "pltr", assets: ["PLTR"] });
+
+    await expect(
+      buildHeartbeatSeedBundle(branch, providers, fixedNow),
+    ).rejects.toThrow("Finnhub stock candle request failed for PLTR");
   });
 });
