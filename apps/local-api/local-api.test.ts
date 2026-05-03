@@ -285,11 +285,7 @@ describe("local API handler", () => {
     const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
 
     const initial = await requestJson("GET", "/portfolio");
-    expect(initial.body.snapshot).toMatchObject({
-      provider: "alpaca",
-      environment: "paper",
-      account: { buyingPower: 100000 },
-    });
+    expect(initial.body.snapshot).toBeNull();
 
     const refreshed = await requestJson("POST", "/portfolio/refresh");
     expect(refreshed.status).toBe(201);

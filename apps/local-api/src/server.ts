@@ -495,8 +495,14 @@ async function getPortfolio(
     return refreshPortfolio(context);
   }
 
-  const latestSnapshot = await context.store.latestPortfolioSnapshot();
-  const portfolioError = latestSnapshot ? undefined : "No cached Alpaca portfolio snapshot.";
+  let latestSnapshot = await context.store.latestPortfolioSnapshot();
+  let portfolioError: string | undefined;
+  try {
+    latestSnapshot = await getTradingBroker(context).getPortfolioSnapshot();
+    await context.store.createPortfolioSnapshot(latestSnapshot);
+  } catch (error) {
+    portfolioError = error instanceof Error ? error.message : "Unable to refresh Alpaca portfolio.";
+  }
 
   const [snapshots, brokerOrders, tradeIntents, messages] =
     await Promise.all([
