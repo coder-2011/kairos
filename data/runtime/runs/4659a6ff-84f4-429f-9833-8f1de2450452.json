@@ -7,7 +7,6 @@
   "startedAt": "2026-05-03T23:02:29.474Z",
   "completedAt": "2026-05-03T23:02:29.482Z",
   "branchId": "branch_moqc11cu",
-  "dryRun": false,
   "input": {
     "branchId": "branch_moqc11cu",
     "portfolioContext": {

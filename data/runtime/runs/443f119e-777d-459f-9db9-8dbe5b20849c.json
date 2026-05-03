@@ -7,7 +7,6 @@
   "startedAt": "2026-05-03T23:04:43.565Z",
   "completedAt": "2026-05-03T23:04:43.572Z",
   "branchId": "qa_discard_1777849433033",
-  "dryRun": false,
   "input": {
     "source": "web_command",
     "branch": {

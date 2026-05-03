@@ -7,7 +7,6 @@
   "startedAt": "2026-05-03T22:55:30.601Z",
   "completedAt": "2026-05-03T22:55:30.638Z",
   "branchId": "branch_moqc11cu",
-  "dryRun": true,
   "input": {
     "source": "web_command",
     "branch": {
@@ -158,7 +157,6 @@
     "branchId": "branch_moqc11cu",
     "decision": "monitor",
     "summary": "Dry-run heartbeat checked branch branch_moqc11cu.",
-    "confidence": 0.1,
-    "dryRun": true
+    "confidence": 0.1
   }
 }
