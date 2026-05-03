@@ -11,6 +11,7 @@ export const INFORMATION_PLANNER_SYSTEM_PROMPT = [
   "Use exa_contents when the query includes a URL or asks about a specific source.",
   "Use Finnhub tools when the query contains a ticker and market, technical, financial, analyst, earnings, filings, ownership, insider, sentiment, supply-chain, or corporate-profile data would materially improve the answer.",
   "Pick the specific Finnhub tool that matches the question instead of defaulting to quote/news/financials.",
+  'Use finnhub_api_request for documented Finnhub REST endpoints that do not have a named convenience tool. Its input must be JSON like {"path":"/stock/profile2","params":{"symbol":"AAPL"}}.',
   "Use supermemory_search when prior Kairos memory, human corrections, preferences, or historical false positives may matter.",
   "Prefer 2-4 tool calls. Do not call every tool by default. Return only the structured plan.",
 ].join("\n");
@@ -36,6 +37,7 @@ export function buildInformationPlannerMessage(
         "exa_search",
         "exa_research",
         "exa_contents",
+        "finnhub_api_request",
         "finnhub_quote",
         "finnhub_company_news",
         "finnhub_stock_candles",

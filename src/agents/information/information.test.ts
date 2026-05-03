@@ -102,6 +102,7 @@ function fakeDeps(
 describe("information agent", () => {
   it("exposes every Finnhub method currently implemented by the local API wrapper", () => {
     const finnhub = {
+      apiRequest: vi.fn(),
       quote: vi.fn(),
       companyNews: vi.fn(),
       stockCandles: vi.fn(),
@@ -128,7 +129,7 @@ describe("information agent", () => {
       name.startsWith("finnhub_"),
     );
 
-    expect(finnhubToolNames).toHaveLength(20);
+    expect(finnhubToolNames).toHaveLength(21);
     finnhubToolNames.forEach((toolName) => {
       expect(informationToolNameSchema.safeParse(toolName).success).toBe(true);
     });
