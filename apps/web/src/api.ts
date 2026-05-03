@@ -81,7 +81,7 @@ export type TradeSymbolRecord = {
   dayChangePercent?: number;
   dailyVolume?: number;
   updatedAt?: string;
-  source: "alpaca";
+  source: "alpaca" | "fallback";
 };
 
 export type ModelRoleDefaults = Partial<

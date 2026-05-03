@@ -108,7 +108,7 @@ export type AlpacaMarketSymbol = {
   dayChangePercent?: number;
   dailyVolume?: number;
   updatedAt?: string;
-  source: "alpaca";
+  source: "alpaca" | "fallback";
 };
 export type AlpacaMarketSymbolQuery = {
   query?: string;
