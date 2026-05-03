@@ -9,7 +9,12 @@ import {
   kairosArtifactRecordSchema,
   kairosSourceRecordSchema,
 } from "./index.js";
-import { kairosBranchAgentConfigSchema } from "../global/agent-config.js";
+import {
+  kairosBranchAgentConfigSchema,
+  resolveDebateAgentConfig,
+  resolveHeartbeatAgentConfig,
+  resolveInformationAgentConfig,
+} from "../global/agent-config.js";
 
 const fixedNow = new Date("2026-05-03T12:00:00.000Z");
 let tempDirs: string[] = [];
@@ -188,8 +193,7 @@ describe("LocalKairosStore events", () => {
 
 describe("runtime schemas", () => {
   it("validates branch agent configuration for frontend controls", () => {
-    expect(
-      kairosBranchAgentConfigSchema.parse({
+    const config = kairosBranchAgentConfigSchema.parse({
         assets: ["PLTR"],
         heartbeat: {
           intervalMinutes: 5,
@@ -218,11 +222,37 @@ describe("runtime schemas", () => {
           notifyConfidence: 0.75,
           buyConfidence: 0.9,
         },
-      }),
-    ).toMatchObject({
+      });
+
+    expect(config).toMatchObject({
       tools: {
         finnhubPremiumAccess: true,
       },
+    });
+    expect(resolveHeartbeatAgentConfig(config)).toEqual({
+      prompts: undefined,
+      enabledTools: undefined,
+      maxToolSteps: 3,
+    });
+    expect(resolveDebateAgentConfig(config)).toMatchObject({
+      prompts: {
+        bullSystemPrompt: "Argue the bull case.",
+      },
+      enabledTools: {
+        information: true,
+      },
+      budgets: {
+        maxTurns: 4,
+        maxToolCalls: 3,
+      },
+    });
+    expect(resolveInformationAgentConfig(config)).toEqual({
+      enabledTools: {
+        exa_search: true,
+        finnhub_filings: false,
+      },
+      maxToolCalls: 5,
+      finnhubPremiumAccess: true,
     });
   });
 
