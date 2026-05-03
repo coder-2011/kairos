@@ -1380,10 +1380,14 @@ async function listMarketSymbols(
   const limit = parsePositiveInteger(params.get("limit")) ?? 500;
 
   try {
-    const symbols = await getMarketSymbolProvider(context).listMarketSymbols({
-      query,
-      limit,
-    });
+    const symbols = await withTimeout(
+      getMarketSymbolProvider(context).listMarketSymbols({
+        query,
+        limit,
+      }),
+      1500,
+      "Market symbol provider timed out.",
+    );
     const assembled = assembleMarketSymbols(symbols, { query, limit });
     return json({
       symbols: assembled.symbols,
@@ -1456,6 +1460,23 @@ function marketSymbolCacheTags(query: string | undefined): string[] {
 
 function normalizeMarketSymbol(symbol: string | undefined): string {
   return symbol?.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "") ?? "";
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timer = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+
+  try {
+    return await Promise.race([promise, timer]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
