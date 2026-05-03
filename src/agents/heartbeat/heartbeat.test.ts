@@ -203,6 +203,32 @@ describe("heartbeat agent", () => {
     });
   });
 
+  it("uses a configured heartbeat system prompt when provided", async () => {
+    const generateText = vi.fn(async () => ({
+      output: {
+        branch_id: "ignored",
+        timestamp: "ignored",
+        decision: "no_escalation",
+        summary: "No useful new event found.",
+      },
+    }));
+
+    await runHeartbeatAgent(branchConfig(), {
+      model: {} as never,
+      generateText,
+      now: () => fixedNow,
+      prompts: {
+        systemPrompt: "CUSTOM HEARTBEAT SYSTEM",
+      },
+    });
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: "CUSTOM HEARTBEAT SYSTEM",
+      }),
+    );
+  });
+
   it("does not create escalation events for no-escalation output", () => {
     const output: HeartbeatOutput = {
       branch_id: "pltr-enterprise-deals",

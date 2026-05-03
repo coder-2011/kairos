@@ -34,6 +34,37 @@ function fakeStructuredModel<T>(output: T): StructuredDebateModelProvider {
   };
 }
 
+function queuedStructuredModel<T>(outputs: T[]) {
+  const invoke = vi.fn(async (): Promise<unknown> => {
+    const output = outputs.shift();
+
+    if (output === undefined) {
+      throw new Error("No queued structured model output.");
+    }
+
+    return output;
+  });
+
+  return {
+    invoke,
+    model: {
+      withStructuredOutput: <U>() => ({
+        invoke: invoke as unknown as (input: unknown) => Promise<U>,
+      }),
+    } satisfies StructuredDebateModelProvider,
+  };
+}
+
+function firstSystemPrompt(invoke: ReturnType<typeof vi.fn>): unknown {
+  const input = invoke.mock.calls[0]?.[0];
+
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+
+  return (input[0] as { content?: unknown } | undefined)?.content;
+}
+
 describe("debate agent", () => {
   it("runs the deterministic LangGraph debate with a tool call and final decision", async () => {
     const information = vi.fn(async () => ({
@@ -172,6 +203,65 @@ describe("debate agent", () => {
       confidence: 0.61,
       citations: [],
     });
+  });
+
+  it("uses configured system prompts for judge, bull, bear, and final synthesis", async () => {
+    const judge = queuedStructuredModel<JudgePlan>([
+      { plan: "Custom route to bull.", nextNode: "bull" },
+      { plan: "Custom route to bear.", nextNode: "bear" },
+      { plan: "Custom route to final.", nextNode: "final" },
+    ]);
+    const bull = queuedStructuredModel<DebateAgentOutput>([
+      {
+        argument: "Bull case from custom prompt.",
+        confidence: 0.67,
+        toolRequest: null,
+      },
+    ]);
+    const bear = queuedStructuredModel<DebateAgentOutput>([
+      {
+        argument: "Bear case from custom prompt.",
+        confidence: 0.58,
+        toolRequest: null,
+      },
+    ]);
+    const final = queuedStructuredModel<DebateDecision>([
+      {
+        summary: "Final from custom prompt.",
+        confidence: 0.63,
+        citations: [],
+      },
+    ]);
+
+    await runDebateAgent(
+      {
+        debateId: "debate-prompts-1",
+        startInput,
+        budgets: {
+          maxTurns: 2,
+        },
+      },
+      {
+        models: {
+          judge: judge.model,
+          bull: bull.model,
+          bear: bear.model,
+          final: final.model,
+        },
+        prompts: {
+          judgeSystemPrompt: "CUSTOM JUDGE SYSTEM",
+          bullSystemPrompt: "CUSTOM BULL SYSTEM",
+          bearSystemPrompt: "CUSTOM BEAR SYSTEM",
+          finalSystemPrompt: "CUSTOM FINAL SYSTEM",
+        },
+        now: () => fixedNow,
+      },
+    );
+
+    expect(firstSystemPrompt(judge.invoke)).toBe("CUSTOM JUDGE SYSTEM");
+    expect(firstSystemPrompt(bull.invoke)).toBe("CUSTOM BULL SYSTEM");
+    expect(firstSystemPrompt(bear.invoke)).toBe("CUSTOM BEAR SYSTEM");
+    expect(firstSystemPrompt(final.invoke)).toBe("CUSTOM FINAL SYSTEM");
   });
 
   it("passes human interjections through as unverified context", async () => {
