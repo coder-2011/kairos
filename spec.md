@@ -37,7 +37,9 @@ Current stack decisions:
 - Market data: Finnhub is the planned trading/market data provider.
 - Live ticker data: Alpaca may also be used for live ticker data if it fits the use case better than Finnhub.
 - Primary language: TypeScript for most implementation work.
-- Database: no database initially. Use local files, local corpora, and local embedding/vector indexes.
+- Database: no database initially. Use local files for audit/replay only and
+  Supermemory for agent-usable memory and retrieval. Do not add local embedding
+  or vector indexes unless this decision changes explicitly.
 - Frontend: React with Vite.
 - Styling/UI: Tailwind CSS and shadcn/ui.
 - Mobile shell: Capacitor for iOS/Android wrapping the same web app.
@@ -55,7 +57,9 @@ Implications:
 - Model selection should still be configurable by role, for example heartbeat model, big research model, debate participant model, and synthesis model.
 - Trading execution interfaces should keep Alpaca isolated behind a broker adapter.
 - Market data access should keep Finnhub isolated behind a data-provider adapter.
-- Persistence should start as local-file storage. Add a database only if local storage becomes a real bottleneck.
+- Persistence should start with local audit/replay files plus Supermemory as the
+  persistent agent memory and retrieval backbone. Add a database or local vector
+  index only if the architecture decision changes explicitly.
 - The frontend should be implemented as a React/Vite app, styled with Tailwind and shadcn/ui, with Capacitor used when native mobile shells are needed.
 
 ## 4. First-Class Concept: Laws
@@ -158,7 +162,7 @@ The heartbeat agent should not directly trigger the most expensive workflow ever
 
 Possible gates:
 
-- `Novelty gate`: checks whether the event is actually new relative to recent branch memory and local corpus data.
+- `Novelty gate`: checks whether the event is actually new relative to recent branch memory and Supermemory-retrieved context.
 - `Source credibility gate`: checks whether the source is credible enough to justify more work.
 - `Law relevance gate`: checks whether the event truly matches the law rather than adjacent noise.
 - `Materiality precheck gate`: estimates whether the event could plausibly matter for the tracked asset.
@@ -348,40 +352,61 @@ All agents should be able to access relevant persistent memory, including:
 - Repeated failure modes.
 - Useful historical context.
 
-Supermemory should complement, not replace, the local market corpus. The local corpus stores source records, market context, yearly data, recent windows, embeddings, and audit trails. Supermemory stores durable agent-usable memory that should influence future reasoning across branches and workflows.
+Supermemory is the primary memory and retrieval backbone for agent-usable
+information. Every meaningful piece of user input, source text, agent output,
+tool result summary, run event, debate transcript, trade intent, notification,
+and correction should be written through Supermemory when credentials are
+present.
 
-### 11.1 Local Corpus and Embedding Pipeline
+Local files remain the audit and replay log. They should not be treated as a
+separate semantic retrieval layer. Do not introduce a local embedding model,
+local vector index, or parallel RAG store unless this architecture decision
+changes explicitly.
 
-The initial data pipeline should stay simple and local.
+### 11.1 Supermemory-First Data Pipeline
 
-Kairos should store a local corpus for tracked stocks and tracked sectors rather than introducing a database before it is needed. The core idea is to keep each year's data available on demand, build embeddings over that corpus, and maintain a recent rolling window that heartbeat and debate agents can use cheaply.
+The initial data pipeline should stay simple and Supermemory-first.
+
+Kairos should ingest tracked-stock, tracked-sector, source, router, heartbeat,
+debate, and trading-safety information into Supermemory as documents,
+conversations, and direct memories. The local filesystem stores the canonical
+audit trail needed for replay and inspection, but agents should retrieve prior
+context through Supermemory profile/search rather than local embeddings.
 
 Target storage model:
 
-- One local yearly corpus per tracked stock.
-- One local yearly corpus per tracked sector.
-- Rolling recent-data snapshots, for example the last 30 days, for heartbeat agents.
-- Embedding indexes over yearly corpora for retrieval.
-- Source metadata stored beside the raw text/data so retrieved chunks remain attributable.
-- Local audit/event files for triggers, debates, decisions, and trade intents.
+- Supermemory global container for cross-branch system memory.
+- Supermemory branch containers for law-specific memory and observations.
+- Full records written as Supermemory documents/conversations for source and
+  transcript fidelity.
+- Compact direct memories written for high-signal summaries and future
+  retrieval.
+- Local JSON/JSONL files retained for auditability, replay, and UI state.
 
 Expected access pattern:
 
-- Heartbeat agents usually inspect the most recent window, such as the last 30 days, plus law-specific relevant context.
-- Big agents and debate agents can retrieve from the full yearly corpus when an escalation needs deeper context.
-- Agents should be able to query by ticker, sector, date range, law, source type, and semantic similarity.
-- Historical yearly data can be loaded on demand instead of held fully in memory.
+- Heartbeat agents inspect seeded provider data plus Supermemory profile/search
+  for the relevant branch.
+- Big agents and debate agents retrieve deeper historical context through
+  Supermemory search/profile.
+- Agents should be able to query Supermemory by ticker, sector, date range,
+  law, source type, and semantic similarity.
+- Historical source records can still be kept locally for audit/replay, but
+  agent retrieval should go through Supermemory.
 
 This should cover the entire early data pipeline:
 
 1. Pull or receive data from Finnhub, Alpaca, and human-routed sources.
-2. Normalize the data into local source records.
-3. Partition records by tracked stock, tracked sector, and year.
-4. Build or update local embeddings.
-5. Maintain rolling recent windows for cheap heartbeat access.
-6. Retrieve relevant context for heartbeat checks, big-agent research, and multi-agent debate.
+2. Normalize the data into compact, citeable records.
+3. Write full records to Supermemory documents or conversations.
+4. Write high-signal summaries to Supermemory direct memories.
+5. Keep local JSON/JSONL copies only for audit, replay, and UI state.
+6. Retrieve relevant context through Supermemory for heartbeat checks,
+   big-agent research, and multi-agent debate.
 
-This keeps the system easy to fork, inspect, back up, and modify. A database can be reconsidered later if local files and vector indexes become too slow, too large, or too hard to query safely.
+This keeps the system easy to inspect, replay, back up, and modify while
+avoiding a separate embedding pipeline. A database can be reconsidered later if
+local audit files become too slow, too large, or too hard to query safely.
 
 ### 11.2 Future: Continuously Updated Data Packets
 
@@ -410,7 +435,8 @@ Packets should contain:
 - Source citations or source IDs.
 - Last updated timestamp.
 
-These packets should be optimized for agent use: dense, citeable, structured, and easy to retrieve. They should complement the raw local corpus and embedding indexes rather than replace them.
+These packets should be optimized for agent use: dense, citeable, structured,
+and easy to retrieve from Supermemory.
 
 ## 12. Trading Decision Flow
 

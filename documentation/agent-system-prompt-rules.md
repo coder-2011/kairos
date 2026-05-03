@@ -29,6 +29,9 @@ that agent to behave correctly. Keep these definitions short:
 
 - Kairos: a human-steered trading research system that monitors human-authored
   market laws and escalates potentially important evidence.
+- Supermemory: the primary persistent memory and retrieval backbone. Agents
+  should assume prior context is retrieved through Supermemory, not through a
+  local embedding model.
 - Law: a user-authored rule or thesis describing what evidence matters.
 - Branch: one monitoring lane for a law, with assets, memory, and thresholds.
 - Heartbeat: a cheap frequent triage run that decides whether deeper research is
@@ -87,6 +90,11 @@ Context should be compact and decision-relevant:
   payloads into later model calls.
 - Preserve source metadata, timestamps, citations, and evidence trails in local
   events, memory, or artifacts.
+- Write meaningful user input, source text, agent outputs, tool summaries, run
+  events, debate transcripts, trade intents, notifications, and corrections
+  through Supermemory when credentials are present.
+- Do not introduce local embedding/vector retrieval unless that architecture
+  decision changes explicitly.
 - Treat missing, stale, contradictory, or partial data as evidence-quality
   signals rather than automatic escalation reasons.
 

@@ -27,7 +27,9 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Frontend: React with Vite.
 - Styling/UI: Tailwind CSS and shadcn/ui.
 - Mobile shell: Capacitor for iOS/Android wrapping the web app.
-- Database: none planned initially. Prefer local files, yearly corpora, rolling recent-data snapshots, and local embedding/vector indexes.
+- Database: none planned initially. Use local files for audit/replay and
+  Supermemory for agent-usable memory and retrieval. Do not add local embedding
+  or vector indexes unless this decision changes explicitly.
 
 ## Core Product Concepts
 - `Law`: a human-authored rule or thesis defining one narrow market-relevant thing to watch.
@@ -47,7 +49,11 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Separate monitoring, research, debate, execution, and notification responsibilities.
 - Make human override and human review natural parts of the system.
 - Treat trading execution as a high-risk boundary requiring explicit safeguards, audit logs, and configurable permissions.
-- Keep the initial data pipeline simple: store tracked-stock and tracked-sector corpora locally, build embeddings over yearly data, and maintain rolling recent windows for heartbeat and debate agents.
+- Keep the initial data pipeline simple and Supermemory-first: write meaningful
+  user inputs, source text, agent outputs, tool summaries, run events, debate
+  transcripts, trade intents, notifications, and corrections through
+  Supermemory when credentials are present. Local files remain the audit/replay
+  log, not a parallel semantic retrieval layer.
 - Down the line, support continuously updated data packets: deep, compact, citeable summaries for tickers, sectors, laws, branches, sources, and catalysts.
 
 ## Schema Design Rules
