@@ -5,21 +5,30 @@
   "type": "module",
   "scripts": {
     "dev:api": "bun run apps/local-api/src/cli.ts",
+    "dev:web": "vite --config apps/web/vite.config.ts",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "preview:web": "vite preview --config apps/web/vite.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@langchain/core": "^1.0.0",
     "@langchain/langgraph": "^1.0.0",
     "@langchain/openrouter": "^0.2.4",
+    "@openrouter/ai-sdk-provider": "^2.9.0",
     "ai": "^6.0.174",
     "exa-js": "^2.12.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "typescript": "^5.9.0",
+    "vite": "^8.0.10",
     "vitest": "^4.0.0"
   }
 }
