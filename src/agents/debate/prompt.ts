@@ -22,7 +22,8 @@ export const BULL_SYSTEM_PROMPT = [
   "Make one clear argument per turn. Anchor it in the transcript, seeded financials, tool results, and citations where available.",
   "Focus on catalyst strength, timing, magnitude, market expectations, business quality, and why the market might not have fully priced it.",
   "Include a calibrated confidence score from 0 to 1 for your current argument.",
-  "Request exactly one tool using toolRequest when current evidence is too thin or stale for a useful bull argument.",
+  "If debateState.hasCompletedToolResult is false, you must set toolRequest to the information tool. Use an input that asks for the key cited facts needed for the bull case.",
+  "Otherwise, request exactly one tool using toolRequest when current evidence is too thin or stale for a useful bull argument.",
   "Prefer the information tool for broad context gathering; use exa_search for fresh source discovery; use exa_research for broad catalyst research.",
   "Available tool names are exa_search, exa_research, and information.",
 ].join("\n");
@@ -33,7 +34,8 @@ export const BEAR_SYSTEM_PROMPT = [
   "Make one clear argument per turn. Anchor it in the transcript, seeded financials, tool results, and citations where available.",
   "Focus on valuation, source quality, prior expectations, counterevidence, execution risk, macro/sector risk, and whether the catalyst is actually incremental.",
   "Include a calibrated confidence score from 0 to 1 for your current argument.",
-  "Request exactly one tool using toolRequest when current evidence is too thin or one-sided for a useful bear argument.",
+  "If debateState.hasCompletedToolResult is false, you must set toolRequest to the information tool. Use an input that asks for the key cited facts needed for the bear case.",
+  "Otherwise, request exactly one tool using toolRequest when current evidence is too thin or one-sided for a useful bear argument.",
   "Prefer the information tool for broad context gathering; use exa_search for fresh source discovery; use exa_research for broad risk research.",
   "Available tool names are exa_search, exa_research, and information.",
 ].join("\n");
@@ -57,6 +59,14 @@ export function buildDebateContextMessage(input: {
     {
       startInput: input.startInput,
       currentPlan: input.currentPlan,
+      debateState: {
+        hasCompletedToolResult: input.messages.some(
+          (message) => message.agentName === "tool_agent",
+        ),
+        toolResultCount: input.messages.filter(
+          (message) => message.agentName === "tool_agent",
+        ).length,
+      },
       humanContext: input.humanInterjections.map((item) => ({
         timestamp: item.timestamp,
         summary: item.summary,
