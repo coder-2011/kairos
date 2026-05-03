@@ -882,7 +882,16 @@ describe("API clients", () => {
   });
 
   it("rejects unknown optional Finnhub seed source keys", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({}));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/quote")) {
+        return jsonResponse({ c: 100, d: 2, dp: 2, pc: 98 });
+      }
+      if (url.pathname.endsWith("/stock/candle")) {
+        return jsonResponse({ s: "ok", c: [90, 100], v: [10, 20], t: [1, 2] });
+      }
+      return jsonResponse([]);
+    });
     const finnhub = new FinnhubApi({
       apiKey: "fh_key",
       fetchImpl: fetchMock as unknown as typeof fetch,
