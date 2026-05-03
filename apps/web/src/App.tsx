@@ -19,12 +19,14 @@ import {
   appendInterjection,
   createDebate,
   getBranches,
+  getOpenRouterModels,
   getRunEvents,
   getRuns,
   triggerHeartbeat,
   updateBranch,
   type BranchRecord,
   type JsonRecord,
+  type OpenRouterModelRecord,
   type RunEventRecord,
   type RunRecord,
 } from "./api";
@@ -79,7 +81,6 @@ const modelRoleFields: Array<{ label: string; key: KairosConfigModelRole }> = [
   { label: "Debate Judge", key: "debateJudge" },
   { label: "Debate Bull", key: "debateBull" },
   { label: "Debate Bear", key: "debateBear" },
-  { label: "Debate Final", key: "debateFinal" },
 ];
 
 const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
@@ -136,10 +137,14 @@ export function App() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const premiumAccessEnabled = branches.some(
+    (branch) => normalizeBranchConfig(branch).tools?.finnhubPremiumAccess === true,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +172,21 @@ export function App() {
     }
 
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getOpenRouterModels()
+      .then((models) => {
+        if (!cancelled) setOpenRouterModels(models);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenRouterModels([]);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -259,9 +279,40 @@ export function App() {
     }
   }
 
+  async function setPremiumAccess(enabled: boolean) {
+    if (branches.length === 0) return;
+
+    try {
+      const updatedBranches = await Promise.all(
+        branches.map((branch) =>
+          updateBranch(branch.id, {
+            config: withFinnhubPremiumAccess(
+              normalizeBranchConfig(branch),
+              enabled,
+            ),
+          }),
+        ),
+      );
+      setBranches((current) =>
+        current.map((branch) =>
+          updatedBranches.find((updated) => updated.id === branch.id) ?? branch,
+        ),
+      );
+      setLoadState("api");
+    } catch {
+      setLoadState("offline");
+    }
+  }
+
   return (
     <div className="shell">
-      <SideNav view={view} setView={setView} />
+      <SideNav
+        premiumAccessDisabled={branches.length === 0}
+        premiumAccessEnabled={premiumAccessEnabled}
+        setView={setView}
+        view={view}
+        onPremiumAccessChange={(enabled) => void setPremiumAccess(enabled)}
+      />
       <div className="workspace">
         <TopBar loadState={loadState} />
         {view === "branches" && (
@@ -294,6 +345,7 @@ export function App() {
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
+            openRouterModels={openRouterModels}
             onEscalate={() => void startDryDebate(selectedBranch.id)}
             onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
             onSave={(input) =>
@@ -323,11 +375,17 @@ export function App() {
 }
 
 function SideNav({
+  premiumAccessDisabled,
+  premiumAccessEnabled,
   view,
   setView,
+  onPremiumAccessChange,
 }: {
+  premiumAccessDisabled: boolean;
+  premiumAccessEnabled: boolean;
   view: View;
   setView: (view: View) => void;
+  onPremiumAccessChange: (enabled: boolean) => void;
 }) {
   return (
     <nav className="side-nav">
@@ -353,6 +411,27 @@ function SideNav({
           </button>
         ))}
       </div>
+      <button
+        className={`premium-access-button ${premiumAccessEnabled ? "enabled" : ""}`}
+        disabled={premiumAccessDisabled}
+        onClick={() => onPremiumAccessChange(!premiumAccessEnabled)}
+        title={
+          premiumAccessEnabled
+            ? "Finnhub premium endpoints are enabled"
+            : "Enable Finnhub premium endpoint access"
+        }
+        type="button"
+      >
+        <Icon name={premiumAccessEnabled ? "workspace_premium" : "lock_open"} />
+        <span>
+          <b>{premiumAccessEnabled ? "Premium User" : "Free User"}</b>
+          <small>
+            {premiumAccessEnabled
+              ? "Premium endpoints enabled"
+              : "I'm a premium user"}
+          </small>
+        </span>
+      </button>
       <div className="operator-block">
         <div className="operator-chip">SO</div>
         <span>System Operator</span>
@@ -718,11 +797,13 @@ function RunDeepDive({
 
 function BranchConfig({
   branch,
+  openRouterModels,
   onRunHeartbeat,
   onEscalate,
   onSave,
 }: {
   branch: BranchRecord;
+  openRouterModels: OpenRouterModelRecord[];
   onRunHeartbeat: () => void;
   onEscalate: () => void;
   onSave: (input: {
@@ -824,6 +905,7 @@ function BranchConfig({
               <div className="model-row" key={field.key}>
                 <span>{field.label}</span>
                 <input
+                  list="openrouter-models"
                   onChange={(event) =>
                     setConfig((current) => ({
                       ...current,
@@ -866,6 +948,13 @@ function BranchConfig({
               </div>
             ))}
           </div>
+          <datalist id="openrouter-models">
+            {openRouterModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </datalist>
         </div>
         <div className="config-grid">
           <FieldLabel label="Finnhub Access">
@@ -922,6 +1011,30 @@ function BranchConfig({
                     <span>
                       {tool.label} ({tool.access})
                     </span>
+                    <input
+                      checked={config.tools?.information?.[tool.key]?.required ?? false}
+                      disabled={
+                        gatedByPremium ||
+                        (config.tools?.information?.[tool.key]?.enabled === false)
+                      }
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            information: {
+                              ...current.tools?.information,
+                              [tool.key]: {
+                                ...current.tools?.information?.[tool.key],
+                                required: event.target.checked,
+                              },
+                            },
+                          },
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <em>Required</em>
                   </label>
                 );
               })}
@@ -951,6 +1064,27 @@ function BranchConfig({
                     type="checkbox"
                   />
                   <span>{tool.label}</span>
+                  <input
+                    checked={config.tools?.debate?.[tool.key]?.required ?? false}
+                    disabled={config.tools?.debate?.[tool.key]?.enabled === false}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          debate: {
+                            ...current.tools?.debate,
+                            [tool.key]: {
+                              ...current.tools?.debate?.[tool.key],
+                              required: event.target.checked,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <em>Required</em>
                 </label>
               ))}
             </div>
@@ -979,6 +1113,27 @@ function BranchConfig({
                     type="checkbox"
                   />
                   <span>{tool.label}</span>
+                  <input
+                    checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
+                    disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          heartbeat: {
+                            ...current.tools?.heartbeat,
+                            [tool.key]: {
+                              ...current.tools?.heartbeat?.[tool.key],
+                              required: event.target.checked,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <em>Required</em>
                 </label>
               ))}
             </div>
@@ -1524,6 +1679,19 @@ function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
     },
     research: {
       ...config.research,
+    },
+  };
+}
+
+function withFinnhubPremiumAccess(
+  config: KairosBranchAgentConfig,
+  enabled: boolean,
+): KairosBranchAgentConfig {
+  return {
+    ...config,
+    tools: {
+      ...config.tools,
+      finnhubPremiumAccess: enabled,
     },
   };
 }

@@ -36,6 +36,15 @@ export type RunEventRecord = {
   payload: JsonRecord;
 };
 
+export type OpenRouterModelRecord = {
+  id: string;
+  name: string;
+  contextLength?: number;
+  supportedParameters: string[];
+  inputModalities: string[];
+  outputModalities: string[];
+};
+
 const apiBaseUrl =
   import.meta.env.VITE_KAIROS_API_URL?.replace(/\/$/, "") ??
   "http://127.0.0.1:4321";
@@ -53,6 +62,12 @@ export async function getRuns(): Promise<RunRecord[]> {
 export async function getRunEvents(runId: string): Promise<RunEventRecord[]> {
   return request<{ events: RunEventRecord[] }>(`/runs/${runId}/events`).then(
     (response) => response.events,
+  );
+}
+
+export async function getOpenRouterModels(): Promise<OpenRouterModelRecord[]> {
+  return request<{ models: OpenRouterModelRecord[] }>("/openrouter/models").then(
+    (response) => response.models,
   );
 }
 
