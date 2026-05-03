@@ -193,6 +193,27 @@ describe("local API handler", () => {
         enabled: true,
         config: { assets: ["PLTR"] },
       });
+
+      const heartbeat = await handler(
+        new Request(`${baseUrl}/branches/branch_runtime/heartbeat-runs`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dryRun: false, input: { source: "test" } }),
+        }),
+      );
+
+      expect(heartbeat.status).toBe(500);
+      const heartbeatBody = await heartbeat.json();
+      expect(heartbeatBody).toMatchObject({
+        error: "run_failed",
+        run: {
+          kind: "heartbeat",
+          status: "failed",
+          branchId: "branch_runtime",
+          dryRun: false,
+        },
+      });
+      expect(heartbeatBody.message).toContain("Agent pipeline heartbeat is not configured");
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }
