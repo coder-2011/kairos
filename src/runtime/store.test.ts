@@ -265,6 +265,7 @@ describe("runtime schemas", () => {
       enabledTools: {
         exa_search: true,
         finnhub_filings: false,
+        supermemory_search: true,
       },
       requiredTools: {
         exa_search: false,
