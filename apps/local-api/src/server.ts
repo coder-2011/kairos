@@ -66,7 +66,6 @@ import {
   type AppendRunEventInput,
   type BranchRecord,
   type KairosLocalStore,
-  type RouterChatRecord,
   type JsonRecord,
   type RouterAttachmentRecord,
   type RouterMessageRecord,
