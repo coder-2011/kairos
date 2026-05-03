@@ -17,6 +17,7 @@ import {
   submitPaperOrder,
   tradingConfigSchema,
   type PaperTradingBroker,
+  type PortfolioSnapshot,
   type TradeIntent,
   type TradingConfig,
 } from "../../../src/trading/index.js";
@@ -456,6 +457,48 @@ async function applyTradingPolicyToDebate(
     return;
   }
 
+  const tradeSide =
+    decision.action === "buy" || decision.action === "sell"
+      ? decision.action
+      : undefined;
+  if (!tradeSide) {
+    if (policy.permittedAction === "message_human") {
+      const message = await context.store.createMessage({
+        type: "threshold_notify",
+        severity: "info",
+        title: `Signal marked ${decision.action}`,
+        body: decision.summary,
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        sourceRunId: run.id,
+        confidence: decision.confidence,
+        metadata: {
+          thresholdPolicy: policy,
+          action: decision.action,
+          citations: decision.citations,
+        },
+      });
+      await sendTradingSmsNotification(context, {
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        runId: run.id,
+        symbol: firstConfiguredSymbol(branch),
+        confidence: decision.confidence,
+        threshold: policy.notifyThreshold,
+        finalAnswer: decision.summary,
+        permittedAction: policy.permittedAction,
+        debateTranscript: await context.store.listRunEvents(run.id),
+      }, {
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        sourceRunId: run.id,
+        tradeIntentId: message.tradeIntentId,
+        confidence: decision.confidence,
+      });
+    }
+    return;
+  }
+
   const messageType =
     policy.permittedAction === "message_human"
       ? "threshold_notify"
@@ -463,7 +506,7 @@ async function applyTradingPolicyToDebate(
   let intent: TradeIntent | undefined;
 
   if (
-    policy.permittedAction === "paper_buy_intent" ||
+    policy.permittedAction === "paper_trade_intent" ||
     policy.permittedAction === "paper_order"
   ) {
     const symbol = firstConfiguredSymbol(branch);
@@ -481,17 +524,39 @@ async function applyTradingPolicyToDebate(
       return;
     }
 
+    const portfolioSnapshot = await context.store.latestPortfolioSnapshot();
+    const currentPosition = findPortfolioPosition(portfolioSnapshot, symbol);
+    if (tradeSide === "sell" && (currentPosition?.qty ?? 0) <= 0) {
+      await context.store.createMessage({
+        type: "paper_order_blocked",
+        severity: "warning",
+        title: `${symbol} paper sell blocked`,
+        body: "The debate selected sell, but Kairos has no cached position for this symbol. Refresh the portfolio before creating a sell intent.",
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        sourceRunId: run.id,
+        confidence: decision.confidence,
+        metadata: {
+          thresholdPolicy: policy,
+          action: decision.action,
+          portfolioContext: compactPortfolioContext(portfolioSnapshot),
+        },
+      });
+      return;
+    }
+
+    const defaultNotional =
+      tradingConfig.maxNotionalPerOrder ??
+      tradingConfig.maxNotionalUsd ??
+      500;
     intent = await context.store.createTradeIntent({
       branchId: branch?.id,
       lawId: branch?.lawId,
       sourceRunId: run.id,
       symbol,
-      side: "buy",
-      qty: undefined,
-      notional:
-        tradingConfig.maxNotionalPerOrder ??
-        tradingConfig.maxNotionalUsd ??
-        500,
+      side: tradeSide,
+      qty: tradeSide === "sell" ? currentPosition?.qty : undefined,
+      notional: tradeSide === "buy" ? defaultNotional : undefined,
       orderType:
         tradingConfig.allowedOrderType === "limit" ||
         tradingConfig.defaultOrderType === "limit"
@@ -504,18 +569,21 @@ async function applyTradingPolicyToDebate(
       expectedCatalyst: decision.summary,
       risk: "Generated from a debate threshold crossing; review source quality, volatility, and position exposure.",
       timeHorizon: "Branch-defined event horizon.",
-      positionSizingRationale: `Uses configured max paper notional ${
-        tradingConfig.maxNotionalPerOrder ?? tradingConfig.maxNotionalUsd ?? 500
-      }.`,
+      positionSizingRationale:
+        tradeSide === "buy"
+          ? `Uses configured max paper notional ${defaultNotional}.`
+          : `Uses cached ${symbol} paper position quantity ${currentPosition?.qty}.`,
       invalidationCondition: "Evidence is stale, contradicted, immaterial, or already priced in.",
       exitCondition: "Manual review or future branch-specific exit law.",
       approvalsRequired:
-        policy.permittedAction === "paper_order" ? [] : ["paper_auto_buy_disabled"],
+        policy.permittedAction === "paper_order" ? [] : ["paper_auto_trade_disabled"],
       status: policy.permittedAction === "paper_order" ? "paper_ready" : "draft",
       tradingConfig,
       metadata: {
         thresholdPolicy: policy,
-        autoBuyEnabled: policy.paperAutoBuyEnabled,
+        action: decision.action,
+        autoTradeEnabled: policy.paperAutoTradeEnabled,
+        portfolioContext: compactPortfolioContext(portfolioSnapshot),
       },
     });
 
@@ -531,7 +599,7 @@ async function applyTradingPolicyToDebate(
     title:
       policy.permittedAction === "message_human"
         ? "Signal crossed notification threshold"
-        : "Signal crossed paper trade threshold",
+        : `${tradeSide.toUpperCase()} signal crossed paper trade threshold`,
     body: decision.summary,
     branchId: branch?.id,
     lawId: branch?.lawId,
@@ -580,9 +648,14 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
         ? escalation.branchId
         : undefined;
   const branch = branchId ? await context.store.getBranch(branchId) : undefined;
-  const runPayload = branch
-    ? { ...payload, branch: branchRunContext(branch) }
-    : payload;
+  const portfolioContext = compactPortfolioContext(
+    await context.store.latestPortfolioSnapshot(),
+  );
+  const runPayload = {
+    ...payload,
+    ...(portfolioContext ? { portfolioContext } : {}),
+    ...(branch ? { branch: branchRunContext(branch) } : {}),
+  };
   const run = await context.store.createRun({
     kind: "debate",
     status: "running",
@@ -918,9 +991,9 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
     type: "paper_trade_candidate",
     severity: "action",
     title: `${input.symbol} paper trade candidate`,
-    body: policy.paperAutoBuyEnabled
-      ? "Confidence crossed the paper threshold. Paper auto-buy is enabled; preflight will run before submission."
-      : "Confidence crossed the paper threshold. Paper auto-buy is disabled, so this is recorded as a paper trade intent only.",
+    body: policy.paperAutoTradeEnabled
+      ? "Confidence crossed the paper threshold. Paper auto-trading is enabled; preflight will run before submission."
+      : "Confidence crossed the paper threshold. Paper auto-trading is disabled, so this is recorded as a paper trade intent only.",
     branchId: input.branchId,
     lawId: input.lawId,
     sourceRunId: input.sourceRunId,
@@ -947,7 +1020,7 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
     confidence: input.confidence,
   });
 
-  if (!policy.paperAutoBuyEnabled) {
+  if (!policy.paperAutoTradeEnabled) {
     return json({ policy, tradeIntent, messages: [candidateMessage] }, 201);
   }
 
@@ -1420,30 +1493,91 @@ function branchRunContext(branch: BranchRecord): JsonRecord {
   };
 }
 
+function compactPortfolioContext(
+  snapshot: PortfolioSnapshot | undefined,
+): JsonRecord | undefined {
+  if (!snapshot) return undefined;
+
+  return {
+    capturedAt: snapshot.capturedAt,
+    provider: snapshot.provider,
+    environment: snapshot.environment,
+    account: {
+      status: snapshot.account.status,
+      cash: snapshot.account.cash,
+      buyingPower: snapshot.account.buyingPower,
+      portfolioValue: snapshot.account.portfolioValue,
+      equity: snapshot.account.equity,
+      unrealizedPl: snapshot.account.unrealizedPl,
+      daytradeCount: snapshot.account.daytradeCount,
+      patternDayTrader: snapshot.account.patternDayTrader,
+      tradingBlocked: snapshot.account.tradingBlocked,
+      accountBlocked: snapshot.account.accountBlocked,
+    },
+    positions: snapshot.positions.map((position) => ({
+      symbol: position.symbol,
+      qty: position.qty,
+      marketValue: position.marketValue,
+      costBasis: position.costBasis,
+      unrealizedPl: position.unrealizedPl,
+      unrealizedPlpc: position.unrealizedPlpc,
+      currentPrice: position.currentPrice,
+      side: position.side,
+    })),
+  };
+}
+
+function findPortfolioPosition(
+  snapshot: PortfolioSnapshot | undefined,
+  symbol: string,
+): PortfolioSnapshot["positions"][number] | undefined {
+  return snapshot?.positions.find(
+    (position) => position.symbol.toUpperCase() === symbol.toUpperCase(),
+  );
+}
+
 function extractTradingDecision(output: JsonRecord | undefined): {
   confidence: number;
   summary: string;
+  action: "buy" | "sell" | "watch" | "research" | "no_action";
   citations: unknown[];
 } | undefined {
   if (!isJsonRecord(output)) return undefined;
+  const decisionObject = isJsonRecord(output.finalDecision)
+    ? output.finalDecision
+    : output;
   const confidence =
-    typeof output.confidence === "number"
-      ? output.confidence
-      : typeof output.confidenceScore === "number"
-        ? output.confidenceScore
+    typeof decisionObject.confidence === "number"
+      ? decisionObject.confidence
+      : typeof decisionObject.confidenceScore === "number"
+        ? decisionObject.confidenceScore
         : undefined;
-  const summary = typeof output.summary === "string"
-    ? output.summary
-    : typeof output.reasoning === "string"
-      ? output.reasoning
+  const summary = typeof decisionObject.summary === "string"
+    ? decisionObject.summary
+    : typeof decisionObject.reasoning === "string"
+      ? decisionObject.reasoning
       : undefined;
+  const action = normalizeTradingDecisionAction(decisionObject.action);
   if (confidence === undefined || summary === undefined) return undefined;
 
   return {
     confidence,
     summary,
-    citations: Array.isArray(output.citations) ? output.citations : [],
+    action,
+    citations: Array.isArray(decisionObject.citations) ? decisionObject.citations : [],
   };
+}
+
+function normalizeTradingDecisionAction(
+  action: unknown,
+): "buy" | "sell" | "watch" | "research" | "no_action" {
+  return action === "buy" ||
+    action === "sell" ||
+    action === "watch" ||
+    action === "research" ||
+    action === "no_action"
+    ? action
+    : "watch";
 }
 
 function firstConfiguredSymbol(branch: BranchRecord | undefined): string | undefined {
