@@ -258,7 +258,7 @@ describe("information agent", () => {
 
     expect(result?.summary).toContain("premium endpoint");
     expect(result?.summary).toContain(
-      "Proceed with other completed tool results",
+      "Premium endpoint calls are blocked",
     );
     expect(apiRequest).not.toHaveBeenCalled();
   });
@@ -328,7 +328,7 @@ describe("information agent", () => {
     expect("toolResults" in result).toBe(false);
     expect(deps.exa?.contents).toHaveBeenCalledWith({
       urls: ["https://example.com/source"],
-      maxCharacters: 10_000,
+      maxCharacters: 8_000,
     });
   });
 
@@ -379,7 +379,7 @@ describe("information agent", () => {
 
     const result = await runInformationAgent("PLTR latest news", deps);
 
-    expect(result.summary).toContain("Tool exa_search failed");
+    expect(result.summary).toContain("exa_search: search unavailable");
     expect("toolResults" in result).toBe(false);
   });
 

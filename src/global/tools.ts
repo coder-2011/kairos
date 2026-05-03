@@ -15,6 +15,7 @@ const MAX_SUMMARY_TEXT = 2000;
 const MAX_ERROR_TEXT = 600;
 const MAX_NEWS_SUMMARY_LENGTH = 240;
 const MAX_EXA_RESULTS = 5;
+const MAX_EXA_CONTENT_CHARACTERS = 10_000;
 const MAX_TOOL_LIST_ITEMS = 5;
 const MAX_RAW_SNIPPET_LENGTH = 1200;
 const IGNORED_TICKER_TOKENS = new Set([
@@ -55,7 +56,7 @@ function compactText(value: string | undefined, maxLength: number): string {
 
 function formatToolError(toolName: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return `${toolName}: ${message}`;
+  return `Tool ${toolName} failed: ${message}`;
 }
 
 function toolFailureResult(
@@ -275,7 +276,10 @@ export function createGlobalToolRegistry(
           })
           .join("\n"),
       citations: topNews
-        .filter((item) => item && typeof item === "object" && typeof item.url === "string")
+        .filter((item) => {
+          const record = item as Record<string, unknown>;
+          return item && typeof item === "object" && typeof record.url === "string";
+        })
         .map((item) => {
           const record = item as Record<string, unknown>;
           return {
@@ -336,7 +340,7 @@ export function createGlobalToolRegistry(
         const urls = extractUrls(input);
         const response = await deps.exa?.contents({
           urls: urls.length > 0 ? urls : [input],
-          maxCharacters: 8_000,
+          maxCharacters: MAX_EXA_CONTENT_CHARACTERS,
         });
         const results = response?.results?.slice(0, MAX_EXA_RESULTS) ?? [];
         return {
@@ -788,7 +792,7 @@ export function createGlobalToolRegistry(
           ? ` Showing ${Math.min(results.length, MAX_TOOL_LIST_ITEMS)} of ${results.length} results.`
           : "";
         return {
-          summary: `${summarizeMemoryEntries(results)}${note}`,
+          summary: `${summarizeMemoryEntries(results, MAX_TOOL_LIST_ITEMS)}${note}`,
           citations: [],
           raw: memory,
         };
@@ -900,11 +904,14 @@ export function createExaSearchTool(exa: Pick<ExaApi, "search">) {
         query,
         numResults: numResults ?? MAX_EXA_RESULTS,
         category: "news",
-      }).then((response) => ({
-        summary: summarizeExaResults(response).summary,
-        citations: summarizeExaResults(response).citations,
-        raw: response,
-      })),
+      }).then((response) => {
+        const summarized = summarizeExaResults(response);
+        return {
+          summary: summarized.summary,
+          citations: summarized.citations,
+          raw: response,
+        };
+      }),
   });
 }
 
