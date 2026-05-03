@@ -98,3 +98,15 @@ export type EscalationEvent = {
   heartbeatOutput: HeartbeatOutput;
   seedBundle: HeartbeatSeedBundle;
 };
+
+export type HeartbeatMemoryWriter = {
+  writeHeartbeatOutput?: (input: {
+    containerTag: string;
+    output: HeartbeatOutput;
+    seedBundle: HeartbeatSeedBundle;
+  }) => Promise<unknown>;
+  writeEscalationEvent?: (input: {
+    containerTag: string;
+    event: EscalationEvent;
+  }) => Promise<unknown>;
+};

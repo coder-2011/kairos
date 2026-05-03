@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { ExaApi } from "../../api/exa.js";
@@ -8,7 +12,7 @@ import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { getSupermemoryContainerTag } from "./memory.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import { runHeartbeatAgent } from "./agent.js";
-import { runHeartbeatOnce } from "./heartbeat.js";
+import { runHeartbeatOnce, startHeartbeatScheduler } from "./heartbeat.js";
 import type {
   BranchConfig,
   HeartbeatOutput,
@@ -144,22 +148,19 @@ describe("Supermemory container tags", () => {
 });
 
 describe("heartbeat agent", () => {
-  it("runs the LangGraph heartbeat workflow and creates escalation events", async () => {
-    const fakeModel = {
-      withStructuredOutput: vi.fn(() => ({
-        invoke: vi.fn(async (): Promise<HeartbeatOutput> => {
-          return {
-            branch_id: "model-wrong-branch",
-            timestamp: "model-wrong-timestamp",
-            decision: "escalate",
-            summary: "A new PLTR contract headline may be material.",
-          };
-        }),
-      })),
-    };
+  it("runs the AI SDK heartbeat loop and creates escalation events", async () => {
+    const generateText = vi.fn(async () => ({
+      output: {
+        branch_id: "model-wrong-branch",
+        timestamp: "model-wrong-timestamp",
+        decision: "escalate",
+        summary: "A new PLTR contract headline may be material.",
+      },
+    }));
 
     const result = await runHeartbeatAgent(branchConfig(), {
-      model: fakeModel,
+      model: {} as never,
+      generateText,
       now: () => fixedNow,
       seedProviders: {
         getCurrentPrice: async () => ({ PLTR: 100 }),
@@ -198,7 +199,7 @@ describe("heartbeat agent", () => {
     await expect(
       runHeartbeatAgent(
         branchConfig({
-          heartbeat: {
+      heartbeat: {
             enabled: false,
             intervalMinutes: 5,
             seedWindowDays: 30,
@@ -206,47 +207,93 @@ describe("heartbeat agent", () => {
           },
         }),
         {
-          model: {
-            withStructuredOutput: vi.fn(),
-          },
+          model: {} as never,
+          generateText: vi.fn(),
         },
       ),
     ).rejects.toThrow("Heartbeat is disabled");
   });
 
-  it("runs one bounded tool pass before final structured output", async () => {
-    const toolInvoke = vi.fn(async () => ({ memories: ["prior false positive"] }));
-    const structuredInvoke = vi.fn(async (_input: unknown): Promise<HeartbeatOutput> => ({
-      branch_id: "ignored",
-      timestamp: "ignored",
-      decision: "no_escalation",
-      summary: "No useful new event found.",
+  it("passes tools and a bounded step count to the AI SDK", async () => {
+    const generateText = vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
+      output: {
+        branch_id: "ignored",
+        timestamp: "ignored",
+        decision: "no_escalation",
+        summary: "No useful new event found.",
+      },
     }));
-    const fakeModel = {
-      bindTools: vi.fn(() => ({
-        invoke: vi.fn(async () => ({
-          tool_calls: [
-            {
-              id: "call_1",
-              name: "supermemory_search",
-              args: { query: "PLTR" },
-            },
-          ],
-        })),
-      })),
-      withStructuredOutput: vi.fn(() => ({
-        invoke: structuredInvoke,
-      })),
+    const tools = {
+      supermemory_search: {
+        description: "Search memory",
+        inputSchema: {} as never,
+        execute: vi.fn(),
+      },
     };
 
     await runHeartbeatAgent(branchConfig(), {
-      model: fakeModel,
+      model: {} as never,
+      generateText,
       now: () => fixedNow,
-      tools: [{ name: "supermemory_search", invoke: toolInvoke }],
+      tools,
+      maxToolSteps: 4,
     });
 
-    expect(toolInvoke).toHaveBeenCalledWith({ query: "PLTR" });
-    expect(structuredInvoke.mock.calls[0]?.[0] as unknown[]).toHaveLength(3);
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: {},
+        system: expect.any(String),
+        prompt: expect.any(String),
+        tools,
+      }),
+    );
+  });
+});
+
+describe("heartbeat scheduler", () => {
+  it("runs heartbeat branches on a simple interval and can be stopped", async () => {
+    vi.useFakeTimers();
+
+    const generateText = vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
+        output: {
+          branch_id: "ignored",
+          timestamp: "ignored",
+          decision: "no_escalation",
+          summary: "No useful new event found.",
+        },
+      }));
+    const onResult = vi.fn();
+    const scheduler = startHeartbeatScheduler(
+      branchConfig({
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 1,
+          seedWindowDays: 30,
+          model: "openrouter/qwen-9b",
+        },
+      }),
+      {
+        model: {} as never,
+        generateText,
+        now: () => fixedNow,
+        onResult,
+      },
+    );
+
+    try {
+      await scheduler.runNow();
+      expect(onResult).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onResult).toHaveBeenCalledTimes(2);
+
+      scheduler.stop();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onResult).toHaveBeenCalledTimes(2);
+    } finally {
+      scheduler.stop();
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -277,23 +324,25 @@ describe("heartbeat de-dupe", () => {
   it("runHeartbeatOnce applies de-dupe before creating escalation events", async () => {
     const deduper = new HeartbeatEscalationDeduper(3);
     const model = {
-      withStructuredOutput: vi.fn(() => ({
-        invoke: vi.fn(async (): Promise<HeartbeatOutput> => ({
+      generateText: vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
+        output: {
           branch_id: "ignored",
           timestamp: "ignored",
           decision: "escalate",
           summary: "Same event.",
-        })),
+        },
       })),
     };
 
     const first = await runHeartbeatOnce(branchConfig(), {
-      model,
+      model: {} as never,
+      generateText: model.generateText,
       now: () => fixedNow,
       deduper,
     });
     const second = await runHeartbeatOnce(branchConfig(), {
-      model,
+      model: {} as never,
+      generateText: model.generateText,
       now: () => fixedNow,
       deduper,
     });
@@ -301,6 +350,35 @@ describe("heartbeat de-dupe", () => {
     expect(first.escalationEvent).not.toBeNull();
     expect(second.output.decision).toBe("no_escalation");
     expect(second.escalationEvent).toBeNull();
+  });
+
+  it("persists duplicate suppression frames to a local JSON file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "kairos-dedupe-"));
+    const storePath = join(directory, "dedupe.json");
+    const escalation: HeartbeatOutput = {
+      branch_id: "branch",
+      timestamp: "2026-05-03T12:00:00.000Z",
+      decision: "escalate",
+      summary: "PLTR contract may be material.",
+    };
+
+    try {
+      expect(
+        new HeartbeatEscalationDeduper(3, storePath).suppressDuplicate(escalation)
+          .decision,
+      ).toBe("escalate");
+      expect(JSON.parse(readFileSync(storePath, "utf8"))).toMatchObject({
+        branches: {
+          branch: ["pltr contract may be material."],
+        },
+      });
+      expect(
+        new HeartbeatEscalationDeduper(3, storePath).suppressDuplicate(escalation)
+          .decision,
+      ).toBe("no_escalation");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
@@ -339,9 +417,118 @@ describe("API clients", () => {
     });
   });
 
-  it("calls Exa search with compact news highlights", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      jsonResponse({
+  it("writes heartbeat outputs, escalations, conversations, and direct memories to Supermemory", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/v3/documents")) {
+        return jsonResponse({ id: "doc_123", status: "queued" });
+      }
+      return jsonResponse({
+        documentId: "doc_mem",
+        memories: [
+          {
+            id: "mem_1",
+            memory: "stored",
+            isStatic: false,
+            createdAt: "2026-05-03T12:00:00.000Z",
+          },
+        ],
+      });
+    });
+    const api = new SupermemoryApi({
+      apiKey: "sm_key",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const output: HeartbeatOutput = {
+      branch_id: "branch",
+      timestamp: "2026-05-03T12:00:00.000Z",
+      decision: "escalate",
+      summary: "A useful thing happened.",
+    };
+    const seedBundle = emptySeedBundle(output);
+    const event = createEscalationEvent(output, seedBundle);
+
+    await api.writeHeartbeatOutput({
+      containerTag: "law_branch",
+      output,
+      seedBundle,
+    });
+    await api.createMemories({
+      containerTag: "law_branch",
+      memories: [{ content: "Manual branch memory", isStatic: true }],
+    });
+    await api.writeEscalationEvent({
+      containerTag: "law_branch",
+      event: event!,
+    });
+    await api.writeConversation({
+      containerTag: "law_branch",
+      customId: "conversation_1",
+      messages: [{ role: "user", content: "Watch PLTR deals." }],
+    });
+
+    const calls = fetchMock.mock.calls.map(([input, init]) => ({
+      url: String(input),
+      method: init?.method,
+      body: JSON.parse(String(init?.body)),
+    }));
+
+    expect(calls).toMatchObject([
+      {
+        url: "https://api.supermemory.ai/v4/memories",
+        method: "POST",
+        body: {
+          containerTag: "law_branch",
+          memories: [
+            {
+              isStatic: false,
+              metadata: {
+                type: "heartbeat_output",
+                branch_id: "branch",
+                decision: "escalate",
+              },
+            },
+          ],
+        },
+      },
+      {
+        url: "https://api.supermemory.ai/v4/memories",
+        method: "POST",
+        body: {
+          containerTag: "law_branch",
+          memories: [{ content: "Manual branch memory", isStatic: true }],
+        },
+      },
+      {
+        url: "https://api.supermemory.ai/v3/documents",
+        method: "POST",
+        body: {
+          containerTag: "law_branch",
+          customId: "heartbeat-escalation:branch:2026-05-03T12:00:00.000Z",
+          metadata: {
+            type: "heartbeat_escalation",
+            branch_id: "branch",
+          },
+        },
+      },
+      {
+        url: "https://api.supermemory.ai/v3/documents",
+        method: "POST",
+        body: {
+          containerTag: "law_branch",
+          customId: "conversation_1",
+          content: "user: Watch PLTR deals.",
+          metadata: {
+            type: "conversation",
+            message_count: 1,
+          },
+        },
+      },
+    ]);
+  });
+
+  it("calls Exa SDK search with compact news highlights", async () => {
+    const search = vi.fn(async () => ({
         results: [
           {
             title: "PLTR news",
@@ -349,22 +536,21 @@ describe("API clients", () => {
             highlights: ["market-relevant highlight"],
           },
         ],
-      }),
-    );
+    }));
     const api = new ExaApi({
-      apiKey: "exa_key",
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      client: {
+        search,
+        getContents: vi.fn(),
+      },
     });
 
     const result = await api.search({ query: "PLTR latest", numResults: 3 });
-    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
-    expect(body).toMatchObject({
-      query: "PLTR latest",
+    expect(search).toHaveBeenCalledWith("PLTR latest", expect.objectContaining({
       type: "auto",
-      num_results: 3,
+      numResults: 3,
       category: "news",
-    });
+    }));
     expect(result.results[0]?.summary).toBe("market-relevant highlight");
   });
 
