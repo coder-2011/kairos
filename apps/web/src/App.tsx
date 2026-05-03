@@ -33,6 +33,7 @@ import {
 
 type View = "branches" | "monitoring" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
+type RunMode = "agent" | "dry";
 type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
 
 const views: Array<{ id: View; label: string; icon: string }> = [
@@ -138,6 +139,7 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [runMode, setRunMode] = useState<RunMode>("agent");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -212,9 +214,13 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runDryHeartbeat(branchId: string) {
+  async function runHeartbeat(branchId: string) {
     try {
-      const run = await triggerHeartbeat(branchId, { source: "web_command" }, { dryRun: true });
+      const run = await triggerHeartbeat(
+        branchId,
+        { source: "web_command" },
+        { dryRun: runMode === "dry" },
+      );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
       setView("monitoring");
@@ -225,11 +231,11 @@ export function App() {
     }
   }
 
-  async function startDryDebate(branchId: string) {
+  async function startDebate(branchId: string) {
     try {
       const run = await createDebate({
         branchId,
-        dryRun: true,
+        dryRun: runMode === "dry",
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
@@ -346,8 +352,10 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
-            onEscalate={() => void startDryDebate(selectedBranch.id)}
-            onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
+            runMode={runMode}
+            onEscalate={() => void startDebate(selectedBranch.id)}
+            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
+            onRunModeChange={setRunMode}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -795,17 +803,51 @@ function RunDeepDive({
   );
 }
 
+function RunModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: RunMode;
+  onChange: (mode: RunMode) => void;
+}) {
+  return (
+    <div
+      className="run-mode-switch"
+      title="Choose whether branch actions run the real agent path or deterministic dry-run fixtures."
+    >
+      <button
+        className={mode === "agent" ? "active" : ""}
+        onClick={() => onChange("agent")}
+        type="button"
+      >
+        AGENT
+      </button>
+      <button
+        className={mode === "dry" ? "active" : ""}
+        onClick={() => onChange("dry")}
+        type="button"
+      >
+        DRY
+      </button>
+    </div>
+  );
+}
+
 function BranchConfig({
   branch,
   openRouterModels,
+  runMode,
   onRunHeartbeat,
   onEscalate,
+  onRunModeChange,
   onSave,
 }: {
   branch: BranchRecord;
   openRouterModels: OpenRouterModelRecord[];
+  runMode: RunMode;
   onRunHeartbeat: () => void;
   onEscalate: () => void;
+  onRunModeChange: (mode: RunMode) => void;
   onSave: (input: {
     config: KairosBranchAgentConfig;
     lawText: string;
@@ -842,11 +884,12 @@ function BranchConfig({
       <div className="editor-head sticky">
         <h1>Branch Configuration</h1>
         <div className="button-row">
+          <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
           <button className="command-button" onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> DRY HEARTBEAT
+            <Icon name="play_arrow" /> {runMode === "dry" ? "DRY" : "AGENT"} HEARTBEAT
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="warning" /> DRY ESCALATION
+            <Icon name="warning" /> {runMode === "dry" ? "DRY" : "AGENT"} ESCALATION
           </button>
           <button
             className="command-button"
