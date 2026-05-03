@@ -79,6 +79,7 @@ import {
 } from "./store.js";
 import { SupabaseKairosStore } from "./supabase-store.js";
 import { createSupermemoryMirroredStore } from "./supermemory-store.js";
+import { handleDeepResearchRequest } from "./deep-research.js";
 
 export type LocalApiDependencies = {
   store?: KairosLocalStore;
@@ -258,6 +259,8 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
+    const deepResearchResponse = await handleDeepResearchRequest(context, request);
+    if (deepResearchResponse) return deepResearchResponse;
     const route = matchRoute(request.method, url.pathname);
 
     try {
