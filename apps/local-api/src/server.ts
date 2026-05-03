@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { z } from "zod";
+import { kairosBranchAgentConfigSchema } from "../../../src/global/agent-config.js";
 import { createRuntimeStore } from "./runtime.js";
 import {
   MemoryKairosStore,
   type AppendRunEventInput,
+  type BranchRecord,
   type KairosLocalStore,
   type JsonRecord,
 } from "./store.js";
@@ -30,6 +32,7 @@ type HeartbeatTriggerInput = {
   branchId: string;
   dryRun: boolean;
   payload: JsonRecord;
+  branch: BranchRecord;
 };
 
 type HeartbeatRunResult = {
@@ -40,6 +43,7 @@ type HeartbeatRunResult = {
 type DebateCreateInput = {
   dryRun: boolean;
   payload: JsonRecord;
+  branch?: BranchRecord;
 };
 
 type DebateCreateResult = {
@@ -54,7 +58,7 @@ const branchCreateSchema = z.object({
   description: z.string().optional(),
   enabled: z.boolean().optional(),
   law: z.record(z.string(), z.unknown()).optional(),
-  config: z.record(z.string(), z.unknown()).optional(),
+  config: kairosBranchAgentConfigSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -197,17 +201,26 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   if (!branch) return json({ error: "not_found", message: "Branch not found." }, 404);
 
   const input = heartbeatTriggerSchema.parse(body);
+  const runPayload = {
+    ...input.input,
+    branch: branchRunContext(branch),
+  };
   const run = await context.store.createRun({
     kind: "heartbeat",
     status: "running",
     branchId,
     dryRun: input.dryRun,
-    input: input.input,
+    input: runPayload,
     metadata: { source: input.dryRun ? "dry_run" : "runtime" },
   });
   await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "heartbeat", branchId, dryRun: input.dryRun } });
 
-  const result = await context.runHeartbeat({ branchId, dryRun: input.dryRun, payload: input.input });
+  const result = await context.runHeartbeat({
+    branchId,
+    dryRun: input.dryRun,
+    payload: runPayload,
+    branch,
+  });
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
@@ -221,17 +234,31 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   const input = debateCreateSchema.parse(body);
   const payload: JsonRecord = { ...input.input, escalation: input.escalation ?? input.input.escalation };
   const escalation = isJsonRecord(payload.escalation) ? payload.escalation : undefined;
+  const branchId =
+    typeof payload.branchId === "string"
+      ? payload.branchId
+      : typeof escalation?.branchId === "string"
+        ? escalation.branchId
+        : undefined;
+  const branch = branchId ? await context.store.getBranch(branchId) : undefined;
+  const runPayload = branch
+    ? { ...payload, branch: branchRunContext(branch) }
+    : payload;
   const run = await context.store.createRun({
     kind: "debate",
     status: "running",
-    branchId: typeof payload.branchId === "string" ? payload.branchId : typeof escalation?.branchId === "string" ? escalation.branchId : undefined,
+    branchId,
     dryRun: input.dryRun,
-    input: payload,
+    input: runPayload,
     metadata: { source: input.dryRun ? "dry_run" : "runtime" },
   });
   await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate", dryRun: input.dryRun } });
 
-  const result = await context.createDebate({ dryRun: input.dryRun, payload });
+  const result = await context.createDebate({
+    dryRun: input.dryRun,
+    payload: runPayload,
+    branch,
+  });
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
