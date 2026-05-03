@@ -1026,12 +1026,13 @@ function MonitoringView({
   onInject: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
+  const [showEvidence, setShowEvidence] = useState(true);
   const transcriptEvents = events.filter(
     (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
 
   return (
-    <main className="split-canvas">
+    <main className={`split-canvas ${showEvidence ? "" : "evidence-closed"}`}>
       <section className="event-stream pane narrow">
         <PaneHeader
           icon="stream"
@@ -1059,6 +1060,9 @@ function MonitoringView({
       <section className="transcript pane wide">
         <PaneHeader
           action="EXPORT"
+          actionIcon={showEvidence ? undefined : "database"}
+          actionIconLabel="Show evidence"
+          onActionIconClick={() => setShowEvidence(true)}
           icon="forum"
           meta=""
           title="DEBATE"
@@ -1120,7 +1124,13 @@ function MonitoringView({
           </div>
         </div>
       </section>
-      <EvidencePane events={events} run={run} />
+      {showEvidence && (
+        <EvidencePane
+          events={events}
+          onClose={() => setShowEvidence(false)}
+          run={run}
+        />
+      )}
     </main>
   );
 }
@@ -2304,9 +2314,11 @@ function TradeSymbolDropdown({
 
 function EvidencePane({
   events,
+  onClose,
   run,
 }: {
   events: RunEventRecord[];
+  onClose: () => void;
   run?: RunRecord;
 }) {
   const selectedEvidence = events.find(
@@ -2319,7 +2331,14 @@ function EvidencePane({
 
   return (
     <section className="evidence pane medium">
-      <PaneHeader icon="database" title="EVIDENCE" meta="" actionIcon="close" />
+      <PaneHeader
+        actionIcon="close"
+        actionIconLabel="Close evidence"
+        icon="database"
+        meta=""
+        onActionIconClick={onClose}
+        title="EVIDENCE"
+      />
       <div className="evidence-scroll">
         {!snapshot ? (
           <EmptyPanel
