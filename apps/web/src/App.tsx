@@ -575,7 +575,7 @@ export function App() {
   ) {
     try {
       const currentBranch = branches.find((branch) => branch.id === branchId);
-      const branch = await updateBranch(branchId, {
+      const branchInput = {
         name: input.branchName.trim() || currentBranch?.name || "Untitled Branch",
         description: input.lawText,
         law: {
@@ -583,10 +583,18 @@ export function App() {
           thesis: input.lawText,
         },
         config: input.config,
-      });
+      };
+      const branch = isLocalDraftBranch(currentBranch)
+        ? await createBranch({
+            id: branchId,
+            enabled: currentBranch?.enabled ?? true,
+            ...branchInput,
+          })
+        : await updateBranch(branchId, branchInput);
       setBranches((current) =>
         current.map((item) => (item.id === branch.id ? branch : item)),
       );
+      setSelectedBranchId(branch.id);
       setLoadState("api");
     } catch {
       setLoadState("offline");
@@ -609,12 +617,24 @@ export function App() {
       navigate("config", { branchId: branch.id });
       setLoadState("api");
     } catch {
+      const branch = createDraftBranch(nextBranchName(branches));
+      setBranches((current) => [branch, ...current.filter((item) => item.id !== branch.id)]);
+      setSelectedBranchId(branch.id);
+      navigate("config", { branchId: branch.id });
       setLoadState("offline");
     }
   }
 
   async function discardBranch(branchId: string) {
     const branch = branches.find((item) => item.id === branchId);
+    if (isLocalDraftBranch(branch)) {
+      const nextBranches = branches.filter((item) => item.id !== branchId);
+      setBranches(nextBranches);
+      setSelectedBranchId(nextBranches[0]?.id ?? "");
+      navigate("branches");
+      return;
+    }
+
     const confirmed = window.confirm(
       `Discard branch "${branch?.name ?? branchId}"? This removes the branch configuration.`,
     );
@@ -3167,6 +3187,25 @@ function Icon({ name }: { name: string }) {
 
 function createBranchId(): string {
   return `branch_${Date.now().toString(36)}`;
+}
+
+function createDraftBranch(name: string): BranchRecord {
+  const timestamp = new Date().toISOString();
+  return {
+    id: createBranchId(),
+    name,
+    description: "",
+    enabled: true,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    law: { thesis: "" },
+    config: defaultBranchConfig(),
+    metadata: { localDraft: true },
+  };
+}
+
+function isLocalDraftBranch(branch: BranchRecord | undefined): boolean {
+  return branch?.metadata?.localDraft === true;
 }
 
 function nextBranchName(branches: BranchRecord[]): string {
