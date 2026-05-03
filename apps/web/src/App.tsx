@@ -129,6 +129,9 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
   { label: "Information Agent", key: "information" },
 ];
 
+const tradingModeOptions: TradingMode[] = ["disabled", "paper"];
+const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
+
 const defaultInformationToolPolicies = Object.fromEntries(
   informationToolFields.map((tool) => [tool.key, { enabled: true }]),
 ) as NonNullable<WebBranchConfig["tools"]>["information"];
@@ -150,7 +153,6 @@ export function App() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
-  const [runMode, setRunMode] = useState<RunMode>("agent");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
     useState<LoadState>("loading");
@@ -308,7 +310,7 @@ export function App() {
   async function saveBranchSettings(
     branchId: string,
     input: {
-      config: KairosBranchAgentConfig;
+      config: WebBranchConfig;
       lawText: string;
     },
   ) {
@@ -387,6 +389,15 @@ export function App() {
             run={selectedRun}
           />
         )}
+        {view === "portfolio" && (
+          <PortfolioView
+            loadState={portfolioLoadState}
+            messages={messages}
+            portfolio={portfolio}
+            tradeIntents={tradeIntents}
+            onRefresh={() => void refreshPortfolioData()}
+          />
+        )}
         {view === "runDeepDive" && (
           <RunDeepDive
             branches={branches}
@@ -400,8 +411,8 @@ export function App() {
           <BranchConfig
             branch={selectedBranch}
             openRouterModels={openRouterModels}
-            onEscalate={() => void startDryDebate(selectedBranch.id)}
-            onRunHeartbeat={() => void runDryHeartbeat(selectedBranch.id)}
+            onEscalate={() => void startDebate(selectedBranch.id)}
+            onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
             onSave={(input) =>
               void saveBranchSettings(selectedBranch.id, input)
             }
@@ -783,6 +794,225 @@ function MonitoringView({
   );
 }
 
+function PortfolioView({
+  loadState,
+  messages,
+  portfolio,
+  tradeIntents,
+  onRefresh,
+}: {
+  loadState: LoadState;
+  messages: MessageRecord[];
+  portfolio?: PortfolioSnapshot;
+  tradeIntents: TradeIntentRecord[];
+  onRefresh: () => void;
+}) {
+  const account = portfolio?.account;
+  const positions = portfolio?.positions ?? [];
+  const orders = portfolio?.orders ?? [];
+
+  return (
+    <main className="portfolio-canvas">
+      <section className="portfolio-main">
+        <div className="detail-head">
+          <div>
+            <h1>Portfolio</h1>
+            <p>
+              Alpaca paper account, positions, orders, trade intents, and
+              trading-system messages from the local API.
+            </p>
+          </div>
+          <div className="button-row">
+            <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
+              {loadState === "loading"
+                ? "SYNCING"
+                : loadState === "api"
+                  ? "PAPER API"
+                  : "ENDPOINTS OFFLINE"}
+            </span>
+            <button className="command-button" onClick={onRefresh} type="button">
+              <Icon name="refresh" /> REFRESH
+            </button>
+          </div>
+        </div>
+        <div className="portfolio-scroll">
+          <div className="portfolio-safety-strip">
+            <Icon name="verified_user" />
+            <div>
+              <b>Paper trading monitor</b>
+              <span>
+                Live trading controls are not exposed here. Auto-buy remains a
+                per-branch paper-mode opt-in.
+              </span>
+            </div>
+          </div>
+          <div className="portfolio-metrics">
+            <Metric
+              label="PORTFOLIO VALUE"
+              value={formatMoneyField(account, "portfolio_value")}
+            />
+            <Metric label="EQUITY" value={formatMoneyField(account, "equity")} />
+            <Metric
+              label="BUYING POWER"
+              value={formatMoneyField(account, "buying_power")}
+            />
+            <Metric label="CASH" value={formatMoneyField(account, "cash")} />
+            <Metric
+              label="OPEN ORDERS"
+              value={orders.length.toString()}
+              alert={orders.some((order) => isUnresolvedStatus(order.status))}
+            />
+            <Metric
+              label="TRADE INTENTS"
+              value={tradeIntents.length.toString()}
+              alert={tradeIntents.some((intent) => isUnresolvedStatus(intent.status))}
+            />
+          </div>
+          <PortfolioTable
+            columns={["SYMBOL", "QTY", "MARKET VALUE", "UNREALIZED P/L", "SIDE"]}
+            emptyMessage="No paper positions returned by /portfolio."
+            rows={positions.map((position) => [
+              readDisplay(position.symbol),
+              readDisplay(position.qty),
+              formatMoneyValue(position.market_value),
+              formatMoneyValue(position.unrealized_pl),
+              readDisplay(position.side),
+            ])}
+            title="PAPER POSITIONS"
+          />
+          <PortfolioTable
+            columns={["SYMBOL", "SIDE", "TYPE", "STATUS", "NOTIONAL", "SUBMITTED"]}
+            emptyMessage="No paper orders returned by /portfolio."
+            rows={orders.map((order) => [
+              readDisplay(order.symbol),
+              readDisplay(order.side),
+              readDisplay(order.type ?? order.order_type),
+              readDisplay(order.status),
+              formatMoneyValue(order.notional ?? order.filled_notional),
+              formatTimestamp(order.submitted_at ?? order.createdAt ?? order.created_at),
+            ])}
+            title="PAPER ORDERS"
+          />
+        </div>
+      </section>
+      <aside className="portfolio-side">
+        <PaneHeader
+          icon="receipt_long"
+          meta={`${tradeIntents.length} INTENTS`}
+          title="TRADE INTENTS"
+        />
+        <div className="portfolio-card-list">
+          {tradeIntents.length === 0 ? (
+            <EmptyPanel
+              icon="receipt_long"
+              message="Pending paper trade intents from /trade-intents will appear here."
+              title="No Trade Intents"
+            />
+          ) : (
+            tradeIntents.map((intent, index) => (
+              <TradeIntentCard intent={intent} key={intent.id ?? index} />
+            ))
+          )}
+        </div>
+        <PaneHeader
+          icon="mark_unread_chat_alt"
+          meta={`${messages.length} MESSAGES`}
+          title="MESSAGES"
+        />
+        <div className="portfolio-card-list messages">
+          {messages.length === 0 ? (
+            <EmptyPanel
+              icon="mark_unread_chat_alt"
+              message="Trading notifications and broker adapter messages from /messages will appear here."
+              title="No Messages"
+            />
+          ) : (
+            messages.map((message, index) => (
+              <MessageCard message={message} key={message.id ?? index} />
+            ))
+          )}
+        </div>
+      </aside>
+    </main>
+  );
+}
+
+function PortfolioTable({
+  columns,
+  emptyMessage,
+  rows,
+  title,
+}: {
+  columns: string[];
+  emptyMessage: string;
+  rows: string[][];
+  title: string;
+}) {
+  return (
+    <section className="portfolio-section">
+      <div className="section-title">{title}</div>
+      <div className="data-panel compact-panel">
+        <table className="branch-table portfolio-table">
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th key={column}>{column}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="empty-table-cell" colSpan={columns.length}>
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, rowIndex) => (
+                <tr key={`${title}-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${title}-${rowIndex}-${cellIndex}`}>{cell}</td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TradeIntentCard({ intent }: { intent: TradeIntentRecord }) {
+  return (
+    <article className="portfolio-card">
+      <div className="portfolio-card-head">
+        <b>{readDisplay(intent.symbol, "UNKNOWN")}</b>
+        <span>{readDisplay(intent.status, "draft")}</span>
+      </div>
+      <p>{readDisplay(intent.summary ?? intent.rationale, "No rationale supplied.")}</p>
+      <div className="portfolio-card-grid">
+        <span>{readDisplay(intent.side, "side")}</span>
+        <span>{readDisplay(intent.orderType, "order")}</span>
+        <span>{formatMoneyValue(intent.notional)}</span>
+        <span>{formatConfidenceValue(intent.confidence)}</span>
+      </div>
+    </article>
+  );
+}
+
+function MessageCard({ message }: { message: MessageRecord }) {
+  return (
+    <article className="portfolio-card message-card">
+      <div className="portfolio-card-head">
+        <b>{readDisplay(message.title ?? message.type ?? message.level, "MESSAGE")}</b>
+        <span>{formatTimestamp(message.timestamp ?? message.createdAt)}</span>
+      </div>
+      <p>{readDisplay(message.summary ?? message.message, "No message body supplied.")}</p>
+    </article>
+  );
+}
+
 function RunDeepDive({
   branches,
   events,
@@ -901,11 +1131,11 @@ function BranchConfig({
   onRunHeartbeat: () => void;
   onEscalate: () => void;
   onSave: (input: {
-    config: KairosBranchAgentConfig;
+    config: WebBranchConfig;
     lawText: string;
   }) => void;
 }) {
-  const [config, setConfig] = useState<KairosBranchAgentConfig>(() =>
+  const [config, setConfig] = useState<WebBranchConfig>(() =>
     normalizeBranchConfig(branch),
   );
   const [lawText, setLawText] = useState(readLawText(branch));
@@ -922,6 +1152,14 @@ function BranchConfig({
   const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 3;
   const informationMaxToolCalls = config.budgets?.informationMaxToolCalls ?? 5;
   const finnhubPremiumAccess = config.tools?.finnhubPremiumAccess ?? false;
+  const tradingConfig = config.trading ?? {};
+  const tradingMode = tradingConfig.mode ?? "disabled";
+  const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
+  const notifyOnBuySignal = tradingConfig.notifyOnBuySignal ?? true;
+  const maxNotionalPerOrder = tradingConfig.maxNotionalPerOrder ?? 500;
+  const maxOpenPositionNotionalPerSymbol =
+    tradingConfig.maxOpenPositionNotionalPerSymbol ?? 1_500;
+  const allowedOrderType = tradingConfig.allowedOrderType ?? "market";
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -969,6 +1207,162 @@ function BranchConfig({
             value={lawText}
           />
         </FieldLabel>
+        <section className={`trading-panel ${paperAutoBuyEnabled ? "auto-buy" : ""}`}>
+          <div className="trading-panel-head">
+            <div>
+              <div className="field-label">PAPER TRADING CONTROLS</div>
+              <h2>
+                {tradingMode === "paper"
+                  ? "Paper trading enabled"
+                  : "Trading disabled"}
+              </h2>
+              <p>
+                Auto-buy is opt-in per branch. Live trading is not supported in
+                this UI.
+              </p>
+            </div>
+            <span className={paperAutoBuyEnabled ? "risk-pill enabled" : "risk-pill"}>
+              {paperAutoBuyEnabled ? "AUTO-BUY OPTED IN" : "AUTO-BUY OFF"}
+            </span>
+          </div>
+          <div className="trading-grid">
+            <FieldLabel label="Trading Mode">
+              <select
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      mode: event.target.value as TradingMode,
+                      paperAutoBuyEnabled:
+                        event.target.value === "paper"
+                          ? current.trading?.paperAutoBuyEnabled ?? false
+                          : false,
+                    },
+                  }))
+                }
+                value={tradingMode}
+              >
+                {tradingModeOptions.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode === "disabled" ? "DISABLED" : "PAPER ONLY"}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Live Trading">
+              <input readOnly value="NOT SUPPORTED BY THIS UI" />
+            </FieldLabel>
+            <label className="checkbox-card">
+              <input
+                checked={paperAutoBuyEnabled}
+                disabled={tradingMode !== "paper"}
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      paperAutoBuyEnabled: event.target.checked,
+                      mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
+                    },
+                  }))
+                }
+                type="checkbox"
+              />
+              <span>
+                <b>Paper auto-buy enabled</b>
+                <small>Allows backend paper orders after branch gates pass.</small>
+              </span>
+            </label>
+            <label className="checkbox-card">
+              <input
+                checked={notifyOnBuySignal}
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      notifyOnBuySignal: event.target.checked,
+                    },
+                  }))
+                }
+                type="checkbox"
+              />
+              <span>
+                <b>Notify on buy signal</b>
+                <small>Emits a message even when paper auto-buy is off.</small>
+              </span>
+            </label>
+            <FieldLabel label="Max Notional Per Order">
+              <input
+                min="0"
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      maxNotionalPerOrder: Number(event.target.value),
+                    },
+                  }))
+                }
+                type="number"
+                value={maxNotionalPerOrder}
+              />
+            </FieldLabel>
+            <FieldLabel label="Max Open Position Notional Per Symbol">
+              <input
+                min="0"
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      maxOpenPositionNotionalPerSymbol: Number(event.target.value),
+                    },
+                  }))
+                }
+                type="number"
+                value={maxOpenPositionNotionalPerSymbol}
+              />
+            </FieldLabel>
+            <FieldLabel label="Allowed Order Type">
+              <select
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      allowedOrderType: event.target.value as AllowedOrderType,
+                    },
+                  }))
+                }
+                value={allowedOrderType}
+              >
+                {allowedOrderTypeOptions.map((orderType) => (
+                  <option key={orderType} value={orderType}>
+                    {orderType.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <div className="threshold-inline">
+              <Slider
+                label="Paper Buy Signal Threshold"
+                onChange={(value) =>
+                  setConfig((current) => ({
+                    ...current,
+                    thresholds: {
+                      ...current.thresholds,
+                      buyConfidence: value / 100,
+                      paperTradeDraftConfidence: value / 100,
+                    },
+                  }))
+                }
+                value={`${paperTradeDraftConfidence}%`}
+              />
+            </div>
+          </div>
+        </section>
         <div>
           <div className="field-label">AGENT SYSTEM PROMPTS</div>
           <div className="prompt-grid">
@@ -1378,12 +1772,13 @@ function BranchConfig({
               value={`${notifyConfidence}%`}
             />
             <Slider
-              label="Paper Trade Draft Threshold"
+              label="Paper Buy Signal Threshold"
               onChange={(value) =>
                 setConfig((current) => ({
                   ...current,
                   thresholds: {
                     ...current.thresholds,
+                    buyConfidence: value / 100,
                     paperTradeDraftConfidence: value / 100,
                   },
                 }))
@@ -1461,7 +1856,7 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
       <FieldLabel label="Notify Confidence">
         <input readOnly value={formatConfidence(thresholds?.notifyConfidence)} />
       </FieldLabel>
-      <FieldLabel label="Paper Trade Draft Threshold">
+      <FieldLabel label="Paper Buy Signal Threshold">
         <input
           readOnly
           value={formatConfidence(
@@ -1716,7 +2111,7 @@ function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
 }
 
-function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
+function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
   const config = branch.config ?? {};
   const legacyConfig = config as JsonRecord;
   const heartbeat = config.heartbeat ?? {};
@@ -1771,6 +2166,15 @@ function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
       paperTradeDraftConfidence: 0.9,
       ...config.thresholds,
     },
+    trading: {
+      mode: "disabled",
+      paperAutoBuyEnabled: false,
+      notifyOnBuySignal: true,
+      maxNotionalPerOrder: 500,
+      maxOpenPositionNotionalPerSymbol: 1_500,
+      allowedOrderType: "market",
+      ...config.trading,
+    },
     research: {
       ...config.research,
     },
@@ -1778,9 +2182,9 @@ function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
 }
 
 function withFinnhubPremiumAccess(
-  config: KairosBranchAgentConfig,
+  config: WebBranchConfig,
   enabled: boolean,
-): KairosBranchAgentConfig {
+): WebBranchConfig {
   return {
     ...config,
     tools: {
@@ -1835,6 +2239,57 @@ function formatConfidence(value: number | undefined) {
   return typeof value === "number"
     ? `${Math.round(value * 100)}%`
     : "Not configured";
+}
+
+function formatConfidenceValue(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  return typeof numberValue === "number" && Number.isFinite(numberValue)
+    ? `${Math.round(numberValue * 100)}%`
+    : "-";
+}
+
+function formatMoneyField(record: JsonRecord | undefined, key: string) {
+  return formatMoneyValue(record?.[key]);
+}
+
+function formatMoneyValue(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  return typeof numberValue === "number" && Number.isFinite(numberValue)
+    ? new Intl.NumberFormat("en-US", {
+        currency: "USD",
+        maximumFractionDigits: 2,
+        style: "currency",
+      }).format(numberValue)
+    : "-";
+}
+
+function formatTimestamp(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? timeOnly(value) : "-";
+}
+
+function readDisplay(value: unknown, fallback = "-") {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
+
+function isUnresolvedStatus(value: unknown) {
+  if (typeof value !== "string") return false;
+  return !["filled", "canceled", "cancelled", "closed", "complete", "completed"].includes(
+    value.toLowerCase(),
+  );
 }
 
 function readAssets(branch: BranchRecord): string[] {
