@@ -1,0 +1,36 @@
+{
+  "runId": "769d471c-0f1c-4f5b-a568-a106bfa99b71",
+  "kind": "heartbeat",
+  "status": "succeeded",
+  "createdAt": "2026-05-03T19:14:14.178Z",
+  "updatedAt": "2026-05-03T19:14:14.296Z",
+  "startedAt": "2026-05-03T19:14:14.174Z",
+  "completedAt": "2026-05-03T19:14:14.287Z",
+  "branchId": "qa_ui_1777835632729",
+  "dryRun": true,
+  "input": {
+    "source": "web_command",
+    "branch": {
+      "id": "qa_ui_1777835632729",
+      "name": "QA Contract Signal",
+      "description": "Watch PLTR for credible new enterprise or government contract catalysts and ignore low-quality reposts.",
+      "enabled": true,
+      "law": {
+        "thesis": "Watch PLTR for credible new enterprise or government contract catalysts and ignore low-quality reposts.",
+        "asset": "PLTR"
+      },
+      "metadata": {
+        "status": "running",
+        "assetClass": "equities",
+        "riskLevel": "medium"
+      }
+    }
+  },
+  "output": {
+    "branchId": "qa_ui_1777835632729",
+    "decision": "monitor",
+    "summary": "Dry-run heartbeat checked branch qa_ui_1777835632729.",
+    "confidence": 0.1,
+    "dryRun": true
+  }
+}
