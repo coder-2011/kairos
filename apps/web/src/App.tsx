@@ -42,7 +42,6 @@ import {
   type RouterChatRecord,
   type RouterMessageRecord,
   type RouterToolCallRecord,
-  type TradingMode,
   type TradeIntentRecord,
   type WebBranchConfig,
 } from "./api";
@@ -124,7 +123,11 @@ const informationToolFields: Array<{
   key: InformationConfigToolName;
   access: "free" | "premium" | "mixed";
   purpose: string;
-}> = INFORMATION_TOOL_CATALOG.map((tool) => ({
+}> = INFORMATION_TOOL_CATALOG.filter((tool) => {
+  if (tool.name === "supermemory_search") return false;
+  if (tool.provider === "finnhub") return tool.name === "finnhub_api_request";
+  return true;
+}).map((tool) => ({
   label: humanizeToolName(tool.name),
   key: tool.name,
   access: tool.access,
@@ -139,15 +142,18 @@ const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName }> = [
 
 const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
   { label: "Exa Search", key: "exa_search" },
-  { label: "Exa Research", key: "exa_research" },
+  { label: "Deep Research", key: "exa_research" },
   { label: "Information Agent", key: "information" },
 ];
 
-const tradingModeOptions: TradingMode[] = ["disabled", "paper"];
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
+const dataPacketTypeOptions = ["ticker", "sector", "law", "branch", "source", "catalyst"] as const;
 
 const defaultInformationToolPolicies = Object.fromEntries(
-  informationToolFields.map((tool) => [tool.key, { enabled: true }]),
+  [
+    ...informationToolFields.map((tool) => [tool.key, { enabled: true }] as const),
+    ["supermemory_search", { enabled: true }] as const,
+  ],
 ) as NonNullable<WebBranchConfig["tools"]>["information"];
 
 const defaultHeartbeatToolPolicies = Object.fromEntries(
@@ -184,9 +190,6 @@ export function App() {
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
   const selectedRun = runs.find((run) => run.id === selectedRunId);
-  const premiumAccessEnabled = branches.some(
-    (branch) => normalizeBranchConfig(branch).tools?.finnhubPremiumAccess === true,
-  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -468,40 +471,12 @@ export function App() {
     }
   }
 
-  async function setPremiumAccess(enabled: boolean) {
-    if (branches.length === 0) return;
-
-    try {
-      const updatedBranches = await Promise.all(
-        branches.map((branch) =>
-          updateBranch(branch.id, {
-            config: withFinnhubPremiumAccess(
-              normalizeBranchConfig(branch),
-              enabled,
-            ),
-          }),
-        ),
-      );
-      setBranches((current) =>
-        current.map((branch) =>
-          updatedBranches.find((updated) => updated.id === branch.id) ?? branch,
-        ),
-      );
-      setLoadState("api");
-    } catch {
-      setLoadState("offline");
-    }
-  }
-
   return (
     <div className="shell" data-theme={themeMode}>
       <SideNav
-        premiumAccessDisabled={branches.length === 0}
-        premiumAccessEnabled={premiumAccessEnabled}
         setView={setView}
         themeMode={themeMode}
         view={view}
-        onPremiumAccessChange={(enabled) => void setPremiumAccess(enabled)}
         onThemeModeChange={setThemeMode}
       />
       <div className="workspace">
@@ -582,20 +557,14 @@ export function App() {
 }
 
 function SideNav({
-  premiumAccessDisabled,
-  premiumAccessEnabled,
   themeMode,
   view,
   setView,
-  onPremiumAccessChange,
   onThemeModeChange,
 }: {
-  premiumAccessDisabled: boolean;
-  premiumAccessEnabled: boolean;
   themeMode: ThemeMode;
   view: View;
   setView: (view: View) => void;
-  onPremiumAccessChange: (enabled: boolean) => void;
   onThemeModeChange: (mode: ThemeMode) => void;
 }) {
   return (
@@ -628,27 +597,6 @@ function SideNav({
         mode={themeMode}
         onChange={(mode) => onThemeModeChange(mode)}
       />
-      <button
-        className={`premium-access-button ${premiumAccessEnabled ? "enabled" : ""}`}
-        disabled={premiumAccessDisabled}
-        onClick={() => onPremiumAccessChange(!premiumAccessEnabled)}
-        title={
-          premiumAccessEnabled
-            ? "Premium data is enabled"
-            : "Enable premium data"
-        }
-        type="button"
-      >
-        <Icon name={premiumAccessEnabled ? "workspace_premium" : "lock_open"} />
-        <span>
-          <b>{premiumAccessEnabled ? "Premium User" : "Free User"}</b>
-          <small>
-            {premiumAccessEnabled
-              ? "Premium data enabled"
-              : "I'm a premium user"}
-          </small>
-        </span>
-      </button>
     </nav>
   );
 }
@@ -1500,15 +1448,17 @@ function BranchConfig({
   const debateMaxTurns = config.budgets?.debateMaxTurns ?? 6;
   const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 3;
   const informationMaxToolCalls = config.budgets?.informationMaxToolCalls ?? 5;
-  const finnhubPremiumAccess = config.tools?.finnhubPremiumAccess ?? false;
+  const branchAssets = config.assets ?? [];
   const tradingConfig = config.trading ?? {};
   const tradingMode = tradingConfig.mode ?? "disabled";
   const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
   const notifyOnBuySignal = tradingConfig.notifyOnBuySignal ?? true;
+  const tradeSymbol = tradingConfig.symbol ?? branchAssets[0] ?? "";
   const maxNotionalPerOrder = tradingConfig.maxNotionalPerOrder ?? 500;
   const maxOpenPositionNotionalPerSymbol =
     tradingConfig.maxOpenPositionNotionalPerSymbol ?? 1_500;
   const allowedOrderType = tradingConfig.allowedOrderType ?? "market";
+  const dataPacketType = config.research?.dataPacketType ?? "ticker";
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -1567,6 +1517,23 @@ function BranchConfig({
             value={lawText}
           />
         </FieldLabel>
+        <FieldLabel label="Tracked Tickers">
+          <input
+            onChange={(event) => {
+              const assets = parseAssetList(event.target.value);
+              setConfig((current) => ({
+                ...current,
+                assets,
+                trading: {
+                  ...current.trading,
+                  symbol: current.trading?.symbol || assets[0] || undefined,
+                },
+              }));
+            }}
+            placeholder="PLTR, NVDA, CRWV"
+            value={branchAssets.join(", ")}
+          />
+        </FieldLabel>
         <div>
           <div className="field-label">AGENT SYSTEM PROMPTS</div>
           <div className="prompt-grid">
@@ -1601,38 +1568,50 @@ function BranchConfig({
                   : "Trading disabled"}
               </h2>
             </div>
-            <span className={paperAutoBuyEnabled ? "risk-pill enabled" : "risk-pill"}>
-              {paperAutoBuyEnabled ? "AUTO ORDER OPTED IN" : "AUTO ORDER OFF"}
-            </span>
           </div>
           <div className="trading-grid">
-            <FieldLabel label="Trading Mode">
-              <select
+            <FieldLabel label="Trade Symbol">
+              <input
+                list={`branch-assets-${branch.id}`}
                 onChange={(event) =>
                   setConfig((current) => ({
                     ...current,
                     trading: {
                       ...current.trading,
-                      mode: event.target.value as TradingMode,
-                      paperAutoBuyEnabled:
-                        event.target.value === "paper"
-                          ? current.trading?.paperAutoBuyEnabled ?? false
-                          : false,
+                      symbol: normalizeTickerInput(event.target.value) || undefined,
                     },
                   }))
                 }
-                value={tradingMode}
-              >
-                {tradingModeOptions.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode === "disabled" ? "DISABLED" : "PAPER ONLY"}
-                  </option>
+                placeholder="Pick a tracked ticker"
+                value={tradeSymbol}
+              />
+              <datalist id={`branch-assets-${branch.id}`}>
+                {branchAssets.map((asset) => (
+                  <option key={asset} value={asset} />
                 ))}
-              </select>
+              </datalist>
             </FieldLabel>
-            <FieldLabel label="Order Scope">
-              <input readOnly value="PAPER ACCOUNT ONLY" />
-            </FieldLabel>
+            <label className="checkbox-card">
+              <input
+                checked={tradingMode === "paper"}
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      mode: event.target.checked ? "paper" : "disabled",
+                      paperAutoBuyEnabled: event.target.checked
+                        ? current.trading?.paperAutoBuyEnabled ?? false
+                        : false,
+                    },
+                  }))
+                }
+                type="checkbox"
+              />
+              <span>
+                <b>Paper trading enabled</b>
+              </span>
+            </label>
             <label className="checkbox-card">
               <input
                 checked={paperAutoBuyEnabled}
@@ -1650,7 +1629,7 @@ function BranchConfig({
                 type="checkbox"
               />
               <span>
-                <b>Auto buy enabled</b>
+                <b>Submit paper orders automatically</b>
               </span>
             </label>
             <label className="checkbox-card">
@@ -1807,87 +1786,53 @@ function BranchConfig({
           )}
         </div>
         <div className="config-grid">
-          <FieldLabel label="Finnhub Access">
-            <div className="tool-picker">
-              <label>
-                <input
-                  checked={finnhubPremiumAccess}
-                  onChange={(event) =>
-                    setConfig((current) => ({
-                      ...current,
-                      tools: {
-                        ...current.tools,
-                        finnhubPremiumAccess: event.target.checked,
-                      },
-                    }))
-                  }
-                  type="checkbox"
-                />
-                <span>Premium data</span>
-              </label>
-            </div>
-          </FieldLabel>
           <FieldLabel label="Information Agent Tools">
             <div className="tool-picker">
-              {informationToolFields.map((tool) => {
-                const gatedByPremium =
-                  tool.access === "premium" && !finnhubPremiumAccess;
-
-                return (
-                  <label key={tool.key}>
-                    <input
-                      checked={
-                        !gatedByPremium &&
-                        (config.tools?.information?.[tool.key]?.enabled ?? true)
-                      }
-                      disabled={gatedByPremium}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          tools: {
-                            ...current.tools,
-                            information: {
-                              ...current.tools?.information,
-                              [tool.key]: {
-                                ...current.tools?.information?.[tool.key],
-                                enabled: event.target.checked,
-                              },
+              {informationToolFields.map((tool) => (
+                <label key={tool.key}>
+                  <input
+                    checked={config.tools?.information?.[tool.key]?.enabled ?? true}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          information: {
+                            ...current.tools?.information,
+                            [tool.key]: {
+                              ...current.tools?.information?.[tool.key],
+                              enabled: event.target.checked,
                             },
                           },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <span>
-                      {tool.label} ({tool.access})
-                    </span>
-                    <input
-                      checked={config.tools?.information?.[tool.key]?.required ?? false}
-                      disabled={
-                        gatedByPremium ||
-                        (config.tools?.information?.[tool.key]?.enabled === false)
-                      }
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          tools: {
-                            ...current.tools,
-                            information: {
-                              ...current.tools?.information,
-                              [tool.key]: {
-                                ...current.tools?.information?.[tool.key],
-                                required: event.target.checked,
-                              },
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>{toolAccessLabel(tool)}</span>
+                  <input
+                    checked={config.tools?.information?.[tool.key]?.required ?? false}
+                    disabled={config.tools?.information?.[tool.key]?.enabled === false}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        tools: {
+                          ...current.tools,
+                          information: {
+                            ...current.tools?.information,
+                            [tool.key]: {
+                              ...current.tools?.information?.[tool.key],
+                              required: event.target.checked,
                             },
                           },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <em>Required</em>
-                  </label>
-                );
-              })}
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <em>Required</em>
+                </label>
+              ))}
             </div>
           </FieldLabel>
           <FieldLabel label="Debate Tools">
@@ -1988,6 +1933,26 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
+          <FieldLabel label="Data Packet Type">
+            <select
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  research: {
+                    ...current.research,
+                    dataPacketType: event.target.value as typeof dataPacketTypeOptions[number],
+                  },
+                }))
+              }
+              value={dataPacketType}
+            >
+              {dataPacketTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {titleize(type)}
+                </option>
+              ))}
+            </select>
+          </FieldLabel>
           <FieldLabel label="Data Packet">
             <input
               onChange={(event) =>
@@ -2004,7 +1969,7 @@ function BranchConfig({
             />
           </FieldLabel>
         </div>
-        <FieldLabel label="Search & Research Instruction (Exa)">
+        <FieldLabel label="Search & Deep Research Instruction">
           <textarea
             onChange={(event) =>
               setConfig((current) => ({
