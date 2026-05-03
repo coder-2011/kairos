@@ -145,6 +145,7 @@ export type DebateGraphDependencies = {
   tools?: DebateTools;
   globalTools?: GlobalToolRegistry;
   enabledTools?: Partial<Record<DebateToolName, boolean>>;
+  requiredTools?: Partial<Record<DebateToolName, boolean>>;
   now?: () => Date;
   id?: () => string;
   observer?: AgentObserver;
