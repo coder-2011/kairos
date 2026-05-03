@@ -1,6 +1,5 @@
 export * from "./agent.js";
 export * from "./debate-handoff.js";
-export * from "./dedupe.js";
 export * from "./escalation.js";
 export * from "./heartbeat.js";
 export * from "./memory.js";

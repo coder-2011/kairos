@@ -46,7 +46,7 @@ export async function runHeartbeatOnce(
 
   await observeAgentEvent(
     runtime,
-    "memory_dedupe_context_evaluated",
+    "prior_memory_context_loaded",
     {
       decision: output.decision,
       priorDecisionCount: result.seedBundle.priorDecisions.length,
