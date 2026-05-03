@@ -761,13 +761,32 @@ async function createRouterMessage(
   });
 
   try {
-    const sources = await extractRouterSources(context, input, userMessage);
+    const extraction = await extractRouterSources(context, input, userMessage);
+    const { sources } = extraction;
+    const toolCalls = [...extraction.toolCalls];
     await context.store.appendRunEvent(run.id, {
       type: "router.sources.extracted",
       payload: { sources },
     });
 
     const branches = await context.store.listBranches();
+    const branchInventory = branches.map((branch) => ({
+      id: branch.id,
+      text: branchInventoryText(branch),
+      enabled: branch.enabled,
+    }));
+    const inventoryToolCall = createRouterToolCall({
+      name: "branch_inventory",
+      status: "succeeded",
+      summary: `Loaded ${branchInventory.filter((branch) => branch.enabled).length} enabled branches from ${branchInventory.length} total branches.`,
+      output: { branches: branchInventory },
+    });
+    toolCalls.push(inventoryToolCall);
+    await context.store.appendRunEvent(run.id, {
+      type: "router.tool_call.completed",
+      payload: inventoryToolCall,
+    });
+
     const selectedBranchIds = routeToBranches(userMessage.text ?? "", sources, branches);
     await context.store.appendRunEvent(run.id, {
       type: "router.route.selected",
@@ -805,9 +824,17 @@ async function createRouterMessage(
       });
       if (heartbeatRun) {
         heartbeatRuns.push(heartbeatRun);
+        const heartbeatToolCall = createRouterToolCall({
+          name: "heartbeat_wakeup",
+          status: "succeeded",
+          summary: `Woke ${branchId} for heartbeat evaluation with router-origin context.`,
+          input: { branchId },
+          output: { runId: heartbeatRun.id, status: heartbeatRun.status },
+        });
+        toolCalls.push(heartbeatToolCall);
         await context.store.appendRunEvent(run.id, {
           type: "router.heartbeat_triggered",
-          payload: { branchId, runId: heartbeatRun.id },
+          payload: { branchId, runId: heartbeatRun.id, toolCall: heartbeatToolCall },
         });
       }
     }
@@ -825,6 +852,7 @@ async function createRouterMessage(
       role: "assistant",
       text: output.response,
       runId: run.id,
+      toolCalls,
     });
     await context.store.appendRunEvent(run.id, {
       type: "router.response.created",
