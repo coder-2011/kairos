@@ -68,6 +68,14 @@ export type NewsHeadlineSummary = {
   url?: string;
 };
 
+export type HeartbeatPriorDecision = {
+  id?: string;
+  memory: string;
+  similarity?: number;
+  updatedAt?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type HeartbeatSeedBundle = {
   branchId: string;
   timestamp: string;
@@ -75,6 +83,7 @@ export type HeartbeatSeedBundle = {
   assets: string[];
   seedWindowDays: number;
   defaultSources: Record<HeartbeatSeedSource, unknown | null>;
+  priorDecisions: HeartbeatPriorDecision[];
   optionalData: Record<string, unknown>;
 };
 
@@ -97,6 +106,9 @@ export type HeartbeatSeedDataProviders = {
   getNewsHeadlinesAndSummaries?: (
     request: HeartbeatSeedRequest,
   ) => Promise<NewsHeadlineSummary[] | unknown>;
+  getPriorDecisions?: (
+    request: HeartbeatSeedRequest,
+  ) => Promise<HeartbeatPriorDecision[]>;
   getOptionalData?: (request: OptionalSeedDataRequest) => Promise<unknown>;
 };
 

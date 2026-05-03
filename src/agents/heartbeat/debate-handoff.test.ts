@@ -164,6 +164,7 @@ function seedBundle(): HeartbeatSeedBundle {
       supermemoryContext: true,
       newsHeadlinesAndSummaries: true,
     },
+    priorDecisions: [],
     optionalData: {
       daysUntilEarnings: 12,
     },

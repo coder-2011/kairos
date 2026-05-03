@@ -59,6 +59,7 @@ function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
       supermemoryContext: null,
       newsHeadlinesAndSummaries: null,
     },
+    priorDecisions: [],
     optionalData: {},
   };
 }
@@ -82,6 +83,18 @@ describe("heartbeat seed bundle", () => {
             summary: "Potentially material deal headline.",
           },
         ]),
+        getPriorDecisions: vi.fn(async () => [
+          {
+            id: "prior_1",
+            memory:
+              "Heartbeat for branch pltr enterprise deals returned no_escalation: prior generic PLTR commentary was not useful.",
+            similarity: 0.8,
+            updatedAt: "2026-05-02T12:00:00.000Z",
+            metadata: {
+              type: "heartbeat_output",
+            },
+          },
+        ]),
       },
       fixedNow,
     );
@@ -100,6 +113,13 @@ describe("heartbeat seed bundle", () => {
           containerTag: "branch_pltr_enterprise_deals",
         },
       },
+      priorDecisions: [
+        {
+          id: "prior_1",
+          memory:
+            "Heartbeat for branch pltr enterprise deals returned no_escalation: prior generic PLTR commentary was not useful.",
+        },
+      ],
       optionalData: {},
     });
   });

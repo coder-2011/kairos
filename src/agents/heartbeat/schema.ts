@@ -54,6 +54,17 @@ export const heartbeatSeedBundleSchema = z
       supermemoryContext: z.unknown().nullable(),
       newsHeadlinesAndSummaries: z.unknown().nullable(),
     }),
+    priorDecisions: z.array(
+      z
+        .object({
+          id: z.string().optional(),
+          memory: z.string(),
+          similarity: z.number().optional(),
+          updatedAt: z.string().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        })
+        .strict(),
+    ),
     optionalData: z.record(z.string(), z.unknown()),
   })
   .strict();

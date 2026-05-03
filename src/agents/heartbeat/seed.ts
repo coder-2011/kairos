@@ -25,12 +25,14 @@ export async function buildHeartbeatSeedBundle(
     tickerMovement,
     supermemoryContext,
     newsHeadlinesAndSummaries,
+    priorDecisions,
   ] = await Promise.all([
     providers.getCurrentPrice?.(request) ?? null,
     providers.getRecentVolume?.(request) ?? null,
     providers.getTickerMovement?.(request) ?? null,
     providers.getSupermemoryContext?.(request) ?? null,
     providers.getNewsHeadlinesAndSummaries?.(request) ?? null,
+    providers.getPriorDecisions?.(request) ?? [],
   ]);
 
   const enabledOptionalSources = Object.entries(
@@ -68,6 +70,7 @@ export async function buildHeartbeatSeedBundle(
       supermemoryContext,
       newsHeadlinesAndSummaries,
     },
+    priorDecisions,
     optionalData,
   };
 }
