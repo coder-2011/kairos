@@ -178,6 +178,14 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
+const dataPacketTypeOptions = [
+  "ticker",
+  "sector",
+  "law",
+  "branch",
+  "source",
+  "catalyst",
+] as const;
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
