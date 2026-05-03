@@ -158,6 +158,8 @@ function seedBundle(): HeartbeatSeedBundle {
     timestamp: "2026-01-02T03:04:05.000Z",
     law: "Watch configured equities for potentially useful developments.",
     assets: ["AAPL", "MSFT"],
+    supermemoryContainerTag: "branch_branch_a",
+    supermemoryProfileContainerTag: "branch_profile_branch_a",
     seedWindowDays: 30,
     defaultSources: {
       currentPrice: true,
