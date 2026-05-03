@@ -463,6 +463,9 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     await context.store.appendRunEvent(run.id, event);
   }
   const completed = await context.store.updateRun(run.id, { status: "succeeded", output: result.output });
+  if (completed) {
+    await applyTradingPolicyToDebate(context, completed, branch);
+  }
   await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "succeeded" } });
 
   return json({ run: completed }, 201);
@@ -492,16 +495,63 @@ async function getPortfolio(
     return refreshPortfolio(context);
   }
 
+  const [snapshot, snapshots, brokerOrders, tradeIntents, messages] =
+    await Promise.all([
+      context.store.latestPortfolioSnapshot(),
+      context.store.listPortfolioSnapshots(),
+      context.store.listBrokerOrders(),
+      context.store.listTradeIntents(),
+      context.store.listMessages(),
+    ]);
+
   return json({
-    snapshot: await context.store.latestPortfolioSnapshot() ?? null,
-    snapshots: await context.store.listPortfolioSnapshots(),
+    portfolio: {
+      ...(snapshot ?? {
+        provider: "alpaca",
+        environment: "paper",
+        account: {},
+        positions: [],
+      }),
+      account: normalizePortfolioAccountForFrontend(snapshot?.account),
+      orders: brokerOrders,
+      tradeIntents,
+      messages,
+      paper: true,
+      status: snapshot ? "cached" : "not_configured",
+      updatedAt: snapshot?.capturedAt,
+    },
+    snapshot: snapshot ?? null,
+    snapshots,
+    brokerOrders,
+    tradeIntents,
+    messages,
   });
 }
 
 async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
   const snapshot = await getTradingBroker(context).getPortfolioSnapshot();
   const stored = await context.store.createPortfolioSnapshot(snapshot);
-  return json({ snapshot: stored }, 201);
+  const [brokerOrders, tradeIntents, messages] = await Promise.all([
+    context.store.listBrokerOrders(),
+    context.store.listTradeIntents(),
+    context.store.listMessages(),
+  ]);
+  return json({
+    portfolio: {
+      ...stored,
+      account: normalizePortfolioAccountForFrontend(stored.account),
+      orders: brokerOrders,
+      tradeIntents,
+      messages,
+      paper: true,
+      status: "ok",
+      updatedAt: stored.capturedAt,
+    },
+    snapshot: stored,
+    brokerOrders,
+    tradeIntents,
+    messages,
+  }, 201);
 }
 
 async function createTradeIntent(context: LocalApiContext, body: unknown): Promise<Response> {
@@ -789,6 +839,22 @@ function resolveTradingConfig(
   return {
     ...branchConfig?.trading,
     ...override,
+  };
+}
+
+function normalizePortfolioAccountForFrontend(account: unknown): JsonRecord {
+  if (!isJsonRecord(account)) return {};
+  return {
+    ...account,
+    cash: account.cash,
+    buying_power: account.buyingPower ?? account.buying_power,
+    portfolio_value: account.portfolioValue ?? account.portfolio_value,
+    equity: account.equity,
+    last_equity: account.lastEquity ?? account.last_equity,
+    unrealized_pl: account.unrealizedPl ?? account.unrealized_pl,
+    daytrade_count: account.daytradeCount ?? account.daytrade_count,
+    pattern_day_trader: account.patternDayTrader ?? account.pattern_day_trader,
+    account_blocked: account.accountBlocked ?? account.account_blocked,
   };
 }
 
