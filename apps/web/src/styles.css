@@ -1564,31 +1564,31 @@ select:focus:hover {
 }
 
 .monitoring-run-strip {
-  background: var(--surface);
+  background: var(--surface-lowest);
   border-bottom: 1px solid var(--outline-variant);
   flex: 0 0 auto;
-  padding: 10px;
+  padding: 12px;
 }
 
 .monitoring-run-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 280px;
+  gap: 8px;
+  max-height: 324px;
   overflow-y: auto;
 }
 
 .monitoring-run-item {
-  background: var(--surface-lowest);
+  background: var(--surface);
   border: 1px solid var(--outline-variant);
-  border-left: 3px solid var(--outline);
+  border-left: 4px solid var(--outline);
   border-radius: var(--radius-sm);
   color: var(--on-surface);
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  min-height: 74px;
-  padding: 8px;
+  gap: 4px;
+  min-height: 78px;
+  padding: 10px;
   text-align: left;
 }
 
@@ -1623,6 +1623,87 @@ select:focus:hover {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.monitoring-timeline-head {
+  align-items: center;
+  background: var(--surface-lowest);
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.monitoring-timeline-head span,
+.monitoring-timeline-head b {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.monitoring-summary {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.monitoring-health-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.monitoring-branch-row {
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.monitoring-branch-chip {
+  align-items: center;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  color: var(--on-surface);
+  display: inline-flex;
+  gap: 8px;
+  min-height: 30px;
+  max-width: 220px;
+  padding: 6px 8px;
+}
+
+.monitoring-branch-chip:hover {
+  border-color: var(--outline);
+}
+
+.monitoring-branch-chip span,
+.monitoring-branch-chip b {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.monitoring-branch-chip span {
+  color: var(--on-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitoring-branch-chip b {
+  background: var(--surface-container);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  padding: 2px 6px;
 }
 
 .monitoring-overview {
@@ -3060,7 +3141,11 @@ select:focus:hover {
   }
 
   .monitoring-run-list {
-    max-height: 180px;
+    max-height: 210px;
+  }
+
+  .monitoring-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .monitoring-facts {
