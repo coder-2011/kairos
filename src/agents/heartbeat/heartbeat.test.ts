@@ -1,13 +1,3 @@
-import {
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
 
 import { ExaApi } from "../../api/exa.js";
@@ -15,7 +5,6 @@ import { FinnhubApi, createFinnhubHeartbeatSeedProviders } from "../../api/finnh
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { validateKairosEnv } from "../../global/env.js";
 import { createEscalationEvent } from "./escalation.js";
-import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { getSupermemoryContainerTag } from "./memory.js";
 import { resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
@@ -409,58 +398,43 @@ describe("heartbeat scheduler", () => {
 });
 
 describe("heartbeat de-dupe", () => {
-  it("suppresses repeated escalation summaries within the last three heartbeat calls", () => {
-    const deduper = new HeartbeatEscalationDeduper(3);
-    const escalation: HeartbeatOutput = {
-      branch_id: "branch",
-      timestamp: "2026-05-03T12:00:00.000Z",
-      decision: "escalate",
-      summary: "PLTR contract may be material.",
-    };
-
-    expect(deduper.suppressDuplicate(escalation).decision).toBe("escalate");
-    expect(deduper.suppressDuplicate(escalation).decision).toBe("no_escalation");
-
-    for (let index = 0; index < 3; index += 1) {
-      deduper.suppressDuplicate({
-        ...escalation,
-        decision: "no_escalation",
-        summary: `No event ${index}`,
-      });
-    }
-
-    expect(deduper.suppressDuplicate(escalation).decision).toBe("escalate");
-  });
-
-  it("runHeartbeatOnce applies de-dupe before creating escalation events", async () => {
-    const deduper = new HeartbeatEscalationDeduper(3);
-    const model = {
-      generateText: vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
+  it("passes prior branch decisions into the model prompt for semantic duplicate suppression", async () => {
+    const generateText = vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
         output: {
           branch_id: "ignored",
           timestamp: "ignored",
-          decision: "escalate",
-          summary: "Same event.",
+          decision: "no_escalation",
+          summary: "Prior memory already covered this catalyst.",
         },
-      })),
-    };
+      }));
 
-    const first = await runHeartbeatOnce(branchConfig(), {
+    const result = await runHeartbeatOnce(branchConfig(), {
       model: {} as never,
-      generateText: model.generateText,
+      generateText,
       now: () => fixedNow,
-      deduper,
-    });
-    const second = await runHeartbeatOnce(branchConfig(), {
-      model: {} as never,
-      generateText: model.generateText,
-      now: () => fixedNow,
-      deduper,
+      seedProviders: {
+        getPriorDecisions: async () => [
+          {
+            id: "memory_prior_1",
+            memory:
+              "Heartbeat already processed the PLTR contract catalyst yesterday and did not need another escalation.",
+            similarity: 0.91,
+          },
+        ],
+      },
     });
 
-    expect(first.escalationEvent).not.toBeNull();
-    expect(second.output.decision).toBe("no_escalation");
-    expect(second.escalationEvent).toBeNull();
+    expect(result.escalationEvent).toBeNull();
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("memory_prior_1"),
+      }),
+    );
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("already processed the PLTR contract catalyst"),
+      }),
+    );
   });
 
   it("runHeartbeatOnce persists tool traces through the memory writer", async () => {
@@ -498,72 +472,6 @@ describe("heartbeat de-dupe", () => {
     });
   });
 
-  it("persists duplicate suppression frames to a local JSON file", () => {
-    const directory = mkdtempSync(join(tmpdir(), "kairos-dedupe-"));
-    const storePath = join(directory, "dedupe.json");
-    const escalation: HeartbeatOutput = {
-      branch_id: "branch",
-      timestamp: "2026-05-03T12:00:00.000Z",
-      decision: "escalate",
-      summary: "PLTR contract may be material.",
-    };
-
-    try {
-      expect(
-        new HeartbeatEscalationDeduper(3, storePath).suppressDuplicate(escalation)
-          .decision,
-      ).toBe("escalate");
-      expect(JSON.parse(readFileSync(storePath, "utf8"))).toMatchObject({
-        branches: {
-          branch: ["pltr contract may be material."],
-        },
-      });
-      expect(
-        new HeartbeatEscalationDeduper(3, storePath).suppressDuplicate(escalation)
-          .decision,
-      ).toBe("no_escalation");
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves corrupted duplicate suppression stores and reports the corruption", () => {
-    const directory = mkdtempSync(join(tmpdir(), "kairos-dedupe-"));
-    const storePath = join(directory, "dedupe.json");
-    const onStoreCorruption = vi.fn();
-
-    try {
-      writeFileSync(storePath, "{not valid json", "utf8");
-
-      const deduper = new HeartbeatEscalationDeduper(
-        3,
-        storePath,
-        onStoreCorruption,
-      );
-      const output = deduper.suppressDuplicate({
-        branch_id: "branch",
-        timestamp: "2026-05-03T12:00:00.000Z",
-        decision: "escalate",
-        summary: "PLTR contract may be material.",
-      });
-
-      expect(output.decision).toBe("escalate");
-      expect(onStoreCorruption).toHaveBeenCalledWith(
-        expect.objectContaining({
-          storePath,
-          preservedPath: expect.stringContaining("dedupe.json.corrupt-"),
-        }),
-      );
-      expect(readdirSync(directory)).toEqual(
-        expect.arrayContaining([
-          "dedupe.json",
-          expect.stringContaining("dedupe.json.corrupt-"),
-        ]),
-      );
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("API clients", () => {
