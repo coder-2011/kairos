@@ -12,20 +12,9 @@ export const informationToolNameSchema = z.enum([
   "supermemory_search",
 ]);
 
-export const informationContextSchema = z
-  .object({
-    ticker: z.string().optional(),
-    debateId: z.string().optional(),
-    lawId: z.string().optional(),
-    branchId: z.string().optional(),
-    containerTag: z.string().optional(),
-  })
-  .strict();
-
 export const informationRequestSchema = z
   .object({
     query: z.string().min(1),
-    context: informationContextSchema.optional(),
   })
   .strict();
 
@@ -60,6 +49,5 @@ export const informationResultSchema = z
   .object({
     summary: z.string().min(1),
     citations: z.array(citationSchema),
-    toolResults: z.array(informationToolResultSchema),
   })
   .strict();

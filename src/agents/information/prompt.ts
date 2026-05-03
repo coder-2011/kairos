@@ -25,7 +25,6 @@ export function buildInformationPlannerMessage(
   return JSON.stringify(
     {
       query: request.query,
-      context: request.context ?? {},
       availableTools: [
         "exa_search",
         "exa_research",

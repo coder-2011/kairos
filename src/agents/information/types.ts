@@ -1,7 +1,7 @@
 import type { Citation } from "../debate/types.js";
 import type { ExaApi } from "../../api/exa.js";
 import type { FinnhubApi } from "../../api/finnhub.js";
-import type { SupermemoryApi } from "../../api/supermemory.js";
+import type { GlobalMemoryApi } from "../../global/memory.js";
 
 export type InformationToolName =
   | "exa_search"
@@ -12,17 +12,8 @@ export type InformationToolName =
   | "finnhub_basic_financials"
   | "supermemory_search";
 
-export type InformationContext = {
-  ticker?: string;
-  debateId?: string;
-  lawId?: string;
-  branchId?: string;
-  containerTag?: string;
-};
-
 export type InformationRequest = {
   query: string;
-  context?: InformationContext;
 };
 
 export type InformationPlan = {
@@ -44,7 +35,6 @@ export type InformationToolResult = {
 export type InformationResult = {
   summary: string;
   citations: Citation[];
-  toolResults: InformationToolResult[];
 };
 
 export type StructuredInformationModel<T> = {
@@ -55,10 +45,19 @@ export type StructuredInformationModelProvider = {
   withStructuredOutput: <T>(schema: unknown) => StructuredInformationModel<T>;
 };
 
+export type InformationExaClient = Pick<ExaApi, "search" | "answer" | "contents">;
+export type InformationFinnhubClient = Pick<
+  FinnhubApi,
+  "quote" | "companyNews" | "basicFinancials"
+>;
+export type InformationSupermemoryClient = Pick<GlobalMemoryApi, "search">;
+
 export type InformationAgentDependencies = {
   model?: StructuredInformationModelProvider;
-  exa?: ExaApi;
-  finnhub?: FinnhubApi;
-  supermemory?: SupermemoryApi;
+  exa?: InformationExaClient;
+  finnhub?: InformationFinnhubClient;
+  memory?: InformationSupermemoryClient;
+  supermemory?: InformationSupermemoryClient;
+  supermemoryContainerTag?: string;
   now?: () => Date;
 };
