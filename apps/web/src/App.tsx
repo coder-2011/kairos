@@ -29,6 +29,7 @@ import {
   getRouterMessages,
   getTradeSymbols,
   getTradeIntents,
+  KairosApiError,
   triggerHeartbeat,
   sendRouterMessage,
   updateBranch,
@@ -489,7 +490,18 @@ export function App() {
       setSelectedRunId(run.id);
       navigate("monitoring", { runId: run.id });
       setLoadState("api");
-    } catch {
+    } catch (error) {
+      const failedRun = getRunFromApiError(error);
+      if (failedRun) {
+        setRuns((current) => [
+          failedRun,
+          ...current.filter((item) => item.id !== failedRun.id),
+        ]);
+        setSelectedRunId(failedRun.id);
+        navigate("monitoring", { runId: failedRun.id });
+        setLoadState("api");
+        return;
+      }
       navigate("monitoring");
       setLoadState("offline");
     }
@@ -635,6 +647,8 @@ export function App() {
             branch={selectedBranch}
             modelDefaults={modelDefaults}
             openRouterModels={openRouterModels}
+            tradeSymbolLoadState={tradeSymbolLoadState}
+            tradeSymbols={tradeSymbols}
             onEscalate={() => void startDebate(selectedBranch.id)}
             onRunHeartbeat={() => void runHeartbeat(selectedBranch.id)}
             onSave={(input) =>
@@ -671,7 +685,7 @@ function SideNav({
         <img
           alt="Kairos Command"
           className="brand-logo"
-          src="/kairos-logo.png"
+          src="/kairos-logo.svg"
         />
         <div>
           <div className="brand">KAIROS</div>
@@ -1577,6 +1591,24 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function getRunFromApiError(error: unknown): RunRecord | undefined {
+  if (!(error instanceof KairosApiError) || !isJsonRecord(error.body)) {
+    return undefined;
+  }
+
+  const run = error.body.run;
+  if (
+    !isJsonRecord(run) ||
+    typeof run.id !== "string" ||
+    typeof run.kind !== "string" ||
+    typeof run.status !== "string"
+  ) {
+    return undefined;
+  }
+
+  return run as RunRecord;
+}
+
 function BranchConfig({
   branch,
   modelDefaults,
@@ -2279,9 +2311,15 @@ function TradeSymbolDropdown({
   onChange: (symbols: string[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const options = mergeTradeSymbolOptions(catalog, assets, selected);
-  const optionSymbols = options.map((option) => option.symbol);
+  const [searchCatalog, setSearchCatalog] = useState<TradeSymbolRecord[]>([]);
+  const [searchLoadState, setSearchLoadState] = useState<LoadState>("api");
   const normalizedQuery = normalizeTickerInput(query);
+  const activeCatalog = normalizedQuery
+    ? mergeTradeSymbolRecords(catalog, searchCatalog)
+    : catalog;
+  const activeLoadState = normalizedQuery ? searchLoadState : loadState;
+  const options = mergeTradeSymbolOptions(activeCatalog, assets, selected);
+  const optionSymbols = options.map((option) => option.symbol);
   const visibleOptions = options.filter((option) => {
     if (!normalizedQuery) return true;
     return (
@@ -2296,6 +2334,34 @@ function TradeSymbolDropdown({
       : selected.length === 1
         ? selected[0]
         : `${selected.length} symbols selected`;
+
+  useEffect(() => {
+    if (!normalizedQuery) {
+      setSearchCatalog([]);
+      setSearchLoadState("api");
+      return;
+    }
+
+    let cancelled = false;
+    setSearchLoadState("loading");
+    getTradeSymbols({ query: normalizedQuery, limit: 50 })
+      .then((symbols) => {
+        if (!cancelled) {
+          setSearchCatalog(symbols);
+          setSearchLoadState("api");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSearchCatalog([]);
+          setSearchLoadState("offline");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedQuery]);
 
   function toggle(symbol: string, checked: boolean) {
     const next = checked
@@ -2314,10 +2380,10 @@ function TradeSymbolDropdown({
           placeholder="Search Alpaca symbols"
           value={query}
         />
-        {loadState === "loading" && (
+        {activeLoadState === "loading" && (
           <span className="empty-option">Loading Alpaca symbol catalog.</span>
         )}
-        {loadState === "offline" && catalog.length === 0 && (
+        {activeLoadState === "offline" && activeCatalog.length === 0 && (
           <span className="empty-option">Alpaca symbols unavailable. Add tracked tickers manually.</span>
         )}
         {visibleOptions.length === 0 ? (
@@ -2352,7 +2418,7 @@ function EvidencePane({
   run,
 }: {
   events: RunEventRecord[];
-  onClose: () => void;
+  onClose?: () => void;
   run?: RunRecord;
 }) {
   const selectedEvidence = events.find(
@@ -2366,8 +2432,8 @@ function EvidencePane({
   return (
     <section className="evidence pane medium">
       <PaneHeader
-        actionIcon="close"
-        actionIconLabel="Close evidence"
+        actionIcon={onClose ? "close" : undefined}
+        actionIconLabel={onClose ? "Close evidence" : undefined}
         icon="database"
         meta=""
         onActionIconClick={onClose}
@@ -2944,6 +3010,19 @@ function formatMoneyValue(value: unknown) {
     : "-";
 }
 
+function formatPercentValue(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  if (typeof numberValue !== "number" || !Number.isFinite(numberValue)) return "-";
+  const sign = numberValue > 0 ? "+" : "";
+  return `${sign}${numberValue.toFixed(2)}%`;
+}
+
 function formatTimestamp(value: unknown) {
   return typeof value === "string" && value.length > 0 ? timeOnly(value) : "-";
 }
@@ -2992,52 +3071,61 @@ function normalizeTickerInput(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
 }
 
+function mergeSymbolSelection(...groups: string[][]): string[] {
+  return [...new Set(groups.flat().map(normalizeTickerInput).filter(Boolean))];
+}
+
 function normalizeSymbolSelection(symbols: string[], assets: string[]): string[] {
   const assetSet = new Set(assets.map(normalizeTickerInput));
   return [...new Set(symbols.map(normalizeTickerInput).filter(Boolean))]
     .filter((symbol) => assetSet.size === 0 || assetSet.has(symbol));
 }
 
+type TradeSymbolOption = Partial<TradeSymbolRecord> & {
+  symbol: string;
+};
+
+function mergeTradeSymbolRecords(
+  ...groups: TradeSymbolRecord[][]
+): TradeSymbolRecord[] {
+  const records = new Map<string, TradeSymbolRecord>();
+  for (const record of groups.flat()) {
+    const symbol = normalizeTickerInput(record.symbol);
+    if (symbol) records.set(symbol, { ...record, symbol });
+  }
+  return [...records.values()];
+}
+
 function mergeTradeSymbolOptions(
   catalog: TradeSymbolRecord[],
   assets: string[],
   selected: string[],
-): TradeSymbolRecord[] {
-  const bySymbol = new Map<string, TradeSymbolRecord>();
-  for (const symbol of catalog) {
-    bySymbol.set(normalizeTickerInput(symbol.symbol), symbol);
+): TradeSymbolOption[] {
+  const selectedSet = new Set(selected.map(normalizeTickerInput));
+  const options = new Map<string, TradeSymbolOption>();
+
+  for (const record of catalog) {
+    const symbol = normalizeTickerInput(record.symbol);
+    if (symbol) options.set(symbol, { ...record, symbol });
   }
 
-  const orderedSymbols = [...assets, ...selected].filter(
-    (value, index, all) =>
-      value &&
-      all.findIndex((item) => normalizeTickerInput(item) === normalizeTickerInput(value)) === index,
-  );
-
-  const result: TradeSymbolRecord[] = [];
-  const added = new Set<string>();
-
-  for (const value of orderedSymbols) {
-    const symbol = normalizeTickerInput(value);
-    if (!symbol || added.has(symbol)) continue;
-    added.add(symbol);
-    result.push(
-      bySymbol.get(symbol) ?? {
+  for (const symbol of mergeSymbolSelection(assets, selected)) {
+    if (!options.has(symbol)) {
+      options.set(symbol, {
         symbol,
-        tradable: false,
-        source: "alpaca",
-      },
-    );
+        name: assets.includes(symbol) ? "Tracked ticker" : "Selected ticker",
+      });
+    }
   }
 
-  for (const item of catalog) {
-    const symbol = normalizeTickerInput(item.symbol);
-    if (!symbol || added.has(symbol)) continue;
-    added.add(symbol);
-    result.push(item);
-  }
-
-  return result;
+  return [...options.values()].sort((left, right) => {
+    const selectedDelta =
+      Number(selectedSet.has(right.symbol)) - Number(selectedSet.has(left.symbol));
+    if (selectedDelta !== 0) return selectedDelta;
+    const tradableDelta = Number(right.tradable) - Number(left.tradable);
+    if (tradableDelta !== 0) return tradableDelta;
+    return left.symbol.localeCompare(right.symbol);
+  });
 }
 
 function parseHeartbeatIntervalMinutes(value: string): number | undefined {
