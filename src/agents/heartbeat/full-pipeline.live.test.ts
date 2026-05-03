@@ -14,13 +14,14 @@ import {
   validateKairosEnv,
 } from "../../api/index.js";
 import { createInformationDebateTool } from "../information/tool.js";
+import { resolveDebatePrompts } from "../debate/prompt.js";
 import {
   createHeartbeatSeedProviders,
   createHeartbeatTools,
   runHeartbeatThenDebate,
 } from "./index.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
-import { buildHeartbeatUserMessage } from "./prompt.js";
+import { buildHeartbeatUserMessage, resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
 import type { BranchConfig } from "./types.js";
 
@@ -131,6 +132,7 @@ describeIfLive("heartbeat full live pipeline", () => {
               supermemory,
             }),
             maxToolSteps: 3,
+            prompts: resolveHeartbeatPrompts(),
             deduper: new HeartbeatEscalationDeduper(
               3,
               join(tempDir, "heartbeat-dedupe.json"),
@@ -154,6 +156,7 @@ describeIfLive("heartbeat full live pipeline", () => {
                 supermemoryContainerTag: containerTag,
               }),
             },
+            prompts: resolveDebatePrompts(),
           },
           {
             budgets: {

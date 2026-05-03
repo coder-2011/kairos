@@ -6,6 +6,7 @@ import { createOpenRouterChatModelForRole } from "../../api/index.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { createInformationDebateTool } from "../information/tool.js";
 import { runDebateAgent } from "./agent.js";
+import { resolveDebatePrompts } from "./prompt.js";
 import type {
   DebateAgentOutput,
   DebateDecision,
@@ -237,6 +238,7 @@ describe("debate live integrations", () => {
             exa_research: exaResearchTool,
             information: informationTool,
           },
+          prompts: resolveDebatePrompts(),
         },
       );
 

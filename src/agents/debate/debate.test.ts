@@ -7,6 +7,7 @@ import {
   createMessageEvent,
   createToolEvent,
 } from "./events.js";
+import { resolveDebatePrompts } from "./prompt.js";
 import type {
   DebateAgentOutput,
   DebateDecision,
@@ -85,6 +86,7 @@ describe("debate agent", () => {
       {
         now: () => fixedNow,
         id: () => "tool-event-1",
+        allowDeterministicFallback: true,
         tools: {
           information,
         },
@@ -264,6 +266,23 @@ describe("debate agent", () => {
     expect(firstSystemPrompt(final.invoke)).toBe("CUSTOM FINAL SYSTEM");
   });
 
+  it("resolves configurable debate system prompts from the environment", () => {
+    expect(
+      resolveDebatePrompts({
+        KAIROS_DEBATE_JUDGE_SYSTEM_PROMPT: "ENV JUDGE",
+        KAIROS_DEBATE_BULL_SYSTEM_PROMPT: "ENV BULL",
+        KAIROS_DEBATE_BEAR_SYSTEM_PROMPT: "ENV BEAR",
+        KAIROS_DEBATE_FINAL_SYSTEM_PROMPT: "ENV FINAL",
+      }),
+    ).toEqual({
+      judgeSystemPrompt: "ENV JUDGE",
+      bullSystemPrompt: "ENV BULL",
+      bearSystemPrompt: "ENV BEAR",
+      finalSystemPrompt: "ENV FINAL",
+    });
+    expect(resolveDebatePrompts({})).toBeUndefined();
+  });
+
   it("passes human interjections through as unverified context", async () => {
     const result = await runDebateAgent(
       {
@@ -278,6 +297,7 @@ describe("debate agent", () => {
       },
       {
         now: () => fixedNow,
+        allowDeterministicFallback: true,
       },
     );
 
@@ -300,6 +320,7 @@ describe("debate agent", () => {
       {
         now: () => fixedNow,
         id: () => "stream-tool-event-1",
+        allowDeterministicFallback: true,
       },
     )) {
       chunks.push(chunk);

@@ -6,6 +6,7 @@ import { createOpenRouterChatModelForRole } from "../../api/index.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
 import { createInformationDebateTool } from "../information/tool.js";
 import { runDebateAgent } from "./agent.js";
+import { resolveDebatePrompts } from "./prompt.js";
 import type { DebateTool, StructuredDebateModelProvider } from "./types.js";
 
 const liveTestsEnabled =
@@ -92,6 +93,7 @@ describe("forced researched debate scenario", () => {
           tools: {
             information: informationTool,
           },
+          prompts: resolveDebatePrompts(),
         },
       );
 

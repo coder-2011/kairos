@@ -1,7 +1,7 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
-import { observe } from "../../global/observability.js";
+import { getAgentRunId, observe } from "../../global/index.js";
 import { executeGlobalTool, type GlobalToolName } from "../../global/tools.js";
 import {
   BEAR_SYSTEM_PROMPT,
@@ -201,6 +201,21 @@ function deterministicFinalDecision(state: DebateState): DebateDecision {
   };
 }
 
+function requireDeterministicFallback(
+  deps: DebateGraphDependencies,
+  role: "judge" | "bull" | "bear" | "final",
+): void {
+  if (!deps.allowDeterministicFallback) {
+    throw new Error(
+      [
+        `Debate ${role} model is required.`,
+        "Deterministic fallback is disabled because it does not preserve enough production functionality.",
+        "Pass all debate models, or explicitly set allowDeterministicFallback for tests and dry-runs.",
+      ].join(" "),
+    );
+  }
+}
+
 function uniqueCitations(
   citations: DebateDecision["citations"],
 ): DebateDecision["citations"] {
@@ -242,6 +257,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         toolEventCount: state.toolEvents.length,
       },
     });
+    if (!deps.models?.judge) {
+      requireDeterministicFallback(deps, "judge");
+    }
     const rawPlan = deps.models?.judge
       ? await invokeStructured<JudgePlan>(
           deps.models.judge,
@@ -297,6 +315,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           toolCallsUsed: state.budgets.toolCallsUsed,
         },
       });
+      if (!deps.models?.[role]) {
+        requireDeterministicFallback(deps, role);
+      }
       const rawOutput = deps.models?.[role]
         ? await invokeStructured<DebateAgentOutput>(
             deps.models[role],
@@ -527,6 +548,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         toolEventCount: state.toolEvents.length,
       },
     });
+    if (!deps.models?.final) {
+      requireDeterministicFallback(deps, "final");
+    }
     const rawDecision = deps.models?.final
       ? await invokeStructured<DebateDecision>(
           deps.models.final,
@@ -600,22 +624,24 @@ export async function runDebateAgent(
   config: DebateRunConfig,
   deps: DebateGraphDependencies = {},
 ): Promise<DebateRunResult> {
+  const runId = getAgentRunId("debate", deps.runId);
+  const runDeps = { ...deps, runId };
   const startInput = debateStartInputSchema.parse(config.startInput);
   const humanInterjections = (config.humanInterjections ?? []).map((item) =>
     humanInterjectionSchema.parse(item),
   );
-  const now = isoNow(deps);
-  const graph = createDebateGraph(deps);
+  const now = isoNow(runDeps);
+  const graph = createDebateGraph(runDeps);
   const budgets = {
     ...defaultDebateBudgets,
     ...config.budgets,
     turnsUsed: 0,
     toolCallsUsed: 0,
   };
-  await observe(deps.observer, {
+  await observe(runDeps.observer, {
     agent: "debate",
     type: "run_start",
-    runId: deps.runId,
+    runId,
     branchId: branchIdFromStartInput(startInput),
     payload: {
       debateId: config.debateId,
@@ -641,10 +667,10 @@ export async function runDebateAgent(
   );
 
   const finalDecision = debateDecisionSchema.parse(result.finalDecision);
-  await observe(deps.observer, {
+  await observe(runDeps.observer, {
     agent: "debate",
     type: "run_complete",
-    runId: deps.runId,
+    runId,
     branchId: branchIdFromStartInput(startInput),
     payload: {
       debateId: result.debateId,
@@ -686,12 +712,14 @@ export async function* streamDebateAgentUpdates(
   config: DebateRunConfig,
   deps: DebateGraphDependencies = {},
 ) {
+  const runId = getAgentRunId("debate", deps.runId);
+  const runDeps = { ...deps, runId };
   const startInput = debateStartInputSchema.parse(config.startInput);
   const humanInterjections = (config.humanInterjections ?? []).map((item) =>
     humanInterjectionSchema.parse(item),
   );
-  const now = isoNow(deps);
-  const graph = createDebateGraph(deps);
+  const now = isoNow(runDeps);
+  const graph = createDebateGraph(runDeps);
   const budgets = {
     ...defaultDebateBudgets,
     ...config.budgets,

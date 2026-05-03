@@ -148,6 +148,11 @@ export type DebateGraphDependencies = {
   id?: () => string;
   observer?: AgentObserver;
   runId?: string;
+  /**
+   * Production default is false. Enable only for tests, fixtures, local dry-runs,
+   * or UI demos where deterministic debate behavior is explicitly desired.
+   */
+  allowDeterministicFallback?: boolean;
 };
 
 export type PendingToolRequest = DebateToolRequest & {

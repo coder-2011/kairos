@@ -1,10 +1,18 @@
 import type {
   DebateMessage,
+  DebatePromptSet,
   DebateStartInput,
   DebateToolEvent,
   HumanInterjection,
   JudgePlan,
 } from "./types.js";
+
+export const DEBATE_PROMPT_ENV = {
+  judgeSystemPrompt: "KAIROS_DEBATE_JUDGE_SYSTEM_PROMPT",
+  bullSystemPrompt: "KAIROS_DEBATE_BULL_SYSTEM_PROMPT",
+  bearSystemPrompt: "KAIROS_DEBATE_BEAR_SYSTEM_PROMPT",
+  finalSystemPrompt: "KAIROS_DEBATE_FINAL_SYSTEM_PROMPT",
+} as const;
 
 export const JUDGE_SYSTEM_PROMPT = [
   "You are the Kairos debate judge.",
@@ -100,4 +108,21 @@ export function buildDebateContextMessage(input: {
     null,
     2,
   );
+}
+
+export function resolveDebatePrompts(
+  env: NodeJS.ProcessEnv = process.env,
+): DebatePromptSet | undefined {
+  const prompts: DebatePromptSet = {};
+  const judgeSystemPrompt = env[DEBATE_PROMPT_ENV.judgeSystemPrompt];
+  const bullSystemPrompt = env[DEBATE_PROMPT_ENV.bullSystemPrompt];
+  const bearSystemPrompt = env[DEBATE_PROMPT_ENV.bearSystemPrompt];
+  const finalSystemPrompt = env[DEBATE_PROMPT_ENV.finalSystemPrompt];
+
+  if (judgeSystemPrompt) prompts.judgeSystemPrompt = judgeSystemPrompt;
+  if (bullSystemPrompt) prompts.bullSystemPrompt = bullSystemPrompt;
+  if (bearSystemPrompt) prompts.bearSystemPrompt = bearSystemPrompt;
+  if (finalSystemPrompt) prompts.finalSystemPrompt = finalSystemPrompt;
+
+  return Object.keys(prompts).length > 0 ? prompts : undefined;
 }

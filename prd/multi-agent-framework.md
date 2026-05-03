@@ -502,6 +502,14 @@ Each debate should have explicit budgets:
 - Max wall-clock runtime.
 - Max model spend estimate.
 - Max external API calls.
+- Debate system prompt overrides for `judge`, `bull`, `bear`, and `final`.
+
+Version 1 environment override names:
+
+- `KAIROS_DEBATE_JUDGE_SYSTEM_PROMPT`
+- `KAIROS_DEBATE_BULL_SYSTEM_PROMPT`
+- `KAIROS_DEBATE_BEAR_SYSTEM_PROMPT`
+- `KAIROS_DEBATE_FINAL_SYSTEM_PROMPT`
 
 Default version 1 budgets can be conservative:
 
@@ -560,6 +568,7 @@ The UI should support live updates from the event log. Server-sent events or Web
 - Add Exa normal search.
 - Add Exa deep research.
 - Add the `information` tool as the general interface for source reading, company news, SEC filings, recent-news lookup, and other retrieval tasks.
+- Keep the information planner and synthesis system prompts as code-owned defaults for now; do not expose those as prompt overrides in v1.
 - Preserve raw outputs as local artifacts and summaries as event payloads.
 
 ### Phase 3: Live Observability UI
