@@ -33,21 +33,27 @@ export async function buildHeartbeatSeedBundle(
     providers.getNewsHeadlinesAndSummaries?.(request) ?? null,
   ]);
 
-  const optionalData: Record<string, unknown> = {};
   const enabledOptionalSources = Object.entries(
     branch.seededData?.optionalSources ?? {},
   ).filter(([, enabled]) => enabled);
+  const getOptionalData = providers.getOptionalData;
 
-  if (providers.getOptionalData && enabledOptionalSources.length > 0) {
-    await Promise.all(
-      enabledOptionalSources.map(async ([sourceKey]) => {
-        optionalData[sourceKey] = await providers.getOptionalData?.({
-          ...request,
-          sourceKey,
-        });
-      }),
-    );
-  }
+  const optionalData =
+    getOptionalData && enabledOptionalSources.length > 0
+      ? Object.fromEntries(
+          await Promise.all(
+            enabledOptionalSources.map(async ([sourceKey]) => {
+              return [
+                sourceKey,
+                await getOptionalData({
+                  ...request,
+                  sourceKey,
+                }),
+              ] as const;
+            }),
+          ),
+        )
+      : {};
 
   return {
     branchId: branch.id,

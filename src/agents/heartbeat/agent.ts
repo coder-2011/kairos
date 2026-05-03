@@ -1,4 +1,9 @@
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
 import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
@@ -22,11 +27,26 @@ type StructuredHeartbeatModel = {
   ) => {
     invoke: (input: unknown) => Promise<unknown>;
   };
+  bindTools?: (tools: HeartbeatTool[]) => {
+    invoke: (input: BaseMessage[]) => Promise<{
+      tool_calls?: Array<{
+        id?: string;
+        name: string;
+        args: unknown;
+      }>;
+    }>;
+  };
+};
+
+export type HeartbeatTool = {
+  name: string;
+  invoke: (input: never) => Promise<unknown>;
 };
 
 export type HeartbeatAgentDependencies = {
   model: StructuredHeartbeatModel;
   seedProviders?: HeartbeatSeedDataProviders;
+  tools?: HeartbeatTool[];
   now?: () => Date;
 };
 
@@ -62,11 +82,13 @@ export function createHeartbeatAgentGraph(deps: HeartbeatAgentDependencies) {
       throw new Error("Heartbeat seed bundle was not built before model call.");
     }
 
-    const structuredModel = deps.model.withStructuredOutput(heartbeatOutputSchema);
-    const rawOutput = await structuredModel.invoke([
+    const messages = await runBoundedToolPass(deps.model, deps.tools ?? [], [
       new SystemMessage(HEARTBEAT_SYSTEM_PROMPT),
       new HumanMessage(buildHeartbeatUserMessage(state.seedBundle)),
     ]);
+
+    const structuredModel = deps.model.withStructuredOutput(heartbeatOutputSchema);
+    const rawOutput = await structuredModel.invoke(messages);
     const parsed = heartbeatOutputSchema.parse(rawOutput);
 
     return {
@@ -85,6 +107,42 @@ export function createHeartbeatAgentGraph(deps: HeartbeatAgentDependencies) {
     .addEdge("buildSeedBundle", "callHeartbeatModel")
     .addEdge("callHeartbeatModel", END)
     .compile();
+}
+
+async function runBoundedToolPass(
+  model: StructuredHeartbeatModel,
+  tools: HeartbeatTool[],
+  messages: BaseMessage[],
+): Promise<BaseMessage[]> {
+  if (!model.bindTools || tools.length === 0) {
+    return messages;
+  }
+
+  const toolModel = model.bindTools(tools);
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+  const response = await toolModel.invoke(messages);
+  const toolCalls = response.tool_calls ?? [];
+
+  if (toolCalls.length === 0) {
+    return messages;
+  }
+
+  const toolMessages = await Promise.all(
+    toolCalls.map(async (toolCall) => {
+      const selectedTool = toolsByName.get(toolCall.name);
+      const content = selectedTool
+        ? JSON.stringify(await selectedTool.invoke(toolCall.args as never))
+        : `Unknown tool: ${toolCall.name}`;
+
+      return new ToolMessage({
+        content,
+        name: toolCall.name,
+        tool_call_id: toolCall.id ?? toolCall.name,
+      });
+    }),
+  );
+
+  return [...messages, ...toolMessages];
 }
 
 export async function runHeartbeatAgent(
