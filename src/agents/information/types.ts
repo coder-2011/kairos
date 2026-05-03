@@ -103,6 +103,8 @@ export type InformationAgentDependencies = {
   memory?: InformationSupermemoryClient;
   supermemory?: InformationSupermemoryClient;
   supermemoryContainerTag?: string;
+  maxToolCalls?: number;
+  enabledTools?: Partial<Record<InformationToolName, boolean>>;
   now?: () => Date;
   observer?: AgentObserver;
   runId?: string;

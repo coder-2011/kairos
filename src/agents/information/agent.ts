@@ -310,6 +310,15 @@ function deterministicSynthesis(toolResults: InformationToolResult[]): Informati
   };
 }
 
+function getEnabledToolNames(
+  registry: GlobalToolRegistry,
+  deps: InformationAgentDependencies,
+): InformationToolName[] {
+  return Object.keys(registry).filter((toolName): toolName is InformationToolName => {
+    return deps.enabledTools?.[toolName as InformationToolName] !== false;
+  });
+}
+
 export function createInformationAgentGraph(
   deps: InformationAgentDependencies = {},
 ) {
@@ -322,6 +331,7 @@ export function createInformationAgentGraph(
       deps.supermemoryContainerTag ?? GLOBAL_MEMORY_CONTAINER_TAG,
     now: deps.now,
   });
+  const enabledToolNames = getEnabledToolNames(registry, deps);
 
   const planNode = async (
     state: InformationStateType,
@@ -345,6 +355,7 @@ export function createInformationAgentGraph(
             new HumanMessage(
               buildInformationPlannerMessage(state.request, {
                 finnhubPremiumAccess: deps.finnhubPremiumAccess,
+                availableTools: enabledToolNames,
               }),
             ),
           ],
@@ -364,7 +375,9 @@ export function createInformationAgentGraph(
     return {
       plan: {
         ...plan,
-        toolCalls: plan.toolCalls.slice(0, 5),
+        toolCalls: plan.toolCalls
+          .filter((toolCall) => enabledToolNames.includes(toolCall.toolName))
+          .slice(0, deps.maxToolCalls ?? 5),
       },
     };
   };

@@ -27,6 +27,7 @@ import type {
   HeartbeatSeedDataProviders,
   HeartbeatSeedPolicy,
   HeartbeatSeedSource,
+  HeartbeatToolName,
   HeartbeatToolTrace,
 } from "./types.js";
 import { createEscalationEvent } from "./escalation.js";
@@ -61,6 +62,7 @@ type HeartbeatGenerateText = (options: {
 export type HeartbeatAgentDependencies = {
   model: LanguageModel;
   prompts?: HeartbeatPromptSet;
+  enabledTools?: Partial<Record<HeartbeatToolName, boolean>>;
   seedProviders?: HeartbeatSeedDataProviders;
   tools?: ToolSet;
   maxToolSteps?: number;
@@ -134,7 +136,7 @@ export async function runHeartbeatAgent(
       model: deps.model,
       system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
       prompt: buildHeartbeatUserMessage(seedBundle),
-      tools: deps.tools,
+      tools: filterHeartbeatTools(deps.tools, deps.enabledTools),
       stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
       output: Output.object({
         schema: heartbeatOutputSchema,
@@ -202,6 +204,21 @@ function validateSeedBundleCompleteness(
       ].join(" "),
     );
   }
+}
+
+function filterHeartbeatTools(
+  tools: ToolSet | undefined,
+  enabledTools: Partial<Record<HeartbeatToolName, boolean>> | undefined,
+): ToolSet | undefined {
+  if (!tools || !enabledTools) {
+    return tools;
+  }
+
+  return Object.fromEntries(
+    Object.entries(tools).filter(([toolName]) => {
+      return enabledTools[toolName as HeartbeatToolName] !== false;
+    }),
+  ) as ToolSet;
 }
 
 function extractToolTraces(

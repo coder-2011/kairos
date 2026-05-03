@@ -9,6 +9,7 @@ import {
   kairosArtifactRecordSchema,
   kairosSourceRecordSchema,
 } from "./index.js";
+import { kairosBranchAgentConfigSchema } from "../global/agent-config.js";
 
 const fixedNow = new Date("2026-05-03T12:00:00.000Z");
 let tempDirs: string[] = [];
@@ -186,6 +187,45 @@ describe("LocalKairosStore events", () => {
 });
 
 describe("runtime schemas", () => {
+  it("validates branch agent configuration for frontend controls", () => {
+    expect(
+      kairosBranchAgentConfigSchema.parse({
+        assets: ["PLTR"],
+        heartbeat: {
+          intervalMinutes: 5,
+          seedWindowDays: 30,
+          maxToolSteps: 3,
+        },
+        prompts: {
+          debateBullSystemPrompt: "Argue the bull case.",
+        },
+        tools: {
+          finnhubPremiumAccess: true,
+          information: {
+            exa_search: { enabled: true, maxCallsPerRun: 2 },
+            finnhub_filings: { enabled: false },
+          },
+          debate: {
+            information: { enabled: true },
+          },
+        },
+        budgets: {
+          debateMaxTurns: 4,
+          debateMaxToolCalls: 3,
+          informationMaxToolCalls: 5,
+        },
+        thresholds: {
+          notifyConfidence: 0.75,
+          buyConfidence: 0.9,
+        },
+      }),
+    ).toMatchObject({
+      tools: {
+        finnhubPremiumAccess: true,
+      },
+    });
+  });
+
   it("validates UI-facing source and artifact records", () => {
     expect(
       kairosSourceRecordSchema.parse({

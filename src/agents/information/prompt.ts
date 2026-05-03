@@ -1,5 +1,6 @@
 import type {
   InformationRequest,
+  InformationToolName,
   InformationToolResult,
 } from "./types.js";
 import { finnhubCatalogForAccess } from "../../global/finnhub-catalog.js";
@@ -61,14 +62,19 @@ export const INFORMATION_SYNTHESIS_SYSTEM_PROMPT = [
 
 export function buildInformationPlannerMessage(
   request: InformationRequest,
-  options: { finnhubPremiumAccess?: boolean } = {},
+  options: {
+    finnhubPremiumAccess?: boolean;
+    availableTools?: readonly InformationToolName[];
+  } = {},
 ): string {
+  const defaultTools = options.finnhubPremiumAccess
+    ? [...BASE_AVAILABLE_TOOLS, ...PREMIUM_AVAILABLE_TOOLS]
+    : BASE_AVAILABLE_TOOLS;
+
   return JSON.stringify(
     {
       query: request.query,
-      availableTools: options.finnhubPremiumAccess
-        ? [...BASE_AVAILABLE_TOOLS, ...PREMIUM_AVAILABLE_TOOLS]
-        : BASE_AVAILABLE_TOOLS,
+      availableTools: options.availableTools ?? defaultTools,
       finnhubPremiumAccess: options.finnhubPremiumAccess ?? false,
       finnhubRestEndpointCatalog: finnhubCatalogForAccess({
         premiumAccess: options.finnhubPremiumAccess ?? false,

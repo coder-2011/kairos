@@ -194,7 +194,7 @@ export const kairosBranchAgentConfigSchema = z
   })
   .strict();
 
-export type KairosModelRole = z.infer<typeof kairosModelRoleSchema>;
+export type KairosConfigModelRole = z.infer<typeof kairosModelRoleSchema>;
 export type KairosReasoningEffort = z.infer<typeof kairosReasoningEffortSchema>;
 export type HeartbeatToolName = z.infer<typeof heartbeatToolNameSchema>;
 export type DebateConfigToolName = z.infer<typeof debateToolNameSchema>;

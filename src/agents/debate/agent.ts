@@ -168,6 +168,10 @@ function hasToolImplementation(
   deps: DebateGraphDependencies,
   toolName: PendingToolRequest["toolName"],
 ): boolean {
+  if (deps.enabledTools?.[toolName] === false) {
+    return false;
+  }
+
   return Boolean(
     deps.tools?.[toolName] ??
       deps.globalTools?.[toolName as GlobalToolName],
@@ -409,6 +413,12 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     });
 
     try {
+      if (deps.enabledTools?.[state.pendingToolRequest.toolName] === false) {
+        throw new Error(
+          `Tool ${state.pendingToolRequest.toolName} is disabled for this debate.`,
+        );
+      }
+
       if (!debateTool && !globalTool) {
         throw new Error(
           `No implementation registered for tool ${state.pendingToolRequest.toolName}.`,

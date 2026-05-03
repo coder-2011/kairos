@@ -248,15 +248,18 @@ describe("information agent", () => {
       finnhubPremiumAccess: false,
     });
 
-    await expect(
-      registry.finnhub_api_request?.(
-        JSON.stringify({
-          method: "POST",
-          path: "/global-filings/search",
-          body: { query: "artificial intelligence", symbols: "AAPL" },
-        }),
-      ),
-    ).rejects.toThrow("premium endpoint");
+    const result = await registry.finnhub_api_request?.(
+      JSON.stringify({
+        method: "POST",
+        path: "/global-filings/search",
+        body: { query: "artificial intelligence", symbols: "AAPL" },
+      }),
+    );
+
+    expect(result?.summary).toContain("premium endpoint");
+    expect(result?.summary).toContain(
+      "Proceed with other completed tool results",
+    );
     expect(apiRequest).not.toHaveBeenCalled();
   });
 
@@ -327,6 +330,38 @@ describe("information agent", () => {
       urls: ["https://example.com/source"],
       maxCharacters: 10_000,
     });
+  });
+
+  it("applies configured information tool allowlists and max tool calls", async () => {
+    const plannerModel = fakeModel([
+      {
+        reasoning: "Try search first, then quote.",
+        toolCalls: [
+          {
+            toolName: "exa_search",
+            input: "PLTR latest news",
+          },
+          {
+            toolName: "finnhub_quote",
+            input: "PLTR",
+          },
+        ],
+      } satisfies InformationPlan,
+    ]);
+    const deps = fakeDeps({
+      plannerModel,
+      enabledTools: {
+        exa_search: false,
+      },
+      maxToolCalls: 1,
+    });
+
+    const result = await runInformationAgent("PLTR latest news", deps);
+
+    expect(result.summary).toContain("finnhub_quote");
+    expect(result.summary).not.toContain("exa_search");
+    expect(deps.exa?.search).not.toHaveBeenCalled();
+    expect(deps.finnhub?.quote).toHaveBeenCalledWith("PLTR");
   });
 
   it("summarizes tool failures instead of throwing", async () => {

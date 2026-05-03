@@ -16,6 +16,11 @@ export type HeartbeatToolTrace = {
   error?: string;
 };
 
+export type HeartbeatToolName =
+  | "supermemory_profile"
+  | "supermemory_search"
+  | "exa_news_search";
+
 export type HeartbeatPromptSet = {
   systemPrompt?: string;
 };
