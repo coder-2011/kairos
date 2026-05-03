@@ -1,10 +1,94 @@
 {
-  "steps": [],
+  "steps": [
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/01-empty-branches.png",
+      "cleanQuestion": "Is the empty branch table clean, clear, and free of clutter?",
+      "notes": "Initial state after cleanup.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    },
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/02-the-monitoring-config.png",
+      "cleanQuestion": "Is the branch configuration clean, scannable, and visually balanced after creating The monitoring?",
+      "notes": "Created and saved the requested branch.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    },
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/03-heartbeat-result.png",
+      "cleanQuestion": "Is the heartbeat failure/result state clean and understandable?",
+      "notes": "Ran heartbeat check from branch config.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    },
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/04-human-interjection-force-buttons.png",
+      "cleanQuestion": "Is the human interjection and decision-control area clean after use?",
+      "notes": "Injected human context and clicked WRONG, STALE, USEFUL controls.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    },
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/05-manual-debate.png",
+      "cleanQuestion": "Is the manual debate start/failure state clean and visible?",
+      "notes": "Started manual debate from branch config.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    },
+    {
+      "screenshot": "/Users/namanchetwani/Projects/kairos/data/runtime/qa/06-two-branches-config.png",
+      "cleanQuestion": "With two branches present, is the configuration UI still clean and not visually cramped?",
+      "notes": "Temporary second branch created for multi-branch routing QA.",
+      "fit": {
+        "innerWidth": 1600,
+        "innerHeight": 900,
+        "scrollWidth": 1600,
+        "scrollHeight": 900,
+        "canScrollX": false,
+        "canScrollY": false
+      }
+    }
+  ],
   "findings": [
+    {
+      "area": "console",
+      "severity": "medium",
+      "detail": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    },
     {
       "area": "qa-script",
       "severity": "high",
-      "detail": "page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5175/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:5175/\", waiting until \"domcontentloaded\"\u001b[22m\n\n    at /Users/namanchetwani/Projects/kairos/[eval1]:48:14"
+      "detail": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /^SEND$/i })\u001b[22m\n\n    at /Users/namanchetwani/Projects/kairos/[eval1]:97:55"
     }
   ]
 }
