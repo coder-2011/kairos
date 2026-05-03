@@ -5,6 +5,7 @@ export type TwilioSmsClientOptions = {
   authToken?: string;
   fromNumber?: string;
   toNumber?: string;
+  messagingServiceSid?: string;
 };
 
 export type SendSmsInput = {
@@ -24,23 +25,34 @@ export class TwilioSmsClient {
   private readonly authToken: string;
   private readonly fromNumber: string;
   private readonly toNumber: string;
+  private readonly messagingServiceSid: string;
 
   constructor(options: TwilioSmsClientOptions = {}) {
     this.accountSid = options.accountSid ?? process.env.TWILIO_ACCOUNT_SID ?? "";
     this.authToken = options.authToken ?? process.env.TWILIO_AUTH_TOKEN ?? "";
     this.fromNumber = options.fromNumber ?? process.env.TWILIO_FROM_NUMBER ?? "";
     this.toNumber = options.toNumber ?? process.env.TWILIO_TO_NUMBER ?? "";
+    this.messagingServiceSid =
+      options.messagingServiceSid ?? process.env.TWILIO_MESSAGING_SERVICE_SID ?? "";
   }
 
   get configured(): boolean {
-    return Boolean(this.accountSid && this.authToken && this.fromNumber && this.toNumber);
+    return Boolean(
+      this.accountSid &&
+        this.authToken &&
+        this.toNumber &&
+        (this.fromNumber || this.messagingServiceSid),
+    );
   }
 
   validateConfigured(): void {
     const missing = [
       ["TWILIO_ACCOUNT_SID", this.accountSid],
       ["TWILIO_AUTH_TOKEN", this.authToken],
-      ["TWILIO_FROM_NUMBER", this.fromNumber],
+      [
+        this.messagingServiceSid ? "TWILIO_MESSAGING_SERVICE_SID" : "TWILIO_FROM_NUMBER",
+        this.messagingServiceSid || this.fromNumber,
+      ],
       ["TWILIO_TO_NUMBER", this.toNumber],
     ]
       .filter(([, value]) => !value)
@@ -50,7 +62,7 @@ export class TwilioSmsClient {
       throw new Error(`Twilio SMS is not configured. Missing: ${missing.join(", ")}.`);
     }
 
-    if (normalizePhoneNumber(this.fromNumber) === normalizePhoneNumber(this.toNumber)) {
+    if (!this.messagingServiceSid && normalizePhoneNumber(this.fromNumber) === normalizePhoneNumber(this.toNumber)) {
       throw new Error("Twilio SMS is not configured. TWILIO_TO_NUMBER must be different from TWILIO_FROM_NUMBER.");
     }
   }
@@ -61,7 +73,9 @@ export class TwilioSmsClient {
     const client = twilio(this.accountSid, this.authToken);
     const message = await client.messages.create({
       body: formatSmsBody(input),
-      from: this.fromNumber,
+      ...(this.messagingServiceSid
+        ? { messagingServiceSid: this.messagingServiceSid }
+        : { from: this.fromNumber }),
       to: this.toNumber,
     });
 
@@ -69,7 +83,7 @@ export class TwilioSmsClient {
       sid: message.sid,
       status: message.status,
       to: this.toNumber,
-      from: this.fromNumber,
+      from: message.from,
     };
   }
 }
