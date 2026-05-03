@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createGlobalToolRegistry } from "../../global/tools.js";
 import {
+  finnhubEndpointCatalogForAccess,
   FINNHUB_REST_ENDPOINT_CATALOG,
   resolveKairosModelConfig,
 } from "../../global/index.js";
@@ -218,6 +219,7 @@ describe("information agent", () => {
     const message = buildInformationPlannerMessage({
       query: "Find AAPL filings and analyst estimates.",
     });
+    const parsed = JSON.parse(message);
 
     expect(FINNHUB_REST_ENDPOINT_CATALOG).toHaveLength(112);
     expect(message).not.toContain("/global-filings/search");
@@ -225,6 +227,35 @@ describe("information agent", () => {
     expect(message).not.toContain("/economic/code");
     expect(message).toContain("/stock/filings");
     expect(message).toContain("/country");
+    expect(parsed.toolCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "finnhub_api_request",
+          access: "mixed",
+          purpose: expect.stringContaining("documented Finnhub REST endpoints"),
+        }),
+        expect.objectContaining({
+          name: "finnhub_quote",
+          access: "free",
+          input: "Ticker symbol.",
+        }),
+      ]),
+    );
+    expect(parsed.toolCatalog).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "finnhub_ownership" }),
+      ]),
+    );
+    expect(parsed.finnhubApiRequestEndpointCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "filings",
+          path: "/stock/filings",
+          access: "free",
+          purpose: expect.stringContaining("sec filings"),
+        }),
+      ]),
+    );
   });
 
   it("passes the full documented Finnhub REST catalog into the planner when premium access is enabled", () => {
@@ -234,11 +265,36 @@ describe("information agent", () => {
       },
       { finnhubPremiumAccess: true },
     );
+    const parsed = JSON.parse(message);
 
     expect(message).toContain("/global-filings/search");
     expect(message).toContain("/stock/revenue-estimate");
     expect(message).toContain("/stock/usa-spending");
     expect(message).toContain("/economic/code");
+    expect(parsed.toolCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "finnhub_ownership",
+          access: "premium",
+        }),
+      ]),
+    );
+    expect(parsed.finnhubApiRequestEndpointCatalog).toHaveLength(
+      FINNHUB_REST_ENDPOINT_CATALOG.length,
+    );
+    expect(parsed.finnhubApiRequestEndpointCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "global_filings_search",
+          method: "POST",
+          path: "/global-filings/search",
+          access: "premium",
+        }),
+      ]),
+    );
+    expect(finnhubEndpointCatalogForAccess({ premiumAccess: false }).every(
+      (endpoint) => endpoint.access === "free",
+    )).toBe(true);
   });
 
   it("blocks generic Finnhub premium REST requests unless premium access is enabled", async () => {
