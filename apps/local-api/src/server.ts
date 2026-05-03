@@ -179,12 +179,12 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
-  dryRun: z.boolean().optional().default(true),
+  dryRun: z.boolean().optional().default(false),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const debateCreateSchema = z.object({
-  dryRun: z.boolean().optional().default(true),
+  dryRun: z.boolean().optional().default(false),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -201,7 +201,7 @@ const routerChatCreateSchema = z.object({
 
 const routerMessageCreateSchema = z.object({
   text: z.string().optional().default(""),
-  dryRun: z.boolean().optional().default(true),
+  dryRun: z.boolean().optional().default(false),
   attachments: z
     .array(
       z.object({
@@ -437,9 +437,8 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   let completed: RunRecord | undefined;
   try {
     completed = await runHeartbeatForBranch(context, branch, {
-      dryRun: input.dryRun,
       input: input.input,
-      metadataSource: input.dryRun ? "dry_run" : "runtime",
+      metadataSource: "runtime",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -457,7 +456,6 @@ async function runHeartbeatForBranch(
   context: LocalApiContext,
   branch: BranchRecord,
   options: {
-    dryRun: boolean;
     input: JsonRecord;
     metadataSource: string;
   },
@@ -470,20 +468,18 @@ async function runHeartbeatForBranch(
     kind: "heartbeat",
     status: "running",
     branchId: branch.id,
-    dryRun: options.dryRun,
     input: runPayload,
     metadata: { source: options.metadataSource },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "heartbeat", branchId: branch.id, dryRun: options.dryRun },
+    payload: { kind: "heartbeat", branchId: branch.id },
   });
 
   let result: HeartbeatRunResult;
   try {
     result = await context.runHeartbeat({
       branchId: branch.id,
-      dryRun: options.dryRun,
       payload: runPayload,
       branch,
     });
@@ -1910,7 +1906,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
   });
 
   return {
-    output: debateResultOutput(result, input.dryRun),
+    output: debateResultOutput(result),
     events: debateResultEvents(result, input.payload),
   };
 }
