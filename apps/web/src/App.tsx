@@ -95,13 +95,46 @@ const promptFields: Array<{
   },
 ];
 
-const modelRoleFields: Array<{ label: string; key: KairosConfigModelRole }> = [
-  { label: "Heartbeat", key: "heartbeat" },
-  { label: "Information Planner", key: "informationPlanner" },
-  { label: "Information Synthesis", key: "informationSynthesis" },
-  { label: "Debate Judge", key: "debateJudge" },
-  { label: "Debate Bull", key: "debateBull" },
-  { label: "Debate Bear", key: "debateBear" },
+const modelRoleFields: Array<{
+  label: string;
+  key: KairosConfigModelRole;
+  description: string;
+}> = [
+  {
+    label: "Heartbeat",
+    key: "heartbeat",
+    description: "Frequent branch monitor.",
+  },
+  {
+    label: "Information Planner",
+    key: "informationPlanner",
+    description: "Chooses search, research, market-data, and memory tools.",
+  },
+  {
+    label: "Information Synthesis",
+    key: "informationSynthesis",
+    description: "Turns tool results into compact cited context.",
+  },
+  {
+    label: "Debate Judge",
+    key: "debateJudge",
+    description: "Controls debate turns and stopping conditions.",
+  },
+  {
+    label: "Debate Bull",
+    key: "debateBull",
+    description: "Argues the positive/actionable case.",
+  },
+  {
+    label: "Debate Bear",
+    key: "debateBear",
+    description: "Argues the risk, stale, and priced-in case.",
+  },
+  {
+    label: "Debate Final",
+    key: "debateFinal",
+    description: "Produces the final structured decision.",
+  },
 ];
 
 const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
@@ -548,15 +581,6 @@ export function App() {
             title="No Branch Configuration"
           />
         )}
-        <Footer
-          active={
-            view === "monitoring"
-              ? "human"
-              : view === "runDeepDive"
-                ? "manual"
-                : "dry"
-          }
-        />
       </div>
     </div>
   );
@@ -628,10 +652,6 @@ function SideNav({
           </small>
         </span>
       </button>
-      <div className="operator-block">
-        <div className="operator-chip">SO</div>
-        <span>System Operator</span>
-      </div>
     </nav>
   );
 }
@@ -679,22 +699,8 @@ function TopBar({ loadState }: { loadState: LoadState }) {
             ? "SYNCING"
             : loadState === "api"
               ? "LOCAL API"
-              : "API OFFLINE"}
+            : "API OFFLINE"}
         </span>
-      </div>
-      <div className="top-actions">
-        <div className="icon-row">
-          <IconButton icon="sensors" label="Sensors" />
-          <IconButton icon="history" label="History" />
-          <IconButton icon="emergency" label="Emergency" />
-        </div>
-        <div className="divider" />
-        <button className="command-button primary" type="button">
-          PAUSE
-        </button>
-        <button className="command-button" type="button">
-          DISABLE
-        </button>
       </div>
     </header>
   );
@@ -712,7 +718,7 @@ function BranchList({
   onCreate: () => void;
 }) {
   const totalEscalations = branches.reduce(
-    (sum, branch) => sum + getEscalations(branch),
+    (sum, branch) => sum + getEscalations(branch, runs),
     0,
   );
 
@@ -794,9 +800,9 @@ function BranchList({
                     {String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}
                   </td>
                   <td
-                    className={`right ${getEscalations(branch) > 0 ? "danger-text" : ""}`}
+                    className={`right ${getEscalations(branch, runs) > 0 ? "danger-text" : ""}`}
                   >
-                    {getEscalations(branch)}
+                    {getEscalations(branch, runs)}
                   </td>
                 </tr>
               ))
@@ -973,7 +979,42 @@ function RouterMessageBubble({ message }: { message: RouterMessageRecord }) {
         <span>{timeOnly(message.createdAt)}</span>
       </div>
       <p>{message.text}</p>
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="router-tool-calls">
+          {message.toolCalls.map((toolCall) => (
+            <RouterToolCall call={toolCall} key={toolCall.id} />
+          ))}
+        </div>
+      )}
     </article>
+  );
+}
+
+function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
+  return (
+    <details className={`router-tool-call ${call.status}`}>
+      <summary>
+        <span>
+          <Icon name={toolCallIcon(call)} />
+          {humanizeRouterToolName(call.name)}
+        </span>
+        <b>{call.status}</b>
+      </summary>
+      <p>{call.summary}</p>
+      {(call.input || call.output || call.error) && (
+        <pre>
+          {JSON.stringify(
+            {
+              input: call.input,
+              output: call.output,
+              error: call.error,
+            },
+            null,
+            2,
+          )}
+        </pre>
+      )}
+    </details>
   );
 }
 
@@ -1421,7 +1462,7 @@ function RunModeSwitch({
   return (
     <div
       className="run-mode-switch"
-      title="Choose whether branch actions run the real agent path or deterministic dry-run fixtures."
+      title="Choose whether branch actions use the runtime agent path or dry-run validation path."
     >
       <button
         className={mode === "agent" ? "active" : ""}
@@ -1498,7 +1539,13 @@ function BranchConfig({
   return (
     <main className="config-canvas">
       <div className="editor-head sticky">
-        <h1>Branch Configuration</h1>
+        <div>
+          <h1>Branch Configuration</h1>
+          <p>
+            Editing {branch.name || branch.id}. Model roles, prompts, tools,
+            thresholds, and paper-order controls apply only to this branch.
+          </p>
+        </div>
         <div className="button-row">
           <RunModeSwitch mode={runMode} onChange={onRunModeChange} />
           <button className="command-button" onClick={onRunHeartbeat} type="button">
@@ -1541,6 +1588,7 @@ function BranchConfig({
               <FieldLabel label={field.role} key={field.key}>
                 <textarea
                   className="prompt-area"
+                  rows={5}
                   onChange={(event) =>
                     setConfig((current) => ({
                       ...current,
@@ -1567,12 +1615,12 @@ function BranchConfig({
                   : "Trading disabled"}
               </h2>
               <p>
-                Auto-buy is opt-in per branch. Live trading is not supported in
-                this UI.
+                Paper orders are opt-in per branch. Live order permissions stay
+                outside this configuration screen.
               </p>
             </div>
             <span className={paperAutoBuyEnabled ? "risk-pill enabled" : "risk-pill"}>
-              {paperAutoBuyEnabled ? "AUTO-BUY OPTED IN" : "AUTO-BUY OFF"}
+              {paperAutoBuyEnabled ? "AUTO ORDER OPTED IN" : "AUTO ORDER OFF"}
             </span>
           </div>
           <div className="trading-grid">
@@ -1600,8 +1648,8 @@ function BranchConfig({
                 ))}
               </select>
             </FieldLabel>
-            <FieldLabel label="Live Trading">
-              <input readOnly value="NOT SUPPORTED BY THIS UI" />
+            <FieldLabel label="Order Scope">
+              <input readOnly value="PAPER ACCOUNT ONLY" />
             </FieldLabel>
             <label className="checkbox-card">
               <input
@@ -1620,7 +1668,7 @@ function BranchConfig({
                 type="checkbox"
               />
               <span>
-                <b>Paper auto-buy enabled</b>
+                <b>Auto buy enabled</b>
                 <small>Allows backend paper orders after branch gates pass.</small>
               </span>
             </label>
@@ -1697,7 +1745,7 @@ function BranchConfig({
             </FieldLabel>
             <div className="threshold-inline">
               <Slider
-                label="Paper Buy Signal Threshold"
+                label="Buy Signal Threshold"
                 onChange={(value) =>
                   setConfig((current) => ({
                     ...current,
@@ -1715,10 +1763,17 @@ function BranchConfig({
         </section>
         <div>
           <div className="field-label">MODEL ROLE CONFIGURATION</div>
+          <p className="config-note">
+            Use OpenRouter model IDs. The effort selector is saved per role and
+            maps directly to that role's OpenRouter reasoning effort.
+          </p>
           <div className="model-grid">
             {modelRoleFields.map((field) => (
               <div className="model-row" key={field.key}>
-                <span>{field.label}</span>
+                <span>
+                  <b>{field.label}</b>
+                  <small>{field.description}</small>
+                </span>
                 <input
                   list="openrouter-models"
                   onChange={(event) =>
@@ -1733,7 +1788,7 @@ function BranchConfig({
                       },
                     }))
                   }
-                  placeholder="OpenRouter model id"
+                  placeholder="OpenRouter model ID"
                   value={config.models?.[field.key]?.model ?? ""}
                 />
                 <select
@@ -1770,6 +1825,12 @@ function BranchConfig({
               </option>
             ))}
           </datalist>
+          {openRouterModels.length === 0 && (
+            <p className="config-note">
+              Model list unavailable. You can still enter a known OpenRouter
+              model ID manually.
+            </p>
+          )}
         </div>
         <div className="config-grid">
           <FieldLabel label="Finnhub Access">
@@ -1969,7 +2030,7 @@ function BranchConfig({
             />
           </FieldLabel>
         </div>
-        <FieldLabel label="Research Seeding (Exa)">
+        <FieldLabel label="Search & Research Instruction (Exa)">
           <textarea
             onChange={(event) =>
               setConfig((current) => ({
@@ -1980,7 +2041,7 @@ function BranchConfig({
                 },
               }))
             }
-            placeholder="Persistent research instruction for this branch."
+            placeholder="Applied to both Exa search and Exa research calls for this branch."
             value={config.research?.exaInstruction ?? ""}
           />
         </FieldLabel>
@@ -2099,7 +2160,7 @@ function BranchConfig({
               value={`${notifyConfidence}%`}
             />
             <Slider
-              label="Paper Buy Signal Threshold"
+              label="Buy Signal Threshold"
               onChange={(value) =>
                 setConfig((current) => ({
                   ...current,
@@ -2132,7 +2193,7 @@ function EvidencePane({
       event.type.includes("source") ||
       event.type.includes("evidence"),
   );
-  const snapshot = selectedEvidence?.payload ?? run?.output ?? run?.input;
+  const snapshot = selectedEvidence?.payload;
 
   return (
     <section className="evidence pane medium">
@@ -2142,7 +2203,7 @@ function EvidencePane({
           <EmptyPanel
             icon="database"
             title="No Evidence Payload"
-            message="Tool, source, evidence, run input, or run output payloads will appear here."
+            message="Tool, source, and evidence event payloads from the selected run will appear here."
           />
         ) : (
           <>
@@ -2183,20 +2244,13 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
       <FieldLabel label="Notify Confidence">
         <input readOnly value={formatConfidence(thresholds?.notifyConfidence)} />
       </FieldLabel>
-      <FieldLabel label="Paper Buy Signal Threshold">
+      <FieldLabel label="Buy Signal Threshold">
         <input
           readOnly
           value={formatConfidence(
             thresholds?.paperTradeDraftConfidence ?? thresholds?.buyConfidence,
           )}
         />
-      </FieldLabel>
-      <FieldLabel label="Operational Mode">
-        <div className="mode-list">
-          <button className="selected" type="button">DRY RUN <Icon name="check_circle" /></button>
-          <button type="button">HUMAN INTERJECTION</button>
-          <button type="button">MANUAL ESCALATION</button>
-        </div>
       </FieldLabel>
     </section>
   );
@@ -2413,19 +2467,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function Footer({ active }: { active: "dry" | "human" | "manual" }) {
-  return (
-    <footer className="footer">
-      <span>KAIROS COMMAND CENTER | LATENCY: 24ms</span>
-      <div>
-        <a className={active === "dry" ? "active" : ""}>Dry Run</a>
-        <a className={active === "human" ? "active" : ""}>Human Interjection</a>
-        <a className={active === "manual" ? "active" : ""}>Manual Escalation</a>
-      </div>
-    </footer>
-  );
-}
-
 function IconButton({ icon, label }: { icon: string; label: string }) {
   return (
     <button className="icon-button" title={label} type="button">
@@ -2534,6 +2575,21 @@ function humanizeToolName(toolName: InformationConfigToolName): string {
     .join(" ");
 }
 
+function humanizeRouterToolName(toolName: string): string {
+  return toolName
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function toolCallIcon(call: RouterToolCallRecord): string {
+  if (call.status === "failed") return "error";
+  if (call.name.includes("heartbeat")) return "monitor_heart";
+  if (call.name.includes("inventory")) return "account_tree";
+  if (call.name.includes("exa")) return "travel_explore";
+  return "build";
+}
+
 function readStoredThemeMode(): ThemeMode {
   return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
 }
@@ -2549,9 +2605,10 @@ function getBranchStatus(branch: BranchRecord) {
   return status === "escalated" ? "escalated" : "running";
 }
 
-function getEscalations(branch: BranchRecord) {
-  const value = branch.metadata?.escalations;
-  return typeof value === "number" ? value : 0;
+function getEscalations(branch: BranchRecord, runs: RunRecord[]) {
+  return runs.filter(
+    (run) => run.branchId === branch.id && run.kind === "debate",
+  ).length;
 }
 
 function formatHeartbeat(branch: BranchRecord) {
