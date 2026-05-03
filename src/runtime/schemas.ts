@@ -115,6 +115,7 @@ export const kairosRunSchema = z
     escalationId: z.string().min(1).optional(),
     summary: z.string().optional(),
     error: z.string().optional(),
+    dryRun: z.boolean().optional(),
     input: z.unknown().optional(),
     output: z.unknown().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
