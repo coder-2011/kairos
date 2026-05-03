@@ -564,6 +564,74 @@ describe("local API handler", () => {
     });
   });
 
+  it("passes source-run human interjections into debate context", async () => {
+    const debatePayloads: unknown[] = [];
+    const { requestJson } = makeClient({
+      runHeartbeat: async ({ branchId, payload }) => ({
+        output: {
+          branchId,
+          decision: "escalate",
+          summary: "Material contract headline.",
+          escalationEvent: {
+            branchId,
+            summary: "Material contract headline.",
+          },
+        },
+        events: [
+          { type: "heartbeat.seeded", payload },
+          { type: "heartbeat.decision", payload: { decision: "escalate" } },
+        ],
+      }),
+      createDebate: async ({ payload }) => {
+        debatePayloads.push(payload);
+        return {
+          output: {
+            decision: "watch",
+            humanInterjections: payload.humanInterjections,
+          },
+          events: [{ type: "debate.created", payload }],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_deals",
+      name: "PLTR deals",
+    });
+    const heartbeat = await requestJson("POST", "/branches/branch_pltr_deals/heartbeat-runs", {
+      input: { ticker: "PLTR" },
+    });
+    const interjection = await requestJson(
+      "POST",
+      `/runs/${heartbeat.body.run.id}/interjections`,
+      { message: "This may be a recompete, not incremental demand." },
+    );
+
+    const debate = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_deals",
+        sourceRunId: heartbeat.body.run.id,
+        summary: "Material contract headline.",
+      },
+    });
+
+    expect(debate.status).toBe(201);
+    expect(debatePayloads[0]).toMatchObject({
+      sourceRunId: heartbeat.body.run.id,
+      humanInterjections: [
+        {
+          timestamp: interjection.body.event.timestamp,
+          summary: "This may be a recompete, not incremental demand.",
+        },
+      ],
+    });
+    expect(debate.body.run.input.humanInterjections).toEqual([
+      {
+        timestamp: interjection.body.event.timestamp,
+        summary: "This may be a recompete, not incremental demand.",
+      },
+    ]);
+  });
+
   it("streams historical run events as SSE", async () => {
     const { requestJson, request } = makeClient();
     const debate = await requestJson("POST", "/debates", {

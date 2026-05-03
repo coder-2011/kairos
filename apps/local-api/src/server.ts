@@ -21,6 +21,7 @@ import {
 } from "../../../src/agents/heartbeat/index.js";
 import {
   runDebateAgent,
+  type HumanInterjection,
   type DebateRunConfig,
   type DebateRunResult,
   type DebateStartInput,
@@ -715,6 +716,11 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   const input = debateCreateSchema.parse(body);
   const payload: JsonRecord = { ...input.input, escalation: input.escalation ?? input.input.escalation };
   const escalation = isJsonRecord(payload.escalation) ? payload.escalation : undefined;
+  const sourceRunId = firstNonEmptyString(
+    readString(payload.sourceRunId),
+    readString(escalation?.sourceRunId),
+    readString(escalation?.runId),
+  );
   const branchId =
     typeof payload.branchId === "string"
       ? payload.branchId
@@ -725,10 +731,18 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   const portfolioContext = compactPortfolioContext(
     await context.store.latestPortfolioSnapshot(),
   );
+  const humanInterjections = mergeHumanInterjections(
+    readHumanInterjections(payload.humanInterjections),
+    sourceRunId
+      ? await loadRunHumanInterjections(context, sourceRunId)
+      : [],
+  );
   const runPayload = {
     ...payload,
+    ...(sourceRunId ? { sourceRunId } : {}),
     ...(portfolioContext ? { portfolioContext } : {}),
     ...(branch ? { branch: branchRunContext(branch) } : {}),
+    ...(humanInterjections.length > 0 ? { humanInterjections } : {}),
   };
   const run = await context.store.createRun({
     kind: "debate",
@@ -2007,6 +2021,7 @@ function structuredModelProvider(
 
 function createLocalDebateRunConfig(input: DebateCreateInput): DebateRunConfig {
   const debateConfig = resolveDebateAgentConfig(input.branch?.config);
+  const humanInterjections = readHumanInterjections(input.payload.humanInterjections);
   return {
     debateId: safeId(
       firstNonEmptyString(
@@ -2016,11 +2031,63 @@ function createLocalDebateRunConfig(input: DebateCreateInput): DebateRunConfig {
       ) ?? `debate:${randomUUID()}`,
     ),
     startInput: createLocalDebateStartInput(input),
+    ...(humanInterjections.length > 0 ? { humanInterjections } : {}),
     budgets: {
       maxTurns: debateConfig.budgets?.maxTurns,
       maxToolCalls: debateConfig.budgets?.maxToolCalls,
     },
   };
+}
+
+async function loadRunHumanInterjections(
+  context: LocalApiContext,
+  runId: string,
+): Promise<HumanInterjection[]> {
+  const sourceRun = await context.store.getRun(runId);
+  if (!sourceRun) return [];
+
+  const events = await context.store.listRunEvents(runId);
+  return events.flatMap((event) => {
+    if (event.type !== "human.interjection") return [];
+    const summary = readString(event.payload.message) ?? readString(event.payload.summary);
+    if (!summary) return [];
+
+    return [{
+      timestamp: event.timestamp,
+      summary,
+    }];
+  });
+}
+
+function readHumanInterjections(value: unknown): HumanInterjection[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!isJsonRecord(item)) return [];
+    const summary = readString(item.summary) ?? readString(item.message);
+    if (!summary) return [];
+
+    return [{
+      timestamp: readString(item.timestamp) ?? new Date().toISOString(),
+      summary,
+    }];
+  });
+}
+
+function mergeHumanInterjections(
+  ...groups: HumanInterjection[][]
+): HumanInterjection[] {
+  const seen = new Set<string>();
+  const merged: HumanInterjection[] = [];
+
+  for (const item of groups.flat()) {
+    const key = `${item.timestamp}\n${item.summary}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+
+  return merged;
 }
 
 function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput {
@@ -2080,6 +2147,15 @@ function debateResultEvents(result: DebateRunResult, payload: JsonRecord): Appen
     ...result.toolEvents.map((event) => ({
       type: event.status === "failed" ? "debate.tool.failed" : "debate.tool.completed",
       payload: event as unknown as JsonRecord,
+    })),
+    ...result.humanInterjections.map((interjection) => ({
+      type: "human.interjection",
+      timestamp: interjection.timestamp,
+      payload: {
+        author: "human",
+        summary: interjection.summary,
+        source: "debate_context",
+      },
     })),
     ...(result.currentPlan
       ? [{ type: "debate.judge.plan", payload: result.currentPlan as unknown as JsonRecord }]
