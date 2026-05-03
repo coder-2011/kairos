@@ -1524,11 +1524,17 @@ function BranchConfig({
   );
   const [branchName, setBranchName] = useState(branch.name);
   const [lawText, setLawText] = useState(readLawText(branch));
+  const [draftVersion, setDraftVersion] = useState(0);
 
-  useEffect(() => {
-    setConfig(normalizeBranchConfig(branch));
+  function resetDraft() {
+    setConfig(cloneBranchConfig(normalizeBranchConfig(branch)));
     setBranchName(branch.name);
     setLawText(readLawText(branch));
+    setDraftVersion((current) => current + 1);
+  }
+
+  useEffect(() => {
+    resetDraft();
   }, [branch.id, branch.name, branch.config, branch.description, branch.law]);
 
   const heartbeatInterval = config.heartbeat?.intervalMinutes ?? 5;
@@ -1542,12 +1548,15 @@ function BranchConfig({
   const tradingMode = tradingConfig.mode ?? "disabled";
   const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
   const notifyOnBuySignal = tradingConfig.notifyOnBuySignal ?? true;
-  const tradeSymbol = tradingConfig.symbol ?? branchAssets[0] ?? "";
+  const selectedTradeSymbols = normalizeSymbolSelection(
+    tradingConfig.symbols ??
+      (tradingConfig.symbol ? [tradingConfig.symbol] : branchAssets.slice(0, 1)),
+    branchAssets,
+  );
   const maxNotionalPerOrder = tradingConfig.maxNotionalPerOrder ?? 500;
   const maxOpenPositionNotionalPerSymbol =
     tradingConfig.maxOpenPositionNotionalPerSymbol ?? 1_500;
   const allowedOrderType = tradingConfig.allowedOrderType ?? "market";
-  const dataPacketType = config.research?.dataPacketType ?? "ticker";
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -1569,15 +1578,11 @@ function BranchConfig({
             <Icon name="play_arrow" /> {runMode === "dry" ? "DRY" : "AGENT"} HEARTBEAT
           </button>
           <button className="command-button primary-outline" onClick={onEscalate} type="button">
-            <Icon name="warning" /> {runMode === "dry" ? "DRY" : "AGENT"} ESCALATION
+            <Icon name="forum" /> {runMode === "dry" ? "DRY" : "START"} DEBATE
           </button>
           <button
             className="command-button"
-            onClick={() => {
-              setConfig(normalizeBranchConfig(branch));
-              setBranchName(branch.name);
-              setLawText(readLawText(branch));
-            }}
+            onClick={resetDraft}
             type="button"
           >
             DISCARD
@@ -1591,7 +1596,7 @@ function BranchConfig({
           </button>
         </div>
       </div>
-      <div className="config-body">
+      <div className="config-body" key={draftVersion}>
         <FieldLabel label="Branch Name">
           <input
             onChange={(event) => setBranchName(event.target.value)}
