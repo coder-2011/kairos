@@ -39,9 +39,15 @@ export const brokerOrderStatusSchema = z.enum([
 
 export const tradingConfigSchema = z
   .object({
+    mode: z.enum(["disabled", "paper"]).optional(),
+    paperAutoBuyEnabled: z.boolean().optional(),
+    notifyOnBuySignal: z.boolean().optional(),
+    maxNotionalPerOrder: moneySchema.optional(),
+    maxOpenPositionNotionalPerSymbol: moneySchema.optional(),
+    allowedOrderType: z.enum(["market", "limit", "bracket"]).optional(),
+    allowQueuedOrdersWhenMarketClosed: z.boolean().optional(),
     notifyConfidenceThreshold: confidenceSchema.optional(),
     paperTradeConfidenceThreshold: confidenceSchema.optional(),
-    paperAutoBuyEnabled: z.boolean().optional(),
     maxNotionalUsd: moneySchema.optional(),
     defaultOrderType: brokerOrderTypeSchema.optional(),
     defaultTimeInForce: brokerTimeInForceSchema.optional(),
@@ -49,7 +55,7 @@ export const tradingConfigSchema = z
   })
   .strict();
 
-export const tradeIntentSchema = z
+const tradeIntentBaseSchema = z
   .object({
     id: z.string().min(1),
     createdAt: isoTimestampSchema,
@@ -78,7 +84,9 @@ export const tradeIntentSchema = z
     approvalsRequired: z.array(z.string().min(1)).default(["human_review"]),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
-  .strict()
+  .strict();
+
+export const tradeIntentSchema = tradeIntentBaseSchema
   .refine((intent) => intent.qty !== undefined || intent.notional !== undefined, {
     message: "Trade intent requires qty or notional.",
     path: ["qty"],
@@ -88,7 +96,7 @@ export const tradeIntentSchema = z
     path: ["limitPrice"],
   });
 
-export const createTradeIntentInputSchema = tradeIntentSchema
+export const createTradeIntentInputSchema = tradeIntentBaseSchema
   .omit({
     id: true,
     createdAt: true,
@@ -107,9 +115,17 @@ export const createTradeIntentInputSchema = tradeIntentSchema
     timeInForce: brokerTimeInForceSchema.optional(),
     approvalsRequired: z.array(z.string().min(1)).optional(),
     tradingConfig: tradingConfigSchema.optional(),
+  })
+  .refine((intent) => intent.qty !== undefined || intent.notional !== undefined, {
+    message: "Trade intent requires qty or notional.",
+    path: ["qty"],
+  })
+  .refine((intent) => intent.orderType !== "limit" || intent.limitPrice !== undefined, {
+    message: "Limit orders require limitPrice.",
+    path: ["limitPrice"],
   });
 
-export const updateTradeIntentInputSchema = tradeIntentSchema
+export const updateTradeIntentInputSchema = tradeIntentBaseSchema
   .omit({
     id: true,
     createdAt: true,

@@ -65,6 +65,19 @@ export const informationToolNameSchema = z.enum([
 ]);
 
 const confidenceSchema = z.number().min(0).max(1);
+const tradingConfigSchema = z
+  .object({
+    notifyConfidenceThreshold: confidenceSchema.optional(),
+    paperTradeConfidenceThreshold: confidenceSchema.optional(),
+    paperAutoBuyEnabled: z.boolean().optional(),
+    maxNotionalUsd: z.number().positive().optional(),
+    defaultOrderType: z.enum(["market", "limit"]).optional(),
+    defaultTimeInForce: z
+      .enum(["day", "gtc", "opg", "cls", "ioc", "fok"])
+      .optional(),
+    allowedSymbols: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
 
 export const kairosToolPolicySchema = z
   .object({
@@ -190,6 +203,7 @@ export const kairosBranchAgentConfigSchema = z
       })
       .strict()
       .optional(),
+    trading: tradingConfigSchema.optional(),
     research: z
       .object({
         exaInstruction: z.string().optional(),
