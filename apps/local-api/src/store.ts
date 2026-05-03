@@ -61,6 +61,7 @@ export type RouterAttachmentRecord = {
 
 export type RouterChatRecord = {
   id: string;
+  title?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -119,6 +120,7 @@ export type AppendRunEventInput = {
 
 export type CreateRouterChatInput = {
   id?: string;
+  title?: string;
 };
 
 export type CreateRouterMessageInput = {
@@ -296,13 +298,21 @@ export class MemoryKairosStore implements KairosLocalStore {
   }
 
   async listRouterChats(): Promise<RouterChatRecord[]> {
-    return sortByCreatedAt([...this.routerChats.values()]);
+    return sortByCreatedAt(
+      [...this.routerChats.values()].map((chat) => ({
+        ...chat,
+        title: chat.title ?? buildRouterChatTitle(
+          firstUserMessage(this.routerMessages.get(chat.id)) ?? {},
+        ),
+      })),
+    );
   }
 
   async createRouterChat(input: CreateRouterChatInput = {}): Promise<RouterChatRecord> {
     const now = new Date().toISOString();
     const chat: RouterChatRecord = {
       id: input.id ?? this.nextId("router_chat"),
+      title: input.title,
       createdAt: now,
       updatedAt: now,
     };
@@ -337,6 +347,7 @@ export class MemoryKairosStore implements KairosLocalStore {
     if (chat) {
       this.routerChats.set(input.chatId, {
         ...chat,
+        title: chat.title ?? buildRouterChatTitle(input),
         updatedAt: message.createdAt,
       });
     }
@@ -430,4 +441,24 @@ function definedFields<T extends object>(value: T): Partial<T> {
 
 function sortByCreatedAt<T extends { createdAt: string }>(records: T[]): T[] {
   return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export function buildRouterChatTitle(input: {
+  text?: string;
+  attachments?: RouterAttachmentRecord[];
+}): string | undefined {
+  const text = input.text
+    ?.replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const attachmentName = input.attachments?.[0]?.name;
+  const title = text || (attachmentName ? `Attachment: ${attachmentName}` : undefined);
+  if (!title) return undefined;
+  return title.length > 64 ? `${title.slice(0, 61).trimEnd()}...` : title;
+}
+
+function firstUserMessage(
+  messages: RouterMessageRecord[] | undefined,
+): RouterMessageRecord | undefined {
+  return messages?.find((message) => message.role === "user");
 }

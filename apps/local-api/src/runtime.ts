@@ -23,19 +23,20 @@ import {
   kairosBranchAgentConfigSchema,
   type KairosBranchAgentConfig,
 } from "../../../src/global/agent-config.js";
-import type {
-  AppendRunEventInput,
-  BranchRecord,
-  CreateBranchInput,
-  CreateRunInput,
-  KairosLocalStore,
-  RunEventRecord,
-  RunRecord,
-  RouterChatRecord,
-  RouterMessageRecord,
-  CreateRouterChatInput,
-  CreateRouterMessageInput,
-  UpdateBranchInput,
+import {
+  buildRouterChatTitle,
+  type AppendRunEventInput,
+  type BranchRecord,
+  type CreateBranchInput,
+  type CreateRunInput,
+  type KairosLocalStore,
+  type RunEventRecord,
+  type RunRecord,
+  type RouterChatRecord,
+  type RouterMessageRecord,
+  type CreateRouterChatInput,
+  type CreateRouterMessageInput,
+  type UpdateBranchInput,
 } from "./store.js";
 
 export async function createRuntimeStore(
@@ -181,9 +182,16 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   }
 
   async listRouterChats(): Promise<RouterChatRecord[]> {
-    return this.readRouterJsonFiles<RouterChatRecord>("chats").then((chats) =>
-      sortByCreatedAt(chats),
+    const chats = await this.readRouterJsonFiles<RouterChatRecord>("chats");
+    const titledChats = await Promise.all(
+      chats.map(async (chat) => ({
+        ...chat,
+        title: chat.title ?? buildRouterChatTitle(
+          (await this.listRouterMessages(chat.id)).find((message) => message.role === "user") ?? {},
+        ),
+      })),
     );
+    return sortByCreatedAt(titledChats);
   }
 
   async createRouterChat(
@@ -192,6 +200,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     const now = new Date().toISOString();
     const chat: RouterChatRecord = {
       id: input.id ?? randomUUID(),
+      title: input.title,
       createdAt: now,
       updatedAt: now,
     };
@@ -231,6 +240,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     if (chat) {
       await this.writeRouterJson(this.routerChatPath(input.chatId), {
         ...chat,
+        title: chat.title ?? buildRouterChatTitle(input),
         updatedAt: message.createdAt,
       });
     }

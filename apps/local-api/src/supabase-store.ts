@@ -14,19 +14,20 @@ import {
   type TradingMessage,
   type UpdateTradeIntentInput,
 } from "../../../src/trading/index.js";
-import type {
-  AppendRunEventInput,
-  BranchRecord,
-  CreateBranchInput,
-  CreateRunInput,
-  CreateRouterChatInput,
-  CreateRouterMessageInput,
-  KairosLocalStore,
-  RouterChatRecord,
-  RouterMessageRecord,
-  RunEventRecord,
-  RunRecord,
-  UpdateBranchInput,
+import {
+  buildRouterChatTitle,
+  type AppendRunEventInput,
+  type BranchRecord,
+  type CreateBranchInput,
+  type CreateRunInput,
+  type CreateRouterChatInput,
+  type CreateRouterMessageInput,
+  type KairosLocalStore,
+  type RouterChatRecord,
+  type RouterMessageRecord,
+  type RunEventRecord,
+  type RunRecord,
+  type UpdateBranchInput,
 } from "./store.js";
 
 type SupabaseRecordRow<T> = {
@@ -169,7 +170,16 @@ export class SupabaseKairosStore implements KairosLocalStore {
   }
 
   async listRouterChats(): Promise<RouterChatRecord[]> {
-    return sortByCreatedAt(await this.client.list<RouterChatRecord>("router_chats"));
+    const chats = await this.client.list<RouterChatRecord>("router_chats");
+    const titledChats = await Promise.all(
+      chats.map(async (chat) => ({
+        ...chat,
+        title: chat.title ?? buildRouterChatTitle(
+          (await this.listRouterMessages(chat.id)).find((message) => message.role === "user") ?? {},
+        ),
+      })),
+    );
+    return sortByCreatedAt(titledChats);
   }
 
   async createRouterChat(
@@ -178,6 +188,7 @@ export class SupabaseKairosStore implements KairosLocalStore {
     const now = new Date().toISOString();
     const chat: RouterChatRecord = {
       id: input.id ?? randomUUID(),
+      title: input.title,
       createdAt: now,
       updatedAt: now,
     };
@@ -214,6 +225,7 @@ export class SupabaseKairosStore implements KairosLocalStore {
     if (chat) {
       await this.client.upsert("router_chats", chat.id, {
         ...chat,
+        title: chat.title ?? buildRouterChatTitle(input),
         updatedAt: message.createdAt,
       });
     }

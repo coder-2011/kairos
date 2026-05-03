@@ -177,7 +177,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       scope: "router",
       timestamp: chat.createdAt,
       artifactId: chat.id,
-      title: `Kairos router chat ${chat.id}`,
+      title: chat.title ?? `Kairos router chat ${chat.id}`,
       summary: "Router chat created.",
       data: chat,
       customId: `kairos:router_chat:${chat.id}`,
