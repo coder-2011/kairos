@@ -35,6 +35,7 @@ import {
   type BranchRecord,
   type JsonRecord,
   type MessageRecord,
+  type ModelRoleDefaults,
   type OpenRouterModelRecord,
   type PortfolioSnapshot,
   type RunEventRecord,
@@ -53,6 +54,36 @@ type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
 
 const THEME_STORAGE_KEY = "kairos-theme-v2";
+
+type AppRoute = {
+  view: View;
+  branchId?: string;
+  runId?: string;
+};
+
+function readRouteFromHash(): AppRoute {
+  const hash = typeof window === "undefined" ? "" : window.location.hash;
+  const [viewSegment, idSegment] = hash.replace(/^#\/?/, "").split("/");
+  const view = views.some((item) => item.id === viewSegment)
+    ? (viewSegment as View)
+    : "branches";
+
+  return {
+    view,
+    branchId: view === "config" ? idSegment : undefined,
+    runId: view === "monitoring" || view === "runDeepDive" ? idSegment : undefined,
+  };
+}
+
+function routeHash(route: AppRoute): string {
+  if (route.view === "config" && route.branchId) {
+    return `#/config/${encodeURIComponent(route.branchId)}`;
+  }
+  if ((route.view === "monitoring" || route.view === "runDeepDive") && route.runId) {
+    return `#/${route.view}/${encodeURIComponent(route.runId)}`;
+  }
+  return `#/${route.view}`;
+}
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
@@ -147,7 +178,6 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
-const dataPacketTypeOptions = ["ticker", "sector", "law", "branch", "source", "catalyst"] as const;
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
@@ -165,14 +195,16 @@ const defaultDebateToolPolicies = Object.fromEntries(
 ) as NonNullable<WebBranchConfig["tools"]>["debate"];
 
 export function App() {
-  const [view, setView] = useState<View>("branches");
+  const initialRoute = readRouteFromHash();
+  const [view, setView] = useState<View>(initialRoute.view);
   const [branches, setBranches] = useState<BranchRecord[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [events, setEvents] = useState<RunEventRecord[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [selectedBranchId, setSelectedBranchId] = useState("");
-  const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedBranchId, setSelectedBranchId] = useState(initialRoute.branchId ?? "");
+  const [selectedRunId, setSelectedRunId] = useState(initialRoute.runId ?? "");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
+  const [modelDefaults, setModelDefaults] = useState<ModelRoleDefaults>({});
   const [runMode, setRunMode] = useState<RunMode>("agent");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
@@ -191,11 +223,42 @@ export function App() {
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
   const selectedRun = runs.find((run) => run.id === selectedRunId);
 
+  function navigate(nextView: View, options: { branchId?: string; runId?: string } = {}) {
+    setView(nextView);
+    if (options.branchId) setSelectedBranchId(options.branchId);
+    if (options.runId) setSelectedRunId(options.runId);
+
+    const nextHash = routeHash({
+      view: nextView,
+      branchId: options.branchId,
+      runId: options.runId,
+    });
+    if (window.location.hash !== nextHash) {
+      window.history.pushState(null, "", nextHash);
+    }
+  }
+
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     document.documentElement.style.colorScheme = themeMode;
     localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    function applyRoute() {
+      const route = readRouteFromHash();
+      setView(route.view);
+      if (route.branchId) setSelectedBranchId(route.branchId);
+      if (route.runId) setSelectedRunId(route.runId);
+    }
+
+    window.addEventListener("hashchange", applyRoute);
+    window.addEventListener("popstate", applyRoute);
+    return () => {
+      window.removeEventListener("hashchange", applyRoute);
+      window.removeEventListener("popstate", applyRoute);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,10 +273,19 @@ export function App() {
         if (cancelled) return;
         setBranches(apiBranches);
         setRuns(apiRuns);
-        setSelectedBranchId(apiBranches[0]?.id ?? "");
-        setSelectedRunId((current) =>
-          current && apiRuns.some((run) => run.id === current) ? current : "",
+        const route = readRouteFromHash();
+        setSelectedBranchId(
+          route.branchId && apiBranches.some((branch) => branch.id === route.branchId)
+            ? route.branchId
+            : apiBranches[0]?.id ?? "",
         );
+        setSelectedRunId((current) => {
+          const routeRunId = route.runId && apiRuns.some((run) => run.id === route.runId)
+            ? route.runId
+            : undefined;
+          if (routeRunId) return routeRunId;
+          return current && apiRuns.some((run) => run.id === current) ? current : "";
+        });
         setLoadState("api");
       } catch {
         if (cancelled) return;
@@ -233,11 +305,17 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     getOpenRouterModels()
-      .then((models) => {
-        if (!cancelled) setOpenRouterModels(models);
+      .then((response) => {
+        if (!cancelled) {
+          setOpenRouterModels(response.models);
+          setModelDefaults(response.defaults);
+        }
       })
       .catch(() => {
-        if (!cancelled) setOpenRouterModels([]);
+        if (!cancelled) {
+          setOpenRouterModels([]);
+          setModelDefaults({});
+        }
       });
 
     return () => {
@@ -387,10 +465,10 @@ export function App() {
       );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
-      setView("monitoring");
+      navigate("monitoring", { runId: run.id });
       setLoadState("api");
     } catch {
-      setView("monitoring");
+      navigate("monitoring");
       setLoadState("offline");
     }
   }
@@ -403,10 +481,10 @@ export function App() {
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
-      setView("monitoring");
+      navigate("monitoring", { runId: run.id });
       setLoadState("api");
     } catch {
-      setView("monitoring");
+      navigate("monitoring");
       setLoadState("offline");
     }
   }
@@ -464,7 +542,7 @@ export function App() {
       });
       setBranches((current) => [branch, ...current.filter((item) => item.id !== branch.id)]);
       setSelectedBranchId(branch.id);
-      setView("config");
+      navigate("config", { branchId: branch.id });
       setLoadState("api");
     } catch {
       setLoadState("offline");
@@ -474,7 +552,7 @@ export function App() {
   return (
     <div className="shell" data-theme={themeMode}>
       <SideNav
-        setView={setView}
+        setView={(nextView) => navigate(nextView)}
         themeMode={themeMode}
         view={view}
         onThemeModeChange={setThemeMode}
@@ -488,7 +566,7 @@ export function App() {
             onCreate={() => void createNewBranch()}
             onSelect={(branch) => {
               setSelectedBranchId(branch.id);
-              setView("config");
+              navigate("config", { branchId: branch.id });
             }}
           />
         )}
@@ -526,7 +604,7 @@ export function App() {
           <RunDeepDive
             branches={branches}
             events={events}
-            onSelectRun={setSelectedRunId}
+            onSelectRun={(runId) => navigate("runDeepDive", { runId })}
             runs={runs}
             selectedRun={selectedRun}
           />
@@ -534,6 +612,7 @@ export function App() {
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
+            modelDefaults={modelDefaults}
             openRouterModels={openRouterModels}
             runMode={runMode}
             onEscalate={() => void startDebate(selectedBranch.id)}
@@ -1411,6 +1490,7 @@ function RunModeSwitch({
 
 function BranchConfig({
   branch,
+  modelDefaults,
   openRouterModels,
   runMode,
   onRunHeartbeat,
@@ -1419,6 +1499,7 @@ function BranchConfig({
   onSave,
 }: {
   branch: BranchRecord;
+  modelDefaults: ModelRoleDefaults;
   openRouterModels: OpenRouterModelRecord[];
   runMode: RunMode;
   onRunHeartbeat: () => void;
@@ -1650,7 +1731,7 @@ function BranchConfig({
                 <b>Notify on buy signal</b>
               </span>
             </label>
-            <FieldLabel label="Max Notional Per Order">
+            <FieldLabel label="Max Paper Order Size">
               <input
                 min="0"
                 onChange={(event) =>
@@ -1666,7 +1747,7 @@ function BranchConfig({
                 value={maxNotionalPerOrder}
               />
             </FieldLabel>
-            <FieldLabel label="Max Open Position Notional Per Symbol">
+            <FieldLabel label="Max Paper Position Size">
               <input
                 min="0"
                 onChange={(event) =>
@@ -1682,7 +1763,7 @@ function BranchConfig({
                 value={maxOpenPositionNotionalPerSymbol}
               />
             </FieldLabel>
-            <FieldLabel label="Allowed Order Type">
+            <FieldLabel label="Paper Order Type">
               <select
                 onChange={(event) =>
                   setConfig((current) => ({
