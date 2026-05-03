@@ -850,7 +850,10 @@ async function createRouterMessage(
 
     const output = {
       branchIds: selectedBranchIds,
-      response: routerResponse(selectedBranchIds, sources),
+      response: routerResponse(selectedBranchIds, sources, {
+        enabledBranches: branchInventory.filter((branch) => branch.enabled).length,
+        totalBranches: branchInventory.length,
+      }),
     };
     const completed = await context.store.updateRun(run.id, {
       status: "succeeded",
@@ -1535,7 +1538,19 @@ function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function routerResponse(branchIds: string[], sources: RouterExtractedSource[]): string {
+function routerResponse(
+  branchIds: string[],
+  sources: RouterExtractedSource[],
+  inventory: { enabledBranches: number; totalBranches: number },
+): string {
+  if (inventory.totalBranches === 0) {
+    return "Thanks. I read it, but there are no branches yet, so I could not route it anywhere. Create a branch first, then resend this source or paste it into that branch's law.";
+  }
+
+  if (inventory.enabledBranches === 0) {
+    return "Thanks. I read it, but every branch is disabled, so I could not wake a heartbeat agent. Enable a branch first, then resend this source.";
+  }
+
   if (branchIds.length === 0) {
     return "Thanks. I read it, but I did not send it to any branch. It does not match the current branch laws closely enough.";
   }

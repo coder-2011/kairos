@@ -292,6 +292,33 @@ describe("local API handler", () => {
     expect(messages.body.messages[1].toolCalls).toEqual(response.body.assistantMessage.toolCalls);
   });
 
+  it("records router messages without waking heartbeats when no branches exist", async () => {
+    const { requestJson } = makeClient({
+      runHeartbeat: async () => {
+        throw new Error("heartbeat should not run without branches");
+      },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+
+    const response = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "This source mentions PLTR government contracts.",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.run.output.branchIds).toEqual([]);
+    expect(response.body.heartbeatRuns).toEqual([]);
+    expect(response.body.assistantMessage.text).toContain("there are no branches yet");
+    expect(response.body.assistantMessage.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "branch_inventory",
+          output: { branches: [] },
+          status: "succeeded",
+        }),
+      ]),
+    );
+  });
+
   it("mirrors router uploaded documents into Supermemory", async () => {
     const mirrored: SupermemoryMirrorRecord[] = [];
     const { requestJson } = makeClient({
