@@ -459,6 +459,7 @@ async function runHeartbeatForBranch(
   context: LocalApiContext,
   branch: BranchRecord,
   options: {
+    dryRun: boolean;
     input: JsonRecord;
     metadataSource: string;
   },
@@ -471,18 +472,20 @@ async function runHeartbeatForBranch(
     kind: "heartbeat",
     status: "running",
     branchId: branch.id,
+    dryRun: options.dryRun,
     input: runPayload,
     metadata: { source: options.metadataSource },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "heartbeat", branchId: branch.id },
+    payload: { kind: "heartbeat", branchId: branch.id, dryRun: options.dryRun },
   });
 
   let result: HeartbeatRunResult;
   try {
     result = await context.runHeartbeat({
       branchId: branch.id,
+      dryRun: options.dryRun,
       payload: runPayload,
       branch,
     });
@@ -738,14 +741,16 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     kind: "debate",
     status: "running",
     branchId,
+    dryRun: input.dryRun,
     input: runPayload,
-    metadata: { source: "runtime" },
+    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
   });
-  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate" } });
+  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate", dryRun: input.dryRun } });
 
   let result: DebateCreateResult;
   try {
     result = await context.createDebate({
+      dryRun: input.dryRun,
       payload: runPayload,
       branch,
     });
@@ -811,13 +816,14 @@ async function createRouterMessage(
   const run = await context.store.createRun({
     kind: "router",
     status: "running",
+    dryRun: input.dryRun,
     input: {
       chatId,
       messageId: userMessage.id,
       text: userMessage.text,
       attachments: userMessage.attachments ?? [],
     },
-    metadata: { source: "runtime" },
+    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
@@ -889,6 +895,7 @@ async function createRouterMessage(
       const branch = branches.find((item) => item.id === branchId);
       if (!branch) continue;
       const heartbeatRun = await runHeartbeatForBranch(context, branch, {
+        dryRun: input.dryRun,
         input: {
           origin: "router",
           messageText: userMessage.text,
@@ -1604,6 +1611,7 @@ async function extractRouterSources(
     try {
       const webpageSources = await context.retrieveUrlContents({
         urls,
+        dryRun: input.dryRun,
       });
       sources.push(...webpageSources);
       const toolCall = createRouterToolCall({
@@ -1979,7 +1987,7 @@ function debateResultEvents(result: DebateRunResult, payload: JsonRecord): Appen
       ? [{ type: "debate.judge.plan", payload: result.currentPlan as unknown as JsonRecord }]
       : []),
     { type: "debate.judge.summary", payload: result.finalDecision as unknown as JsonRecord },
-    { type: "debate.output", payload: debateResultOutput(result, false) },
+    { type: "debate.output", payload: debateResultOutput(result) },
   ];
 }
 
@@ -2030,7 +2038,7 @@ function toHeartbeatBranchConfig(branch: BranchRecord): HeartbeatBranchConfig {
       model: heartbeatModel,
     },
     seededData: config.seededData,
-    memory: config.memory,
+    memory: readJsonRecord(config)?.memory as HeartbeatBranchConfig["memory"],
   };
 }
 
