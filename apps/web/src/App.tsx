@@ -1167,6 +1167,9 @@ function PortfolioView({
   const account = portfolio?.account;
   const positions = portfolio?.positions ?? [];
   const orders = portfolio?.orders ?? [];
+  const storage = portfolio?.storage;
+  const storedOrderCount = readDisplay(storage?.brokerOrderCount);
+  const storedIntentCount = readDisplay(storage?.tradeIntentCount);
 
   return (
     <main className="portfolio-canvas">
@@ -1193,7 +1196,18 @@ function PortfolioView({
             <Icon name="verified_user" />
             <div>
               <b>Paper trading only</b>
-              <span>Live orders unavailable.</span>
+              <span>
+                Live orders unavailable. Paper intents and submitted orders are stored in Kairos.
+              </span>
+            </div>
+          </div>
+          <div className="portfolio-safety-strip storage">
+            <Icon name="inventory_2" />
+            <div>
+              <b>Paper audit storage</b>
+              <span>
+                Stored records: {storedIntentCount} intents, {storedOrderCount} orders.
+              </span>
             </div>
           </div>
           <div className="portfolio-metrics">
@@ -1557,6 +1571,7 @@ function BranchConfig({
   const maxOpenPositionNotionalPerSymbol =
     tradingConfig.maxOpenPositionNotionalPerSymbol ?? 1_500;
   const allowedOrderType = tradingConfig.allowedOrderType ?? "market";
+  const dataPacketType = config.research?.dataPacketType ?? "ticker";
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -1620,7 +1635,10 @@ function BranchConfig({
                 assets,
                 trading: {
                   ...current.trading,
-                  symbol: current.trading?.symbol || assets[0] || undefined,
+                  symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
+                  symbol:
+                    normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
+                    assets[0],
                 },
               }));
             }}
@@ -1664,26 +1682,21 @@ function BranchConfig({
             </div>
           </div>
           <div className="trading-grid">
-            <FieldLabel label="Trade Symbol">
-              <input
-                list={`branch-assets-${branch.id}`}
-                onChange={(event) =>
+            <FieldLabel label="Trade Symbols">
+              <TradeSymbolDropdown
+                assets={branchAssets}
+                selected={selectedTradeSymbols}
+                onChange={(symbols) =>
                   setConfig((current) => ({
                     ...current,
                     trading: {
                       ...current.trading,
-                      symbol: normalizeTickerInput(event.target.value) || undefined,
+                      symbols,
+                      symbol: symbols[0],
                     },
                   }))
                 }
-                placeholder="Pick a tracked ticker"
-                value={tradeSymbol}
               />
-              <datalist id={`branch-assets-${branch.id}`}>
-                {branchAssets.map((asset) => (
-                  <option key={asset} value={asset} />
-                ))}
-              </datalist>
             </FieldLabel>
             <label className="checkbox-card">
               <input
@@ -1836,8 +1849,8 @@ function BranchConfig({
                       },
                     }))
                   }
-                  placeholder="Model"
-                  value={config.models?.[field.key]?.model ?? ""}
+                  placeholder={modelDefaults[field.key]?.model ?? "Model"}
+                  value={config.models?.[field.key]?.model ?? modelDefaults[field.key]?.model ?? ""}
                 />
                 <select
                   onChange={(event) =>
@@ -1855,7 +1868,11 @@ function BranchConfig({
                       },
                     }))
                   }
-                  value={config.models?.[field.key]?.reasoningEffort ?? ""}
+                  value={
+                    config.models?.[field.key]?.reasoningEffort ??
+                    modelDefaults[field.key]?.reasoningEffort ??
+                    ""
+                  }
                 >
                   {reasoningEffortOptions.map((effort) => (
                     <option key={effort || "default"} value={effort}>
@@ -2027,26 +2044,6 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel label="Data Packet Type">
-            <select
-              onChange={(event) =>
-                setConfig((current) => ({
-                  ...current,
-                  research: {
-                    ...current.research,
-                    dataPacketType: event.target.value as typeof dataPacketTypeOptions[number],
-                  },
-                }))
-              }
-              value={dataPacketType}
-            >
-              {dataPacketTypeOptions.map((type) => (
-                <option key={type} value={type}>
-                  {titleize(type)}
-                </option>
-              ))}
-            </select>
-          </FieldLabel>
           <FieldLabel label="Data Packet">
             <input
               onChange={(event) =>
@@ -2210,6 +2207,53 @@ function BranchConfig({
         </div>
       </div>
     </main>
+  );
+}
+
+function TradeSymbolDropdown({
+  assets,
+  selected,
+  onChange,
+}: {
+  assets: string[];
+  selected: string[];
+  onChange: (symbols: string[]) => void;
+}) {
+  const selectedSet = new Set(selected);
+  const summary =
+    selected.length === 0
+      ? "No trade symbols selected"
+      : selected.length === 1
+        ? selected[0]
+        : `${selected.length} symbols selected`;
+
+  function toggle(symbol: string, checked: boolean) {
+    const next = checked
+      ? [...selectedSet, symbol]
+      : selected.filter((item) => item !== symbol);
+    onChange(normalizeSymbolSelection(next, assets));
+  }
+
+  return (
+    <details className="multi-select">
+      <summary>{summary}</summary>
+      <div className="multi-select-menu">
+        {assets.length === 0 ? (
+          <span className="empty-option">Add tracked tickers first.</span>
+        ) : (
+          assets.map((asset) => (
+            <label key={asset}>
+              <input
+                checked={selectedSet.has(asset)}
+                onChange={(event) => toggle(asset, event.target.checked)}
+                type="checkbox"
+              />
+              <span>{asset}</span>
+            </label>
+          ))
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -2566,9 +2610,7 @@ function defaultBranchConfig(): WebBranchConfig {
       maxOpenPositionNotionalPerSymbol: 1_500,
       allowedOrderType: "market",
     },
-    research: {
-      dataPacketType: "ticker",
-    },
+    research: {},
   };
 }
 
@@ -2634,6 +2676,7 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
     trading: {
       mode: "disabled",
       symbol: config.trading?.symbol ?? config.assets?.[0] ?? readAssets(branch)[0],
+      symbols: config.trading?.symbols ?? [],
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
@@ -2642,10 +2685,13 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       ...config.trading,
     },
     research: {
-      dataPacketType: "ticker",
       ...config.research,
     },
   };
+}
+
+function cloneBranchConfig(config: WebBranchConfig): WebBranchConfig {
+  return JSON.parse(JSON.stringify(config)) as WebBranchConfig;
 }
 
 function readLawText(branch: BranchRecord): string {
@@ -2806,14 +2852,22 @@ function readAssets(branch: BranchRecord): string[] {
 }
 
 function parseAssetList(value: string): string[] {
-  return value
-    .split(/[,\s]+/)
-    .map(normalizeTickerInput)
-    .filter(Boolean);
+  return [...new Set(
+    value
+      .split(/[,\s]+/)
+      .map(normalizeTickerInput)
+      .filter(Boolean),
+  )];
 }
 
 function normalizeTickerInput(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
+}
+
+function normalizeSymbolSelection(symbols: string[], assets: string[]): string[] {
+  const assetSet = new Set(assets.map(normalizeTickerInput));
+  return [...new Set(symbols.map(normalizeTickerInput).filter(Boolean))]
+    .filter((symbol) => assetSet.size === 0 || assetSet.has(symbol));
 }
 
 function parseHeartbeatIntervalMinutes(value: string): number | undefined {

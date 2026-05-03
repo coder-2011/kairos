@@ -2276,6 +2276,69 @@ select:focus {
   text-transform: uppercase;
 }
 
+.multi-select {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  min-height: 42px;
+  position: relative;
+}
+
+.multi-select summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-family: var(--mono);
+  font-size: 12px;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.multi-select summary::-webkit-details-marker {
+  display: none;
+}
+
+.multi-select summary::after {
+  content: "expand_more";
+  font-family: "Material Symbols Outlined";
+  font-size: 18px;
+}
+
+.multi-select[open] summary::after {
+  content: "expand_less";
+}
+
+.multi-select-menu {
+  background: var(--surface-lowest);
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.multi-select-menu label {
+  align-items: center;
+  display: flex;
+  font-family: var(--mono);
+  font-size: 12px;
+  gap: 8px;
+  padding: 7px 6px;
+}
+
+.multi-select-menu input {
+  min-height: 0;
+}
+
+.empty-option {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 6px;
+}
+
 .slider-block {
   background: var(--surface-low);
   border: 1px solid var(--outline-variant);
