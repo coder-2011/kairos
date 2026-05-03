@@ -27,7 +27,7 @@ export type HeartbeatPromptSet = {
 
 export type HeartbeatSeedPolicy = {
   /**
-   * Production default is false. Set true only for tests, dry-runs, or degraded
+   * Production default is false. Set true only for tests or degraded
    * probes where running with a partial packet is explicitly acceptable.
    */
   allowPartialSeedBundle?: boolean;
