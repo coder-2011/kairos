@@ -532,7 +532,7 @@ function BranchDetail({
             <h1>{branch.name}</h1>
             <p>
               Target Asset: <b>{assets}</b> | Heartbeat:{" "}
-              <b>{String(branch.config?.heartbeat ?? "Not configured")}</b>
+              <b>{formatHeartbeat(branch)}</b>
             </p>
           </div>
           <div className="button-row">
@@ -1004,6 +1004,59 @@ function AgentMessage({
   );
 }
 
+function EventRecordCard({ event }: { event: RunEventRecord }) {
+  const actor =
+    event.type.startsWith("human.") ? "HUMAN" : event.type.split(".")[0].toUpperCase();
+
+  return (
+    <article className="agent-card judge">
+      <div className="agent-card-head">
+        <span>
+          <Icon name={event.type.startsWith("human.") ? "person" : "notes"} />
+          EVENT: {actor}
+        </span>
+        <b>{timeOnly(event.timestamp)}</b>
+      </div>
+      <p>{String(event.payload.summary ?? event.payload.message ?? titleize(event.type))}</p>
+      <pre className="event-json">{JSON.stringify(event.payload, null, 2)}</pre>
+    </article>
+  );
+}
+
+function EmptyCanvas({
+  icon,
+  title,
+  message,
+}: {
+  icon: string;
+  title: string;
+  message: string;
+}) {
+  return (
+    <main className="empty-canvas">
+      <EmptyPanel icon={icon} title={title} message={message} />
+    </main>
+  );
+}
+
+function EmptyPanel({
+  icon,
+  title,
+  message,
+}: {
+  icon: string;
+  title: string;
+  message: string;
+}) {
+  return (
+    <div className="empty-panel">
+      <Icon name={icon} />
+      <h3>{title}</h3>
+      <p>{message}</p>
+    </div>
+  );
+}
+
 function TimelineEvent({
   event,
   last,
@@ -1211,7 +1264,12 @@ function formatHeartbeat(branch: BranchRecord) {
   const value = branch.metadata?.heartbeatMs;
   if (typeof value === "number") return `${value}ms`;
   const interval = branch.config?.heartbeat?.intervalMinutes;
-  return branch.enabled ? `${interval ?? 5}m` : "-";
+  if (!branch.enabled) return "-";
+  return typeof interval === "number" ? `${interval}m` : "Not configured";
+}
+
+function formatConfidence(value: number | undefined) {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : "Not configured";
 }
 
 function readAssets(branch: BranchRecord): string[] {
