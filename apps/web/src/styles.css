@@ -25,7 +25,6 @@
   --on-error-container: #93000a;
   --success: #15803d;
   --success-soft: #f0fdf4;
-  --success-tint: #f7fdf8;
   --success-border: #bbf7d0;
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -61,7 +60,6 @@
   --on-error-container: #ffd8d3;
   --success: #9bd79f;
   --success-soft: #17331e;
-  --success-tint: #18231a;
   --success-border: #31583a;
 }
 
@@ -316,21 +314,21 @@ a {
 }
 
 .premium-access-button.enabled {
-  background: var(--success-soft);
-  border-color: var(--success-border);
-  color: var(--success);
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
 }
 
 .premium-access-button.enabled > .material-symbols-outlined {
-  background: var(--success);
-  border-color: var(--success);
-  color: var(--on-primary);
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0f172a;
   font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
 }
 
 .premium-access-button.enabled b,
 .premium-access-button.enabled small {
-  color: var(--success);
+  color: #ffffff;
 }
 
 .theme-toggle {
@@ -500,20 +498,19 @@ a {
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled {
-  background: var(--success-soft);
-  border-color: var(--success-border);
-  color: var(--success);
+  background: #263c2b;
+  border-color: #3f6f48;
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled > .material-symbols-outlined {
-  background: var(--success);
-  border-color: var(--success);
-  color: var(--on-primary);
+  background: #d9f2d7;
+  border-color: #d9f2d7;
+  color: #122016;
 }
 
 .shell[data-theme="dark"] .premium-access-button.enabled b,
 .shell[data-theme="dark"] .premium-access-button.enabled small {
-  color: var(--success);
+  color: #efffed;
 }
 
 .shell[data-theme="dark"] .divider {
@@ -661,6 +658,7 @@ a {
 .icon-button:hover {
   background: var(--surface-container);
   border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
 .command-button.primary {
@@ -783,6 +781,19 @@ select:focus {
   border-color: var(--primary);
 }
 
+input:hover,
+textarea:hover,
+select:hover {
+  background: var(--surface-lowest);
+  border-color: var(--outline);
+}
+
+input:focus:hover,
+textarea:focus:hover,
+select:focus:hover {
+  border-color: var(--primary);
+}
+
 .metric {
   align-items: center;
   background: var(--surface);
@@ -893,8 +904,8 @@ select:focus {
 }
 
 .status-badge.running {
-  background: var(--success-tint);
-  border-color: color-mix(in srgb, var(--success-border) 70%, var(--outline-variant));
+  background: var(--surface);
+  border-color: var(--outline-variant);
   color: var(--success);
 }
 
@@ -925,6 +936,10 @@ select:focus {
 .split-canvas {
   display: grid;
   grid-template-columns: minmax(220px, 25%) minmax(420px, 1fr) minmax(300px, 33%);
+}
+
+.split-canvas.evidence-closed {
+  grid-template-columns: minmax(220px, 25%) minmax(420px, 1fr);
 }
 
 .run-deep-dive {
@@ -965,8 +980,8 @@ select:focus {
 
 .portfolio-safety-strip {
   align-items: center;
-  background: var(--success-tint);
-  border: 1px solid color-mix(in srgb, var(--success-border) 60%, var(--outline-variant));
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md);
   color: var(--on-variant);
   display: flex;
@@ -1038,9 +1053,21 @@ select:focus {
   padding: 10px;
 }
 
+.portfolio-card:hover,
+.source-card:hover,
+.snippet:hover,
+.empty-panel:hover,
+.slider-block:hover,
+.checkbox-card:hover,
+.tool-picker:hover,
+.multi-select:hover {
+  background: var(--surface-lowest);
+  border-color: var(--outline);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
 .portfolio-card.message-card {
-  background: var(--success-tint);
-  border-left-color: var(--success);
+  border-left-color: var(--secondary);
 }
 
 .portfolio-card-head {
@@ -1129,10 +1156,20 @@ select:focus {
   text-align: left;
 }
 
+.run-list-item:hover {
+  background: var(--surface-lowest);
+  border-color: var(--outline);
+  box-shadow: inset 3px 0 0 var(--outline), 0 1px 0 color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
 .run-list-item.active {
-  background: var(--success-tint);
-  border-color: color-mix(in srgb, var(--success-border) 75%, var(--outline-variant));
-  box-shadow: inset 3px 0 0 var(--success);
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.run-list-item.active:hover {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary), 0 1px 0 color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 .run-list-item.failed {
@@ -1386,6 +1423,12 @@ select:focus {
   border-radius: var(--radius-md);
   max-width: 78%;
   padding: 12px;
+}
+
+.router-message:hover,
+.router-tool-call:hover {
+  border-color: var(--outline);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .router-message.user {
@@ -1929,6 +1972,10 @@ select:focus {
   position: relative;
 }
 
+.run-row:hover {
+  background: var(--surface-lowest);
+}
+
 .run-row::before {
   background: var(--primary);
   content: "";
@@ -2018,6 +2065,15 @@ select:focus {
   justify-content: space-between;
   padding: 7px 8px;
   text-align: left;
+}
+
+.mode-list button:hover,
+.run-mode-switch button:hover,
+.tool-picker label:hover,
+.multi-select-menu label:hover {
+  background: var(--surface);
+  border-color: var(--outline-variant);
+  color: var(--on-surface);
 }
 
 .mode-list button.selected {
@@ -2176,7 +2232,7 @@ select:focus {
 
 .simulation-panel {
   align-items: center;
-  background: var(--success-tint);
+  background: var(--surface-lowest);
   border-top: 1px solid var(--outline-variant);
   display: flex;
   flex: 1;
@@ -2436,6 +2492,9 @@ select:focus {
 
 .tool-picker label {
   align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
   display: flex;
   flex-direction: row;
   font-family: var(--mono);
@@ -2479,6 +2538,11 @@ select:focus {
   padding: 0 12px;
 }
 
+.multi-select summary:hover {
+  background: var(--surface-low);
+  color: var(--on-surface);
+}
+
 .multi-select summary::-webkit-details-marker {
   display: none;
 }
@@ -2499,13 +2563,20 @@ select:focus {
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   display: flex;
   flex-direction: column;
-  max-height: 180px;
+  max-height: 280px;
   overflow-y: auto;
   padding: 6px;
 }
 
+.multi-select-search {
+  margin-bottom: 6px;
+}
+
 .multi-select-menu label {
   align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
   display: flex;
   font-family: var(--mono);
   font-size: 12px;
@@ -2515,6 +2586,36 @@ select:focus {
 
 .multi-select-menu input {
   min-height: 0;
+}
+
+.symbol-option-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.symbol-option-main b,
+.symbol-option-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symbol-option-main small,
+.symbol-option-meta small {
+  color: var(--on-variant);
+  font-size: 10px;
+}
+
+.symbol-option-meta {
+  align-items: flex-end;
+  display: flex;
+  flex: 0 0 84px;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
 }
 
 .empty-option {

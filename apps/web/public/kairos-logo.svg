@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Kairos logo">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g fill="#0d1b2e">
+    <path d="M252 300h184v426H252z"/>
+    <path d="M541 300h231L584 512l188 214H537L456 633l77-78 31 35 66 72h-65l-65-75-64 68v-24l195-269h-63L373 590V362h-58v300h58v-31l194-269h-63L436 412v-1z"/>
+  </g>
+  <rect x="315" y="362" width="58" height="300" fill="#ffffff"/>
+  <path d="M436 412 541 300h231L584 512l188 214H537l-81-93 77-78 31 35 66 72h-65l-65-75-64 68v-24l195-269h-63L373 590v-23z" fill="#0d1b2e"/>
+</svg>
