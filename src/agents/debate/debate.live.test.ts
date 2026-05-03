@@ -177,12 +177,12 @@ describe("debate live integrations", () => {
       };
 
       const informationTool: DebateTool = createInformationDebateTool({
-          model,
-          exa,
-          finnhub,
-          supermemory,
-          supermemoryContainerTag: "system_global",
-        });
+        model,
+        exa,
+        finnhub,
+        supermemory,
+        supermemoryContainerTag: "system_global",
+      });
 
       const result = await runDebateAgent(
         {

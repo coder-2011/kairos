@@ -82,6 +82,7 @@ function buildModelInput(state: DebateState, systemPrompt: string): unknown[] {
       buildDebateContextMessage({
         startInput: state.startInput,
         messages: state.messages,
+        toolEvents: state.toolEvents,
         humanInterjections: state.humanInterjections,
         currentPlan: state.currentPlan,
       }),
