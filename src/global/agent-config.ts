@@ -159,7 +159,6 @@ export const kairosBranchAgentConfigSchema = z
         debateJudgeSystemPrompt: z.string().optional(),
         debateBullSystemPrompt: z.string().optional(),
         debateBearSystemPrompt: z.string().optional(),
-        debateFinalSystemPrompt: z.string().optional(),
       })
       .strict()
       .optional(),
@@ -229,7 +228,6 @@ export type DebateAgentConfigSelection = {
     judgeSystemPrompt?: string;
     bullSystemPrompt?: string;
     bearSystemPrompt?: string;
-    finalSystemPrompt?: string;
   };
   enabledTools?: Partial<Record<DebateConfigToolName, boolean>>;
   requiredTools?: Partial<Record<DebateConfigToolName, boolean>>;
@@ -274,7 +272,6 @@ export function resolveDebateAgentConfig(
       judgeSystemPrompt: config?.prompts?.debateJudgeSystemPrompt,
       bullSystemPrompt: config?.prompts?.debateBullSystemPrompt,
       bearSystemPrompt: config?.prompts?.debateBearSystemPrompt,
-      finalSystemPrompt: config?.prompts?.debateFinalSystemPrompt,
     },
     enabledTools: toolPoliciesToEnabledMap(config?.tools?.debate),
     requiredTools: toolPoliciesToRequiredMap(config?.tools?.debate),
