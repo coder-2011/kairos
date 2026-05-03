@@ -7,10 +7,12 @@ import {
   createLocalApi,
   createLocalApiHandler,
   MemoryKairosStore,
+  SupabaseKairosStore,
   type LocalApiContext,
 } from "./src/server.js";
 import type { PaperTradingBroker } from "../../src/trading/index.js";
 import type { TradingSmsNotifier } from "../../src/notifications/index.js";
+import type { SupermemoryMirror, SupermemoryMirrorRecord } from "../../src/global/index.js";
 
 const baseUrl = "http://kairos.local";
 
@@ -221,6 +223,126 @@ describe("local API handler", () => {
     }
   });
 
+  it("mirrors local API writes into Supermemory records", async () => {
+    const mirrored: SupermemoryMirrorRecord[] = [];
+    const { handler } = await createLocalApi({
+      dependencies: {
+        store: new MemoryKairosStore(),
+        supermemoryMirror: createMockMirror(mirrored),
+        runHeartbeat: async ({ branchId, dryRun, payload }) => ({
+          output: { branchId, decision: "monitor", dryRun, summary: "Heartbeat summary" },
+          events: [
+            { type: "heartbeat.seeded", payload },
+            { type: "heartbeat.decision", payload: { decision: "monitor" } },
+          ],
+        }),
+        createDebate: async ({ dryRun, payload }) => ({
+          output: {
+            decision: "needs_review",
+            confidence: 0.7,
+            summary: "Debate found a notification-worthy catalyst.",
+            dryRun,
+          },
+          events: [
+            { type: "debate.created", payload },
+            { type: "debate.judge.summary", payload: { decision: "needs_review" } },
+          ],
+        }),
+      },
+    });
+    const requestJson = apiClient(handler);
+
+    await requestJson("POST", "/branches", {
+      id: "branch_memory",
+      lawId: "law_memory",
+      name: "Memory branch",
+      config: { assets: ["PLTR"] },
+      law: { watchFor: "new material contracts" },
+    });
+    const heartbeat = await requestJson("POST", "/branches/branch_memory/heartbeat-runs", {
+      input: { ticker: "PLTR" },
+    });
+    const debate = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_memory",
+        summary: "Potential material contract.",
+      },
+    });
+    await requestJson("POST", `/runs/${debate.body.run.id}/interjections`, {
+      message: "Check whether this is a recompete.",
+    });
+    await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      branchId: "branch_memory",
+      lawId: "law_memory",
+      sourceRunId: debate.body.run.id,
+      confidence: 0.9,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+      },
+    }));
+
+    expect(heartbeat.status).toBe(201);
+    expect(mirrored.map((record) => record.type)).toEqual(
+      expect.arrayContaining([
+        "branch.created",
+        "run.created",
+        "run.updated",
+        "heartbeat.seeded",
+        "heartbeat.decision",
+        "debate.created",
+        "debate.judge.summary",
+        "human.interjection",
+        "debate.output",
+        "trading.threshold.evaluated",
+        "trade_intent.created",
+        "trading_message.paper_trade_candidate",
+      ]),
+    );
+    expect(
+      mirrored.find((record) => record.type === "human.interjection"),
+    ).toMatchObject({
+      scope: "run_event",
+      runId: debate.body.run.id,
+      branchId: "branch_memory",
+    });
+    expect(
+      mirrored.find((record) => record.type === "trade_intent.created"),
+    ).toMatchObject({
+      scope: "trade_intent",
+      branchId: "branch_memory",
+      lawId: "law_memory",
+    });
+  });
+
+  it("keeps local API writes working when Supermemory mirroring fails", async () => {
+    const { handler } = await createLocalApi({
+      dependencies: {
+        store: new MemoryKairosStore(),
+        supermemoryMirror: {
+          async mirrorRecord() {
+            throw new Error("supermemory unavailable");
+          },
+          async mirrorDebateResult() {
+            throw new Error("supermemory unavailable");
+          },
+          async mirrorInformationResult() {
+            throw new Error("supermemory unavailable");
+          },
+        },
+      },
+    });
+    const requestJson = apiClient(handler);
+
+    const response = await requestJson("POST", "/branches", {
+      id: "branch_best_effort",
+      name: "Best effort",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.branch).toMatchObject({ id: "branch_best_effort" });
+  });
+
   it("can use Supabase as the same API store backend", async () => {
     const requests: Array<{ method: string; url: string; body?: unknown }> = [];
     const records = new Map<string, { collection: string; id: string; record: unknown }>();
@@ -239,9 +361,9 @@ describe("local API handler", () => {
         }
 
         if (method === "GET") {
-          const collection = url.searchParams.get("collection")?.replace(/^eq\\./, "");
-          const id = url.searchParams.get("id")?.replace(/^eq\\./, "");
-          const runId = url.searchParams.get("record->>runId")?.replace(/^eq\\./, "");
+          const collection = url.searchParams.get("collection")?.replace(/^eq\./, "");
+          const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+          const runId = url.searchParams.get("record->>runId")?.replace(/^eq\./, "");
           const rows = [...records.values()].filter((row) => {
             const record = row.record as { runId?: string };
             return (
@@ -254,8 +376,8 @@ describe("local API handler", () => {
         }
 
         if (method === "DELETE") {
-          const collection = url.searchParams.get("collection")?.replace(/^eq\\./, "");
-          const id = url.searchParams.get("id")?.replace(/^eq\\./, "");
+          const collection = url.searchParams.get("collection")?.replace(/^eq\./, "");
+          const id = url.searchParams.get("id")?.replace(/^eq\./, "");
           const key = `${collection}:${id}`;
           const row = records.get(key);
           records.delete(key);
@@ -459,6 +581,55 @@ function makeClient(options: {
   return { request, requestJson };
 }
 
+function apiClient(handler: (request: Request) => Promise<Response>) {
+  return async function requestJson(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: any }> {
+    const response = await handler(new Request(`${baseUrl}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }));
+    const text = await response.text();
+    return {
+      status: response.status,
+      body: text ? JSON.parse(text) : undefined,
+    };
+  };
+}
+
+function createMockMirror(records: SupermemoryMirrorRecord[]): SupermemoryMirror {
+  return {
+    async mirrorRecord(record) {
+      records.push(record);
+    },
+    async mirrorDebateResult(input) {
+      records.push({
+        type: "debate_transcript",
+        scope: "debate",
+        runId: input.runId,
+        branchId: input.branchId,
+        lawId: input.lawId,
+        debateId: input.result.debateId,
+        data: input.result,
+      });
+    },
+    async mirrorInformationResult(input) {
+      records.push({
+        type: "information_result",
+        scope: "information",
+        runId: input.runId,
+        branchId: input.branchId,
+        lawId: input.lawId,
+        summary: input.result.summary,
+        data: input,
+      });
+    },
+  };
+}
+
 function tradeIntentPayload(overrides: Record<string, unknown> = {}) {
   return {
     symbol: "PLTR",
@@ -529,4 +700,11 @@ function createMockTradingBroker(): PaperTradingBroker {
       };
     },
   };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(body === null ? null : JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
