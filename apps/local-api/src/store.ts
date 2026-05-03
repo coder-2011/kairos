@@ -29,7 +29,7 @@ export type BranchRecord = {
   metadata?: JsonRecord;
 };
 
-export type RunKind = "heartbeat" | "debate";
+export type RunKind = "heartbeat" | "debate" | "router";
 export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "canceled";
 
 export type RunRecord = {
@@ -51,6 +51,29 @@ export type RunEventRecord = {
   type: string;
   timestamp: string;
   payload: JsonRecord;
+};
+
+export type RouterAttachmentRecord = {
+  id: string;
+  name: string;
+  mimeType: string;
+  path: string;
+};
+
+export type RouterChatRecord = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RouterMessageRecord = {
+  id: string;
+  chatId: string;
+  role: "user" | "assistant";
+  createdAt: string;
+  text?: string;
+  attachments?: RouterAttachmentRecord[];
+  runId?: string;
 };
 
 export type CreateBranchInput = {
@@ -84,6 +107,19 @@ export type AppendRunEventInput = {
   payload?: JsonRecord;
 };
 
+export type CreateRouterChatInput = {
+  id?: string;
+};
+
+export type CreateRouterMessageInput = {
+  id?: string;
+  chatId: string;
+  role: "user" | "assistant";
+  text?: string;
+  attachments?: RouterAttachmentRecord[];
+  runId?: string;
+};
+
 export type RunEventSubscriber = (event: RunEventRecord) => void;
 
 export type KairosLocalStore = {
@@ -99,6 +135,11 @@ export type KairosLocalStore = {
   listRunEvents(runId: string): Promise<RunEventRecord[]>;
   appendRunEvent(runId: string, input: AppendRunEventInput): Promise<RunEventRecord>;
   subscribeToRunEvents?(runId: string, subscriber: RunEventSubscriber): () => void;
+  listRouterChats(): Promise<RouterChatRecord[]>;
+  createRouterChat(input?: CreateRouterChatInput): Promise<RouterChatRecord>;
+  getRouterChat(id: string): Promise<RouterChatRecord | undefined>;
+  listRouterMessages(chatId: string): Promise<RouterMessageRecord[]>;
+  createRouterMessage(input: CreateRouterMessageInput): Promise<RouterMessageRecord>;
   listMessages(): Promise<TradingMessage[]>;
   createMessage(input: CreateTradingMessageInput): Promise<TradingMessage>;
   listTradeIntents(): Promise<TradeIntent[]>;
@@ -116,6 +157,8 @@ export class MemoryKairosStore implements KairosLocalStore {
   private branches = new Map<string, BranchRecord>();
   private runs = new Map<string, RunRecord>();
   private events = new Map<string, RunEventRecord[]>();
+  private routerChats = new Map<string, RouterChatRecord>();
+  private routerMessages = new Map<string, RouterMessageRecord[]>();
   private messages = new Map<string, TradingMessage>();
   private tradeIntents = new Map<string, TradeIntent>();
   private brokerOrders = new Map<string, BrokerOrder>();
@@ -240,6 +283,53 @@ export class MemoryKairosStore implements KairosLocalStore {
         this.subscribers.delete(runId);
       }
     };
+  }
+
+  async listRouterChats(): Promise<RouterChatRecord[]> {
+    return sortByCreatedAt([...this.routerChats.values()]);
+  }
+
+  async createRouterChat(input: CreateRouterChatInput = {}): Promise<RouterChatRecord> {
+    const now = new Date().toISOString();
+    const chat: RouterChatRecord = {
+      id: input.id ?? this.nextId("router_chat"),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.routerChats.set(chat.id, chat);
+    return chat;
+  }
+
+  async getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
+    return this.routerChats.get(id);
+  }
+
+  async listRouterMessages(chatId: string): Promise<RouterMessageRecord[]> {
+    return [...(this.routerMessages.get(chatId) ?? [])];
+  }
+
+  async createRouterMessage(input: CreateRouterMessageInput): Promise<RouterMessageRecord> {
+    const message: RouterMessageRecord = {
+      id: input.id ?? this.nextId("router_message"),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      attachments: input.attachments,
+      runId: input.runId,
+      createdAt: new Date().toISOString(),
+    };
+    const messages = this.routerMessages.get(input.chatId) ?? [];
+    messages.push(message);
+    this.routerMessages.set(input.chatId, messages);
+
+    const chat = this.routerChats.get(input.chatId);
+    if (chat) {
+      this.routerChats.set(input.chatId, {
+        ...chat,
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
   }
 
   async listMessages(): Promise<TradingMessage[]> {

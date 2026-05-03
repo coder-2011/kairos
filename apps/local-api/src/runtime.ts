@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
 import {
   LocalKairosStore,
   type KairosBranch,
@@ -27,6 +31,10 @@ import type {
   KairosLocalStore,
   RunEventRecord,
   RunRecord,
+  RouterChatRecord,
+  RouterMessageRecord,
+  CreateRouterChatInput,
+  CreateRouterMessageInput,
   UpdateBranchInput,
 } from "./store.js";
 
@@ -173,6 +181,62 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return toRunEventRecord(event);
   }
 
+  async listRouterChats(): Promise<RouterChatRecord[]> {
+    return this.readRouterJsonFiles<RouterChatRecord>("chats").then((chats) =>
+      sortByCreatedAt(chats),
+    );
+  }
+
+  async createRouterChat(
+    input: CreateRouterChatInput = {},
+  ): Promise<RouterChatRecord> {
+    const now = new Date().toISOString();
+    const chat: RouterChatRecord = {
+      id: input.id ?? randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.writeRouterJson(this.routerChatPath(chat.id), chat);
+    return chat;
+  }
+
+  async getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
+    return toUndefined(await this.readRouterJson<RouterChatRecord>(this.routerChatPath(id)));
+  }
+
+  async listRouterMessages(chatId: string): Promise<RouterMessageRecord[]> {
+    return this.readRouterJsonl<RouterMessageRecord>(this.routerMessagesPath(chatId));
+  }
+
+  async createRouterMessage(
+    input: CreateRouterMessageInput,
+  ): Promise<RouterMessageRecord> {
+    const message: RouterMessageRecord = {
+      id: input.id ?? randomUUID(),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      attachments: input.attachments,
+      runId: input.runId,
+      createdAt: new Date().toISOString(),
+    };
+    await mkdir(dirname(this.routerMessagesPath(input.chatId)), { recursive: true });
+    await writeFile(
+      this.routerMessagesPath(input.chatId),
+      `${JSON.stringify(message)}\n`,
+      { flag: "a" },
+    );
+
+    const chat = await this.getRouterChat(input.chatId);
+    if (chat) {
+      await this.writeRouterJson(this.routerChatPath(input.chatId), {
+        ...chat,
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
+  }
+
   listMessages(): Promise<TradingMessage[]> {
     return this.tradingStore.listMessages();
   }
@@ -224,6 +288,67 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   ): Promise<PortfolioSnapshot> {
     return this.tradingStore.createPortfolioSnapshot(input);
   }
+
+  private get routerDir(): string {
+    return join(this.store.rootDir, "router");
+  }
+
+  private routerChatPath(chatId: string): string {
+    return join(this.routerDir, "chats", `${encodeFileSegment(chatId)}.json`);
+  }
+
+  private routerMessagesPath(chatId: string): string {
+    return join(this.routerDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
+  }
+
+  private async writeRouterJson(path: string, value: unknown): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await rename(tmpPath, path);
+  }
+
+  private async readRouterJson<T>(path: string): Promise<T | null> {
+    try {
+      return JSON.parse(await readFile(path, "utf8")) as T;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
+    }
+  }
+
+  private async readRouterJsonFiles<T>(subdir: string): Promise<T[]> {
+    const dir = join(this.routerDir, subdir);
+    let fileNames: string[];
+    try {
+      fileNames = await readdir(dir);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+
+    return Promise.all(
+      fileNames
+        .filter((fileName) => fileName.endsWith(".json"))
+        .sort()
+        .map(async (fileName) =>
+          JSON.parse(await readFile(join(dir, fileName), "utf8")) as T,
+        ),
+    );
+  }
+
+  private async readRouterJsonl<T>(path: string): Promise<T[]> {
+    try {
+      const text = await readFile(path, "utf8");
+      return text
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as T);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+  }
 }
 
 function toBranchRecord(branch: KairosBranch): BranchRecord {
@@ -245,7 +370,10 @@ function toBranchRecord(branch: KairosBranch): BranchRecord {
 function toRunRecord(run: KairosRun): RunRecord {
   return {
     id: run.runId,
-    kind: run.kind === "debate" ? "debate" : "heartbeat",
+    kind:
+      run.kind === "debate" || run.kind === "router"
+        ? run.kind
+        : "heartbeat",
     status: run.status,
     branchId: run.branchId,
     createdAt: run.createdAt,
@@ -269,6 +397,10 @@ function toRunEventRecord(event: KairosEvent): RunEventRecord {
 
 function toOptional<T, U>(value: T | null, map: (value: T) => U): U | undefined {
   return value === null ? undefined : map(value);
+}
+
+function toUndefined<T>(value: T | null): T | undefined {
+  return value === null ? undefined : value;
 }
 
 function readBranchPayload(branch: KairosBranch): {
@@ -311,4 +443,16 @@ function slugId(value: string): string {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return isJsonRecord(error) && error.code === "ENOENT";
+}
+
+function encodeFileSegment(value: string): string {
+  return encodeURIComponent(value).replaceAll("%", "_");
+}
+
+function sortByCreatedAt<T extends { createdAt: string }>(records: T[]): T[] {
+  return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }

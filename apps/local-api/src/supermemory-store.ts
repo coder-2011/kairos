@@ -14,7 +14,11 @@ import type {
   BranchRecord,
   CreateBranchInput,
   CreateRunInput,
+  CreateRouterChatInput,
+  CreateRouterMessageInput,
   KairosLocalStore,
+  RouterChatRecord,
+  RouterMessageRecord,
   RunEventRecord,
   RunEventSubscriber,
   RunRecord,
@@ -158,6 +162,28 @@ class SupermemoryMirroredStore implements KairosLocalStore {
     subscriber: RunEventSubscriber,
   ): () => void {
     return this.store.subscribeToRunEvents?.(runId, subscriber) ?? (() => {});
+  }
+
+  listRouterChats(): Promise<RouterChatRecord[]> {
+    return this.store.listRouterChats();
+  }
+
+  createRouterChat(input?: CreateRouterChatInput): Promise<RouterChatRecord> {
+    return this.store.createRouterChat(input);
+  }
+
+  getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
+    return this.store.getRouterChat(id);
+  }
+
+  listRouterMessages(chatId: string): Promise<RouterMessageRecord[]> {
+    return this.store.listRouterMessages(chatId);
+  }
+
+  createRouterMessage(
+    input: CreateRouterMessageInput,
+  ): Promise<RouterMessageRecord> {
+    return this.store.createRouterMessage(input);
   }
 
   listMessages(): Promise<TradingMessage[]> {

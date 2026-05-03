@@ -19,7 +19,11 @@ import type {
   BranchRecord,
   CreateBranchInput,
   CreateRunInput,
+  CreateRouterChatInput,
+  CreateRouterMessageInput,
   KairosLocalStore,
+  RouterChatRecord,
+  RouterMessageRecord,
   RunEventRecord,
   RunRecord,
   UpdateBranchInput,
@@ -41,6 +45,8 @@ type Collection =
   | "branches"
   | "runs"
   | "run_events"
+  | "router_chats"
+  | "router_messages"
   | "messages"
   | "trade_intents"
   | "broker_orders"
@@ -161,6 +167,58 @@ export class SupabaseKairosStore implements KairosLocalStore {
     };
     await this.client.upsert("run_events", event.id, event);
     return event;
+  }
+
+  async listRouterChats(): Promise<RouterChatRecord[]> {
+    return sortByCreatedAt(await this.client.list<RouterChatRecord>("router_chats"));
+  }
+
+  async createRouterChat(
+    input: CreateRouterChatInput = {},
+  ): Promise<RouterChatRecord> {
+    const now = new Date().toISOString();
+    const chat: RouterChatRecord = {
+      id: input.id ?? randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.client.upsert("router_chats", chat.id, chat);
+    return chat;
+  }
+
+  getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
+    return this.client.get<RouterChatRecord>("router_chats", id);
+  }
+
+  async listRouterMessages(chatId: string): Promise<RouterMessageRecord[]> {
+    const messages = await this.client.list<RouterMessageRecord>("router_messages", {
+      "record->>chatId": `eq.${chatId}`,
+    });
+    return messages.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async createRouterMessage(
+    input: CreateRouterMessageInput,
+  ): Promise<RouterMessageRecord> {
+    const message: RouterMessageRecord = {
+      id: input.id ?? randomUUID(),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      attachments: input.attachments,
+      runId: input.runId,
+      createdAt: new Date().toISOString(),
+    };
+    await this.client.upsert("router_messages", message.id, message);
+
+    const chat = await this.getRouterChat(input.chatId);
+    if (chat) {
+      await this.client.upsert("router_chats", chat.id, {
+        ...chat,
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
   }
 
   async listMessages(): Promise<TradingMessage[]> {
