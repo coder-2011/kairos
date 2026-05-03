@@ -1,34 +1,40 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
-  appendInterjection,
-  createDebate,
-  getBranches,
-  getRunEvents,
-  getRuns,
-  triggerHeartbeat,
-  updateBranchConfig,
-  type BranchRecord,
-  type JsonRecord,
-  type RunEventRecord,
-  type RunRecord,
-} from "./api";
+  BEAR_SYSTEM_PROMPT,
+  BULL_SYSTEM_PROMPT,
+  JUDGE_SYSTEM_PROMPT,
+} from "../../../src/agents/debate/prompt.js";
+import { HEARTBEAT_SYSTEM_PROMPT } from "../../../src/agents/heartbeat/prompt.js";
 import type {
   InformationConfigToolName,
   KairosBranchAgentConfig,
   KairosConfigModelRole,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
+import {
+  appendInterjection,
+  createDebate,
+  getBranches,
+  getRunEvents,
+  getRuns,
+  triggerHeartbeat,
+  updateBranch,
+  type BranchRecord,
+  type JsonRecord,
+  type RunEventRecord,
+  type RunRecord,
+} from "./api";
 
 type View = "branches" | "debate" | "detail" | "draft" | "config";
 type LoadState = "loading" | "api" | "offline";
+type RunMode = "dry" | "live";
 
 const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
   { id: "debate", label: "Monitoring", icon: "monitoring" },
   { id: "detail", label: "Run Deep-Dive", icon: "timeline" },
-  { id: "draft", label: "Draft Law", icon: "edit_note" },
-  { id: "config", label: "Configuration", icon: "settings" },
+  { id: "config", label: "Branch Configuration", icon: "settings" },
 ];
 
 type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
@@ -37,31 +43,31 @@ const promptFields: Array<{
   role: string;
   key: PromptConfigKey;
   description: string;
+  defaultText: string;
 }> = [
   {
     role: "Heartbeat",
     key: "heartbeatSystemPrompt",
     description: "Frequent branch monitor instructions.",
+    defaultText: HEARTBEAT_SYSTEM_PROMPT,
   },
   {
     role: "Debate Judge",
     key: "debateJudgeSystemPrompt",
     description: "Debate orchestration and speaker-selection instructions.",
+    defaultText: JUDGE_SYSTEM_PROMPT,
   },
   {
     role: "Debate Bull",
     key: "debateBullSystemPrompt",
     description: "Materiality and opportunity-side argument instructions.",
+    defaultText: BULL_SYSTEM_PROMPT,
   },
   {
     role: "Debate Bear",
     key: "debateBearSystemPrompt",
     description: "Noise, risk, stale-evidence, and priced-in argument instructions.",
-  },
-  {
-    role: "Final Synthesis",
-    key: "debateFinalSystemPrompt",
-    description: "Final decision synthesis instructions.",
+    defaultText: BEAR_SYSTEM_PROMPT,
   },
 ];
 
@@ -105,6 +111,7 @@ export function App() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [runMode, setRunMode] = useState<RunMode>("dry");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -161,9 +168,14 @@ export function App() {
     };
   }, [loadState, selectedRun?.id]);
 
-  async function runDryHeartbeat(branchId: string) {
+  async function runHeartbeat(branchId: string) {
+    const dryRun = runMode === "dry";
     try {
-      const run = await triggerHeartbeat(branchId, { source: "web_command" });
+      const run = await triggerHeartbeat(
+        branchId,
+        { source: "web_command", runMode },
+        { dryRun },
+      );
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
       setView("debate");
@@ -175,12 +187,16 @@ export function App() {
   }
 
   async function startDebate(branchId: string) {
+    const dryRun = runMode === "dry";
     try {
       const run = await createDebate({
         branchId,
+        dryRun,
         escalation: {
           branchId,
-          summary: "Manual dry-run escalation opened from the web command center.",
+          summary: dryRun
+            ? "Manual dry-run escalation opened from the web command center."
+            : "Manual live escalation opened from the web command center.",
         },
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
@@ -205,12 +221,23 @@ export function App() {
     }
   }
 
-  async function saveBranchAgentConfig(
+  async function saveBranchSettings(
     branchId: string,
-    config: KairosBranchAgentConfig,
+    input: {
+      config: KairosBranchAgentConfig;
+      lawText: string;
+    },
   ) {
     try {
-      const branch = await updateBranchConfig(branchId, config);
+      const currentBranch = branches.find((branch) => branch.id === branchId);
+      const branch = await updateBranch(branchId, {
+        description: input.lawText,
+        law: {
+          ...currentBranch?.law,
+          thesis: input.lawText,
+        },
+        config: input.config,
+      });
       setBranches((current) =>
         current.map((item) => (item.id === branch.id ? branch : item)),
       );
@@ -231,40 +258,34 @@ export function App() {
             runs={runs}
             onSelect={(branch) => {
               setSelectedBranchId(branch.id);
-              setView("detail");
+              setView("config");
             }}
-            onCreate={() => setView("draft")}
+            onCreate={() => setView("config")}
           />
         )}
-        {view === "debate" && (
+        {view === "monitoring" && (
           <DebateView
             events={events}
             run={selectedRun}
             onInject={injectHumanContext}
           />
         )}
-        {view === "detail" && selectedBranch && (
-          <BranchDetail
-            branch={selectedBranch}
+        {view === "runDeepDive" && (
+          <RunDeepDive
+            branches={branches}
+            events={events}
             runs={runs}
-            onEdit={() => setView("config")}
-            onDryRun={() => void runDryHeartbeat(selectedBranch.id)}
-            onEscalate={() => void startDebate(selectedBranch.id)}
+            selectedRun={selectedRun}
+            onSelectRun={setSelectedRunId}
           />
         )}
-        {view === "detail" && !selectedBranch && (
-          <EmptyCanvas
-            icon="account_tree"
-            title="No Branch Selected"
-            message="Create or load a branch from the local API to inspect a branch deep-dive."
-          />
-        )}
-        {view === "draft" && <DraftLaw onCompile={() => setView("config")} />}
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
-            onSave={(config) =>
-              void saveBranchAgentConfig(selectedBranch.id, config)
+            onDryRun={() => void runDryHeartbeat(selectedBranch.id)}
+            onEscalate={() => void startDebate(selectedBranch.id)}
+            onSave={(input) =>
+              void saveBranchSettings(selectedBranch.id, input)
             }
           />
         )}
@@ -272,10 +293,10 @@ export function App() {
           <EmptyCanvas
             icon="settings"
             title="No Branch Configuration"
-            message="The frontend is connected to real local API data only. No branch record is available yet."
+            message="Select a branch from Branch List. Branch Configuration is where laws and branch-agent settings are edited."
           />
         )}
-        <Footer active={view === "debate" ? "human" : view === "detail" ? "manual" : "dry"} />
+        <Footer active={view === "monitoring" ? "human" : view === "runDeepDive" ? "manual" : "dry"} />
       </div>
     </div>
   );

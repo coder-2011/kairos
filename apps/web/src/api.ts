@@ -59,21 +59,23 @@ export async function getRunEvents(runId: string): Promise<RunEventRecord[]> {
 export async function triggerHeartbeat(
   branchId: string,
   input: JsonRecord = {},
+  options: { dryRun?: boolean } = {},
 ): Promise<RunRecord> {
   return request<{ run: RunRecord }>(`/branches/${branchId}/heartbeat-runs`, {
     method: "POST",
-    body: JSON.stringify({ dryRun: true, input }),
+    body: JSON.stringify({ dryRun: options.dryRun ?? true, input }),
   }).then((response) => response.run);
 }
 
 export async function createDebate(input: {
   branchId?: string;
   escalation?: JsonRecord;
+  dryRun?: boolean;
 }): Promise<RunRecord> {
   return request<{ run: RunRecord }>("/debates", {
     method: "POST",
     body: JSON.stringify({
-      dryRun: true,
+      dryRun: input.dryRun ?? true,
       escalation: input.escalation,
       input: { branchId: input.branchId },
     }),
@@ -94,9 +96,20 @@ export async function updateBranchConfig(
   branchId: string,
   config: KairosBranchAgentConfig,
 ): Promise<BranchRecord> {
+  return updateBranch(branchId, { config });
+}
+
+export async function updateBranch(
+  branchId: string,
+  input: {
+    description?: string;
+    law?: JsonRecord;
+    config?: KairosBranchAgentConfig;
+  },
+): Promise<BranchRecord> {
   return request<{ branch: BranchRecord }>(`/branches/${branchId}`, {
     method: "PATCH",
-    body: JSON.stringify({ config }),
+    body: JSON.stringify(input),
   }).then((response) => response.branch);
 }
 
