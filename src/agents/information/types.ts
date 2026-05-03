@@ -9,7 +9,24 @@ export type InformationToolName =
   | "exa_contents"
   | "finnhub_quote"
   | "finnhub_company_news"
+  | "finnhub_stock_candles"
+  | "finnhub_aggregate_indicator"
   | "finnhub_basic_financials"
+  | "finnhub_company_earnings"
+  | "finnhub_company_eps_estimates"
+  | "finnhub_company_peers"
+  | "finnhub_company_profile"
+  | "finnhub_earnings_calendar"
+  | "finnhub_filings"
+  | "finnhub_financials_reported"
+  | "finnhub_insider_transactions"
+  | "finnhub_news_sentiment"
+  | "finnhub_ownership"
+  | "finnhub_press_releases"
+  | "finnhub_recommendation_trends"
+  | "finnhub_social_sentiment"
+  | "finnhub_supply_chain_relationships"
+  | "finnhub_upgrade_downgrade"
   | "supermemory_search";
 
 export type InformationRequest = {
@@ -46,9 +63,30 @@ export type StructuredInformationModelProvider = {
 };
 
 export type InformationExaClient = Pick<ExaApi, "search" | "answer" | "contents">;
-export type InformationFinnhubClient = Pick<
-  FinnhubApi,
-  "quote" | "companyNews" | "basicFinancials"
+export type InformationFinnhubClient = Partial<
+  Pick<
+    FinnhubApi,
+    | "quote"
+    | "companyNews"
+    | "stockCandles"
+    | "aggregateIndicator"
+    | "basicFinancials"
+    | "companyEarnings"
+    | "companyEpsEstimates"
+    | "companyPeers"
+    | "companyProfile2"
+    | "earningsCalendar"
+    | "filings"
+    | "financialsReported"
+    | "insiderTransactions"
+    | "newsSentiment"
+    | "ownership"
+    | "pressReleases"
+    | "recommendationTrends"
+    | "socialSentiment"
+    | "supplyChainRelationships"
+    | "upgradeDowngrade"
+  >
 >;
 export type InformationSupermemoryClient = Pick<GlobalMemoryApi, "search">;
 

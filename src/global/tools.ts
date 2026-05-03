@@ -45,7 +45,24 @@ export type GlobalToolName =
   | "exa_news_search"
   | "finnhub_quote"
   | "finnhub_company_news"
+  | "finnhub_stock_candles"
+  | "finnhub_aggregate_indicator"
   | "finnhub_basic_financials"
+  | "finnhub_company_earnings"
+  | "finnhub_company_eps_estimates"
+  | "finnhub_company_peers"
+  | "finnhub_company_profile"
+  | "finnhub_earnings_calendar"
+  | "finnhub_filings"
+  | "finnhub_financials_reported"
+  | "finnhub_insider_transactions"
+  | "finnhub_news_sentiment"
+  | "finnhub_ownership"
+  | "finnhub_press_releases"
+  | "finnhub_recommendation_trends"
+  | "finnhub_social_sentiment"
+  | "finnhub_supply_chain_relationships"
+  | "finnhub_upgrade_downgrade"
   | "supermemory_profile"
   | "supermemory_search";
 
@@ -77,7 +94,31 @@ export type GlobalToolRegistry = Partial<Record<GlobalToolName, GlobalToolHandle
 
 export type GlobalToolDependencies = {
   exa?: Pick<ExaApi, "search" | "answer" | "contents">;
-  finnhub?: Pick<FinnhubApi, "quote" | "companyNews" | "basicFinancials">;
+  finnhub?: Partial<
+    Pick<
+      FinnhubApi,
+      | "quote"
+      | "companyNews"
+      | "stockCandles"
+      | "aggregateIndicator"
+      | "basicFinancials"
+      | "companyEarnings"
+      | "companyEpsEstimates"
+      | "companyPeers"
+      | "companyProfile2"
+      | "earningsCalendar"
+      | "filings"
+      | "financialsReported"
+      | "insiderTransactions"
+      | "newsSentiment"
+      | "ownership"
+      | "pressReleases"
+      | "recommendationTrends"
+      | "socialSentiment"
+      | "supplyChainRelationships"
+      | "upgradeDowngrade"
+    >
+  >;
   memory?: Pick<GlobalMemoryApi, "search"> & Partial<Pick<GlobalMemoryApi, "profile">>;
   memoryContainerTag?: string;
   now?: () => Date;
@@ -138,8 +179,41 @@ export function createGlobalToolRegistry(
   }
 
   if (deps.finnhub) {
+    const tickerInput = (input: string) =>
+      inferTicker(input) ?? input.trim().split(/\s+/)[0];
+    const dateWindow = (
+      context: GlobalToolContext | undefined,
+      days: number,
+    ) => {
+      const now = context?.now ?? deps.now?.() ?? new Date();
+      return {
+        from: formatDate(new Date(now.getTime() - days * DAY_MS)),
+        to: formatDate(now),
+      };
+    };
+    const unixWindow = (
+      context: GlobalToolContext | undefined,
+      days: number,
+    ) => {
+      const now = context?.now ?? deps.now?.() ?? new Date();
+      return {
+        from: Math.floor((now.getTime() - days * DAY_MS) / 1000),
+        to: Math.floor(now.getTime() / 1000),
+      };
+    };
+    const finnhubResult = (
+      label: string,
+      raw: unknown,
+      citations: GlobalToolCitation[] = [],
+    ): GlobalToolResult => ({
+      summary: `${label}: ${summarizeUnknown(raw)}`,
+      citations,
+      raw,
+    });
+
+    if (deps.finnhub.quote) {
     registry.finnhub_quote = async (input) => {
-      const ticker = inferTicker(input) ?? input.trim().split(/\s+/)[0];
+      const ticker = tickerInput(input);
       const quote = await deps.finnhub?.quote(ticker);
       return {
         summary: `Finnhub quote for ${ticker}: ${summarizeUnknown(quote)}`,
@@ -147,11 +221,11 @@ export function createGlobalToolRegistry(
         raw: quote,
       };
     };
+    }
+    if (deps.finnhub.companyNews) {
     registry.finnhub_company_news = async (input, context) => {
-      const ticker = inferTicker(input) ?? input.trim().split(/\s+/)[0];
-      const now = context?.now ?? deps.now?.() ?? new Date();
-      const to = formatDate(now);
-      const from = formatDate(new Date(now.getTime() - 7 * DAY_MS));
+      const ticker = tickerInput(input);
+      const { from, to } = dateWindow(context, 7);
       const news = await deps.finnhub?.companyNews({ symbol: ticker, from, to });
       const topNews = news?.slice(0, 5) ?? [];
       return {
@@ -172,8 +246,36 @@ export function createGlobalToolRegistry(
         raw: topNews,
       };
     };
+    }
+    if (deps.finnhub.stockCandles) {
+      registry.finnhub_stock_candles = async (input, context) => {
+        const ticker = tickerInput(input);
+        const { from, to } = unixWindow(context, 30);
+        const candles = await deps.finnhub?.stockCandles({
+          symbol: ticker,
+          resolution: "D",
+          from,
+          to,
+        });
+        return finnhubResult(
+          `Finnhub daily stock candles for ${ticker} over the last 30 days`,
+          candles,
+        );
+      };
+    }
+    if (deps.finnhub.aggregateIndicator) {
+      registry.finnhub_aggregate_indicator = async (input) => {
+        const ticker = tickerInput(input);
+        const indicator = await deps.finnhub?.aggregateIndicator(ticker, "D");
+        return finnhubResult(
+          `Finnhub aggregate technical indicator for ${ticker}`,
+          indicator,
+        );
+      };
+    }
+    if (deps.finnhub.basicFinancials) {
     registry.finnhub_basic_financials = async (input) => {
-      const ticker = inferTicker(input) ?? input.trim().split(/\s+/)[0];
+      const ticker = tickerInput(input);
       const financials = await deps.finnhub?.basicFinancials(ticker);
       return {
         summary: `Finnhub basic financials for ${ticker}: ${summarizeUnknown(financials)}`,
@@ -181,6 +283,152 @@ export function createGlobalToolRegistry(
         raw: financials,
       };
     };
+    }
+    if (deps.finnhub.companyEarnings) {
+      registry.finnhub_company_earnings = async (input) => {
+        const ticker = tickerInput(input);
+        const earnings = await deps.finnhub?.companyEarnings(ticker, 4);
+        return finnhubResult(`Finnhub recent company earnings for ${ticker}`, earnings);
+      };
+    }
+    if (deps.finnhub.companyEpsEstimates) {
+      registry.finnhub_company_eps_estimates = async (input) => {
+        const ticker = tickerInput(input);
+        const estimates = await deps.finnhub?.companyEpsEstimates(ticker, "quarterly");
+        return finnhubResult(
+          `Finnhub quarterly EPS estimates for ${ticker}`,
+          estimates,
+        );
+      };
+    }
+    if (deps.finnhub.companyPeers) {
+      registry.finnhub_company_peers = async (input) => {
+        const ticker = tickerInput(input);
+        const peers = await deps.finnhub?.companyPeers(ticker);
+        return finnhubResult(`Finnhub company peers for ${ticker}`, peers);
+      };
+    }
+    if (deps.finnhub.companyProfile2) {
+      registry.finnhub_company_profile = async (input) => {
+        const ticker = tickerInput(input);
+        const profile = await deps.finnhub?.companyProfile2(ticker);
+        return finnhubResult(`Finnhub company profile for ${ticker}`, profile);
+      };
+    }
+    if (deps.finnhub.earningsCalendar) {
+      registry.finnhub_earnings_calendar = async (input, context) => {
+        const ticker = tickerInput(input);
+        const { from, to } = dateWindow(context, 30);
+        const calendar = await deps.finnhub?.earningsCalendar({
+          symbol: ticker,
+          from,
+          to,
+        });
+        return finnhubResult(
+          `Finnhub earnings calendar for ${ticker} over the next/current 30-day window`,
+          calendar,
+        );
+      };
+    }
+    if (deps.finnhub.filings) {
+      registry.finnhub_filings = async (input, context) => {
+        const ticker = tickerInput(input);
+        const { from, to } = dateWindow(context, 30);
+        const filings = await deps.finnhub?.filings({ symbol: ticker, from, to });
+        return finnhubResult(
+          `Finnhub filings for ${ticker} over the last 30 days`,
+          filings,
+        );
+      };
+    }
+    if (deps.finnhub.financialsReported) {
+      registry.finnhub_financials_reported = async (input) => {
+        const ticker = tickerInput(input);
+        const financials = await deps.finnhub?.financialsReported(ticker);
+        return finnhubResult(
+          `Finnhub reported financials for ${ticker}`,
+          financials,
+        );
+      };
+    }
+    if (deps.finnhub.insiderTransactions) {
+      registry.finnhub_insider_transactions = async (input) => {
+        const ticker = tickerInput(input);
+        const transactions = await deps.finnhub?.insiderTransactions(ticker);
+        return finnhubResult(
+          `Finnhub insider transactions for ${ticker}`,
+          transactions,
+        );
+      };
+    }
+    if (deps.finnhub.newsSentiment) {
+      registry.finnhub_news_sentiment = async (input) => {
+        const ticker = tickerInput(input);
+        const sentiment = await deps.finnhub?.newsSentiment(ticker);
+        return finnhubResult(`Finnhub news sentiment for ${ticker}`, sentiment);
+      };
+    }
+    if (deps.finnhub.ownership) {
+      registry.finnhub_ownership = async (input) => {
+        const ticker = tickerInput(input);
+        const ownership = await deps.finnhub?.ownership(ticker, 20);
+        return finnhubResult(`Finnhub ownership for ${ticker}`, ownership);
+      };
+    }
+    if (deps.finnhub.pressReleases) {
+      registry.finnhub_press_releases = async (input) => {
+        const ticker = tickerInput(input);
+        const releases = await deps.finnhub?.pressReleases(ticker);
+        const rawReleases = Array.isArray(releases) ? releases.slice(0, 5) : releases;
+        return finnhubResult(
+          `Finnhub press releases for ${ticker}`,
+          rawReleases,
+          extractFinnhubUrlCitations(rawReleases),
+        );
+      };
+    }
+    if (deps.finnhub.recommendationTrends) {
+      registry.finnhub_recommendation_trends = async (input) => {
+        const ticker = tickerInput(input);
+        const trends = await deps.finnhub?.recommendationTrends(ticker);
+        return finnhubResult(
+          `Finnhub recommendation trends for ${ticker}`,
+          trends,
+        );
+      };
+    }
+    if (deps.finnhub.socialSentiment) {
+      registry.finnhub_social_sentiment = async (input) => {
+        const ticker = tickerInput(input);
+        const sentiment = await deps.finnhub?.socialSentiment(ticker);
+        return finnhubResult(`Finnhub social sentiment for ${ticker}`, sentiment);
+      };
+    }
+    if (deps.finnhub.supplyChainRelationships) {
+      registry.finnhub_supply_chain_relationships = async (input) => {
+        const ticker = tickerInput(input);
+        const relationships = await deps.finnhub?.supplyChainRelationships(ticker);
+        return finnhubResult(
+          `Finnhub supply-chain relationships for ${ticker}`,
+          relationships,
+        );
+      };
+    }
+    if (deps.finnhub.upgradeDowngrade) {
+      registry.finnhub_upgrade_downgrade = async (input, context) => {
+        const ticker = tickerInput(input);
+        const { from, to } = dateWindow(context, 30);
+        const changes = await deps.finnhub?.upgradeDowngrade({
+          symbol: ticker,
+          from,
+          to,
+        });
+        return finnhubResult(
+          `Finnhub analyst upgrade/downgrade changes for ${ticker} over the last 30 days`,
+          changes,
+        );
+      };
+    }
   }
 
   const profileMemory = deps.memory?.profile;
@@ -364,4 +612,27 @@ function extractUrls(input: string): string[] {
   return Array.from(input.matchAll(/https?:\/\/[^\s),]+/g)).map((match) =>
     match[0],
   );
+}
+
+function extractFinnhubUrlCitations(value: unknown): GlobalToolCitation[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object" || !("url" in item)) {
+        return undefined;
+      }
+
+      const record = item as Record<string, unknown>;
+      return typeof record.url === "string" && record.url.length > 0
+        ? {
+            title: typeof record.headline === "string" ? record.headline : undefined,
+            url: record.url,
+            source: typeof record.source === "string" ? record.source : undefined,
+          }
+        : undefined;
+    })
+    .filter((item): item is GlobalToolCitation => Boolean(item));
 }

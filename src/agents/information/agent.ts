@@ -76,6 +76,7 @@ function deterministicPlan(
 ): InformationPlan {
   const toolCalls: InformationPlan["toolCalls"] = [];
   const ticker = inferTicker(request.query);
+  const query = request.query.toLowerCase();
 
   if (deps.exa) {
     toolCalls.push({
@@ -99,11 +100,66 @@ function deterministicPlan(
   }
 
   if (deps.finnhub && ticker) {
-    toolCalls.push(
-      { toolName: "finnhub_quote", input: ticker },
-      { toolName: "finnhub_company_news", input: ticker },
-      { toolName: "finnhub_basic_financials", input: ticker },
-    );
+    toolCalls.push({ toolName: "finnhub_quote", input: ticker });
+
+    if (/news|headline|catalyst|recent|latest/i.test(request.query)) {
+      toolCalls.push({ toolName: "finnhub_company_news", input: ticker });
+    }
+    if (/financial|valuation|metric|revenue|margin|growth|balance/i.test(query)) {
+      toolCalls.push({ toolName: "finnhub_basic_financials", input: ticker });
+    }
+    if (/price|chart|technical|momentum|trend|support|resistance|candle/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_stock_candles", input: ticker },
+        { toolName: "finnhub_aggregate_indicator", input: ticker },
+      );
+    }
+    if (/earnings|eps|estimate/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_company_earnings", input: ticker },
+        { toolName: "finnhub_company_eps_estimates", input: ticker },
+        { toolName: "finnhub_earnings_calendar", input: ticker },
+      );
+    }
+    if (/filing|sec|10-k|10-q|8-k/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_filings", input: ticker },
+        { toolName: "finnhub_financials_reported", input: ticker },
+      );
+    }
+    if (/analyst|rating|upgrade|downgrade|recommendation/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_recommendation_trends", input: ticker },
+        { toolName: "finnhub_upgrade_downgrade", input: ticker },
+      );
+    }
+    if (/ownership|holder|institution/i.test(query)) {
+      toolCalls.push({ toolName: "finnhub_ownership", input: ticker });
+    }
+    if (/insider|executive transaction/i.test(query)) {
+      toolCalls.push({ toolName: "finnhub_insider_transactions", input: ticker });
+    }
+    if (/sentiment|social|reddit|twitter/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_news_sentiment", input: ticker },
+        { toolName: "finnhub_social_sentiment", input: ticker },
+      );
+    }
+    if (/peer|competitor|profile|sector|industry/i.test(query)) {
+      toolCalls.push(
+        { toolName: "finnhub_company_profile", input: ticker },
+        { toolName: "finnhub_company_peers", input: ticker },
+      );
+    }
+    if (/press release|announcement/i.test(query)) {
+      toolCalls.push({ toolName: "finnhub_press_releases", input: ticker });
+    }
+    if (/supply chain|supplier|customer/i.test(query)) {
+      toolCalls.push({
+        toolName: "finnhub_supply_chain_relationships",
+        input: ticker,
+      });
+    }
   }
 
   if (deps.memory ?? deps.supermemory) {
