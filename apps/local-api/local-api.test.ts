@@ -39,7 +39,7 @@ describe("local API handler", () => {
               tradable: true,
               price: 25.5,
               dayChangePercent: 2,
-              source: "alpaca",
+              source: "yahoo",
             },
           ];
         },
@@ -51,7 +51,7 @@ describe("local API handler", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       count: 1,
-      source: "assembled",
+      source: "nasdaq_trader_yahoo",
       cacheTags: ["market-symbols", "market-symbols:query:PLTR"],
       symbols: [
         {
@@ -62,11 +62,11 @@ describe("local API handler", () => {
     });
   });
 
-  it("falls back to the starter ticker universe when Alpaca symbols are unavailable", async () => {
+  it("does not synthesize starter tickers when the symbol directory is unavailable", async () => {
     const { requestJson } = makeClient({
       marketSymbolProvider: {
         async listMarketSymbols() {
-          throw new Error("Alpaca unavailable");
+          throw new Error("NASDAQ Trader unavailable");
         },
       },
     });
@@ -75,17 +75,11 @@ describe("local API handler", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      count: 1,
-      source: "fallback",
+      count: 0,
+      source: "unavailable",
       cacheTags: ["market-symbols", "market-symbols:query:PLTR"],
-      symbols: [
-        {
-          symbol: "PLTR",
-          name: "Palantir Technologies Inc.",
-          tradable: true,
-          source: "fallback",
-        },
-      ],
+      symbols: [],
+      error: "NASDAQ Trader unavailable",
     });
   });
 

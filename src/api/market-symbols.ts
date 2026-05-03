@@ -103,6 +103,7 @@ export function createMarketSymbolDirectoryProvider(
           record.exchange?.toUpperCase().includes(query)
         );
       })
+      .sort((left, right) => relevance(left, query) - relevance(right, query))
       .slice(0, limit);
     const quotes = await fetchYahooQuotes(
       fetchImpl,
@@ -122,6 +123,16 @@ export function createMarketSymbolDirectoryProvider(
   return { listMarketSymbols };
 }
 
+function relevance(record: MarketSymbolRecord, query: string | undefined): number {
+  if (!query) return 0;
+  if (record.symbol === query) return 0;
+  if (record.symbol.startsWith(query)) return 1;
+  if (record.symbol.includes(query)) return 2;
+  if (record.name?.toUpperCase().startsWith(query)) return 3;
+  if (record.name?.toUpperCase().includes(query)) return 4;
+  return 5;
+}
+
 function parseNasdaqListed(text: string): MarketSymbolRecord[] {
   return parsePipeRows(text)
     .filter((row) => row["Test Issue"] === "N")
@@ -132,7 +143,7 @@ function parseNasdaqListed(text: string): MarketSymbolRecord[] {
       assetClass: "us_equity",
       tradable: true,
       isEtf: row.ETF === "Y",
-      source: "nasdaq_trader",
+      source: "nasdaq_trader" as const,
     }))
     .filter((record) => Boolean(record.symbol));
 }
@@ -149,7 +160,7 @@ function parseOtherListed(text: string): MarketSymbolRecord[] {
       assetClass: "us_equity",
       tradable: true,
       isEtf: row.ETF === "Y",
-      source: "nasdaq_trader",
+      source: "nasdaq_trader" as const,
     }))
     .filter((record) => Boolean(record.symbol));
 }
