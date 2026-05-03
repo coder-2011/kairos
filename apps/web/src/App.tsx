@@ -1605,7 +1605,7 @@ function PortfolioView({
               {loadState === "loading"
                 ? "SYNCING"
                 : loadState === "api"
-                  ? "PAPER ONLINE"
+                  ? "TRADING ONLINE"
                   : "PORTFOLIO OFFLINE"}
             </span>
             <button className="command-button" onClick={onRefresh} type="button">
@@ -1638,7 +1638,7 @@ function PortfolioView({
           </div>
           <PortfolioTable
             columns={["SYMBOL", "QTY", "MARKET VALUE", "UNREALIZED P/L", "SIDE"]}
-            emptyMessage="No paper positions."
+            emptyMessage="No positions."
             rows={positions.map((position) => [
               readDisplay(position.symbol),
               readDisplay(position.qty),
@@ -1646,11 +1646,11 @@ function PortfolioView({
               formatMoneyField(position, "unrealized_pl", "unrealizedPl"),
               readDisplay(position.side),
             ])}
-            title="PAPER POSITIONS"
+            title="POSITIONS"
           />
           <PortfolioTable
             columns={["SYMBOL", "SIDE", "TYPE", "STATUS", "NOTIONAL", "SUBMITTED"]}
-            emptyMessage="No paper orders."
+            emptyMessage="No orders."
             rows={orders.map((order) => [
               readDisplay(order.symbol),
               readDisplay(order.side),
@@ -1659,7 +1659,7 @@ function PortfolioView({
               formatMoneyValue(order.notional ?? order.filled_notional ?? order.filledNotional),
               formatTimestamp(order.submitted_at ?? order.submittedAt ?? order.createdAt ?? order.created_at),
             ])}
-            title="PAPER ORDERS"
+            title="ORDERS"
           />
         </div>
       </section>
@@ -3316,7 +3316,6 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
-      autoTradeEnabled: false,
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,

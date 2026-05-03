@@ -333,7 +333,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       scope: "broker_order",
       artifactId: order.id,
       timestamp: order.createdAt,
-      title: `Kairos paper broker order ${order.symbol}`,
+      title: `Kairos broker order ${order.symbol}`,
       summary: `${order.side} ${order.symbol} ${order.status}`,
       data: order,
       customId: `kairos:broker_order:${order.id}`,
@@ -362,7 +362,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       artifactId: snapshot.id,
       timestamp: snapshot.capturedAt,
       title: "Kairos portfolio snapshot",
-      summary: `Paper portfolio snapshot with ${snapshot.positions.length} positions.`,
+      summary: `Portfolio snapshot with ${snapshot.positions.length} positions.`,
       data: snapshot,
       customId: `kairos:portfolio_snapshot:${snapshot.id}`,
     });
@@ -410,7 +410,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       lawId: intent.lawId,
       artifactId: intent.id,
       timestamp: intent.updatedAt,
-      title: `Kairos paper trade intent ${intent.symbol}`,
+      title: `Kairos trade intent ${intent.symbol}`,
       summary: `${intent.side} ${intent.symbol}: ${intent.reasoning}`,
       data: intent,
       metadata: {
