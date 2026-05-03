@@ -8,12 +8,37 @@ import {
   type AlpacaMarketSymbolQuery,
 } from "../../../src/api/alpaca.js";
 import { ExaApi } from "../../../src/api/exa.js";
+import { FinnhubApi } from "../../../src/api/finnhub.js";
 import {
+  createInformationDebateTools,
+} from "../../../src/agents/information/index.js";
+import {
+  createHeartbeatSeedProviders,
+  createHeartbeatTools,
+  runHeartbeatOnce,
+  type BranchConfig as HeartbeatBranchConfig,
+  type HeartbeatToolName,
+} from "../../../src/agents/heartbeat/index.js";
+import {
+  runDebateAgent,
+  type DebateRunConfig,
+  type DebateRunResult,
+  type DebateStartInput,
+  type StructuredDebateModelProvider,
+} from "../../../src/agents/debate/index.js";
+import type { StructuredInformationModelProvider } from "../../../src/agents/information/index.js";
+import {
+  branchConfigToModelOverrides,
+  createGlobalToolRegistry,
+  createOpenRouterAiSdkModelForRole,
+  createOpenRouterChatModelForRole,
   kairosBranchAgentConfigSchema,
   createSupermemoryMemoryApi,
   createSupermemoryMirror,
   getMemoryContainerTag,
   listOpenRouterModels,
+  resolveDebateAgentConfig,
+  resolveInformationAgentConfig,
   resolveKairosModelConfig,
   type KairosModelRole,
   type SupermemoryMirror,
@@ -78,7 +103,6 @@ export type LocalApiContext = {
 
 type HeartbeatTriggerInput = {
   branchId: string;
-  dryRun: boolean;
   payload: JsonRecord;
   branch: BranchRecord;
 };
@@ -89,7 +113,6 @@ type HeartbeatRunResult = {
 };
 
 type DebateCreateInput = {
-  dryRun: boolean;
   payload: JsonRecord;
   branch?: BranchRecord;
 };
@@ -108,7 +131,6 @@ type RouterExtractedSource = {
 
 type RouterUrlRetrieveInput = {
   urls: string[];
-  dryRun: boolean;
 };
 
 type MarketSymbolProvider = {
@@ -157,12 +179,10 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
-  dryRun: z.boolean().optional().default(true),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const debateCreateSchema = z.object({
-  dryRun: z.boolean().optional().default(true),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -179,7 +199,6 @@ const routerChatCreateSchema = z.object({
 
 const routerMessageCreateSchema = z.object({
   text: z.string().optional().default(""),
-  dryRun: z.boolean().optional().default(true),
   attachments: z
     .array(
       z.object({
@@ -210,8 +229,8 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
   });
   return {
     store,
-    runHeartbeat: options.dependencies?.runHeartbeat ?? deterministicHeartbeat,
-    createDebate: options.dependencies?.createDebate ?? deterministicDebate,
+    runHeartbeat: options.dependencies?.runHeartbeat ?? runConfiguredHeartbeat,
+    createDebate: options.dependencies?.createDebate ?? runConfiguredDebate,
     retrieveUrlContents:
       options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
@@ -415,9 +434,8 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   let completed: RunRecord | undefined;
   try {
     completed = await runHeartbeatForBranch(context, branch, {
-      dryRun: input.dryRun,
       input: input.input,
-      metadataSource: input.dryRun ? "dry_run" : "runtime",
+      metadataSource: "runtime",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -435,7 +453,6 @@ async function runHeartbeatForBranch(
   context: LocalApiContext,
   branch: BranchRecord,
   options: {
-    dryRun: boolean;
     input: JsonRecord;
     metadataSource: string;
   },
@@ -448,20 +465,18 @@ async function runHeartbeatForBranch(
     kind: "heartbeat",
     status: "running",
     branchId: branch.id,
-    dryRun: options.dryRun,
     input: runPayload,
     metadata: { source: options.metadataSource },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "heartbeat", branchId: branch.id, dryRun: options.dryRun },
+    payload: { kind: "heartbeat", branchId: branch.id },
   });
 
   let result: HeartbeatRunResult;
   try {
     result = await context.runHeartbeat({
       branchId: branch.id,
-      dryRun: options.dryRun,
       payload: runPayload,
       branch,
     });
@@ -717,16 +732,14 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     kind: "debate",
     status: "running",
     branchId,
-    dryRun: input.dryRun,
     input: runPayload,
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: "runtime" },
   });
-  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate", dryRun: input.dryRun } });
+  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate" } });
 
   let result: DebateCreateResult;
   try {
     result = await context.createDebate({
-      dryRun: input.dryRun,
       payload: runPayload,
       branch,
     });
@@ -792,18 +805,17 @@ async function createRouterMessage(
   const run = await context.store.createRun({
     kind: "router",
     status: "running",
-    dryRun: input.dryRun,
     input: {
       chatId,
       messageId: userMessage.id,
       text: userMessage.text,
       attachments: userMessage.attachments ?? [],
     },
-    metadata: { source: input.dryRun ? "dry_run" : "runtime" },
+    metadata: { source: "runtime" },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "router", chatId, dryRun: input.dryRun },
+    payload: { kind: "router", chatId },
   });
   await context.store.appendRunEvent(run.id, {
     type: "router.message.received",
@@ -871,7 +883,6 @@ async function createRouterMessage(
       const branch = branches.find((item) => item.id === branchId);
       if (!branch) continue;
       const heartbeatRun = await runHeartbeatForBranch(context, branch, {
-        dryRun: input.dryRun,
         input: {
           origin: "router",
           messageText: userMessage.text,
@@ -1384,17 +1395,19 @@ function assembleMarketSymbols(
 ): { symbols: AlpacaMarketSymbol[]; usedFallback: boolean } {
   const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
   const records = new Map<string, AlpacaMarketSymbol>();
-  for (const symbol of symbols) {
-    const normalized = normalizeMarketSymbol(symbol.symbol);
-    if (normalized) records.set(normalized, { ...symbol, symbol: normalized });
-  }
 
   let usedFallback = false;
   for (const symbol of fallbackSymbols({ query: input.query, limit })) {
-    if (!records.has(symbol.symbol)) {
-      records.set(symbol.symbol, symbol);
+    const normalized = normalizeMarketSymbol(symbol.symbol);
+    if (normalized) {
+      records.set(normalized, { ...symbol, symbol: normalized });
       usedFallback = true;
     }
+  }
+
+  for (const symbol of symbols) {
+    const normalized = normalizeMarketSymbol(symbol.symbol);
+    if (normalized) records.set(normalized, { ...symbol, symbol: normalized });
   }
 
   return {
@@ -1448,27 +1461,63 @@ function lazyAlpacaMarketSymbolProvider(): MarketSymbolProvider {
   };
 }
 
-function deterministicHeartbeat(input: HeartbeatTriggerInput): Promise<HeartbeatRunResult> {
-  if (!input.dryRun) {
-    throw new Error("Agent pipeline heartbeat is not configured for this local API process.");
+async function runConfiguredHeartbeat(input: HeartbeatTriggerInput): Promise<HeartbeatRunResult> {
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY is required to run the heartbeat agent.");
   }
 
-  const summary = input.dryRun
-    ? `Dry-run heartbeat checked branch ${input.branchId}.`
-    : `Local heartbeat placeholder checked branch ${input.branchId}.`;
-  return Promise.resolve({
+  const branchConfig = toHeartbeatBranchConfig(input.branch);
+  const modelOverrides = branchConfigToModelOverrides(input.branch.config);
+  const memory = process.env.SUPERMEMORY_API_KEY
+    ? createSupermemoryMemoryApi()
+    : undefined;
+  const exa = process.env.EXA_API_KEY ? new ExaApi() : undefined;
+  const finnhub = process.env.FINNHUB_API_KEY ? new FinnhubApi() : undefined;
+  const alpaca = process.env.ALPACA_API_KEY && process.env.ALPACA_SECRET_KEY
+    ? createAlpacaTradingClient()
+    : undefined;
+  const result = await runHeartbeatOnce(branchConfig, {
+    model: createOpenRouterAiSdkModelForRole("heartbeat", { modelOverrides }),
+    prompts: {
+      systemPrompt: input.branch.config?.prompts?.heartbeatSystemPrompt,
+    },
+    enabledTools: heartbeatEnabledTools(input.branch),
+    seedProviders: createHeartbeatSeedProviders({
+      alpaca,
+      finnhub,
+      memory,
+      supermemory: memory,
+    }),
+    tools: createHeartbeatTools({
+      exa,
+      memory,
+      supermemory: memory,
+    }),
+    maxToolSteps: input.branch.config?.heartbeat?.maxToolSteps ?? 3,
+    runId: readString(input.payload.runId),
+    seedPolicy: { allowPartialSeedBundle: true },
+  });
+
+  return {
     output: {
-      branchId: input.branchId,
-      decision: "monitor",
-      summary,
-      confidence: 0.1,
-      dryRun: input.dryRun,
+      ...result.output,
+      escalationEvent: result.escalationEvent,
     },
     events: [
-      { type: "heartbeat.seeded", payload: { deterministic: true, input: input.payload } },
-      { type: "heartbeat.decision", payload: { decision: "monitor", summary } },
+      {
+        type: "heartbeat.seeded",
+        payload: result.seedBundle as unknown as JsonRecord,
+      },
+      {
+        type: "heartbeat.decision",
+        payload: result.output as unknown as JsonRecord,
+      },
+      ...result.toolTraces.map((trace) => ({
+        type: trace.error ? "heartbeat.tool.failed" : "heartbeat.tool.completed",
+        payload: trace as unknown as JsonRecord,
+      })),
     ],
-  });
+  };
 }
 
 async function mirrorRouterSources(
@@ -1549,15 +1598,12 @@ async function extractRouterSources(
     try {
       const webpageSources = await context.retrieveUrlContents({
         urls,
-        dryRun: input.dryRun,
       });
       sources.push(...webpageSources);
       const toolCall = createRouterToolCall({
         name: "exa_contents",
-        status: input.dryRun ? "skipped" : "succeeded",
-        summary: input.dryRun
-          ? `Preserved ${urls.length} URL${urls.length === 1 ? "" : "s"} without live Exa retrieval because this was a dry run.`
-          : `Retrieved ${webpageSources.length} webpage source${webpageSources.length === 1 ? "" : "s"} through Exa contents.`,
+        status: "succeeded",
+        summary: `Retrieved ${webpageSources.length} webpage source${webpageSources.length === 1 ? "" : "s"} through Exa contents.`,
         input: { urls },
         output: {
           sourceIds: webpageSources.map((source) => source.id),
@@ -1638,7 +1684,7 @@ async function defaultRetrieveUrlContents(
   input: RouterUrlRetrieveInput,
 ): Promise<RouterExtractedSource[]> {
   if (input.urls.length === 0) return [];
-  if (input.dryRun || !process.env.EXA_API_KEY) {
+  if (!process.env.EXA_API_KEY) {
     return input.urls.map((url, index) => ({
       id: `webpage_${index + 1}`,
       kind: "webpage" as const,
@@ -1759,23 +1805,210 @@ function routerResponse(
 }
 
 function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
-  if (!input.dryRun) {
-    throw new Error("Agent pipeline debate is not configured for this local API process.");
+  if (input.dryRun) {
+    return Promise.resolve({
+      output: {
+        decision: "needs_review",
+        summary: "Dry-run debate record created from escalation payload.",
+        dryRun: input.dryRun,
+      },
+      events: [
+        { type: "debate.created", payload: { deterministic: true, escalation: input.payload.escalation ?? null } },
+        { type: "debate.judge.summary", payload: { decision: "needs_review" } },
+      ],
+    });
   }
 
-  return Promise.resolve({
-    output: {
-      decision: "needs_review",
-      summary: input.dryRun
-        ? "Dry-run debate record created from escalation payload."
-        : "Local debate placeholder created from escalation payload.",
-      dryRun: input.dryRun,
-    },
-    events: [
-      { type: "debate.created", payload: { deterministic: true, escalation: input.payload.escalation ?? null } },
-      { type: "debate.judge.summary", payload: { decision: "needs_review" } },
-    ],
+  return runConfiguredDebate(input);
+}
+
+async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw new Error(
+      [
+        "OPENROUTER_API_KEY is required to run a non-dry-run debate.",
+        "Set OPENROUTER_API_KEY in the local API process environment, or call /debates with dryRun: true.",
+      ].join(" "),
+    );
+  }
+
+  const config = createLocalDebateRunConfig(input);
+  const branchConfig = input.branch?.config;
+  const modelOverrides = branchConfigToModelOverrides(branchConfig);
+  const debateConfig = resolveDebateAgentConfig(branchConfig);
+  const informationConfig = resolveInformationAgentConfig(branchConfig);
+  const memory = process.env.SUPERMEMORY_API_KEY
+    ? createSupermemoryMemoryApi()
+    : undefined;
+  const exa = process.env.EXA_API_KEY ? new ExaApi() : undefined;
+  const finnhub = process.env.FINNHUB_API_KEY ? new FinnhubApi() : undefined;
+  const globalTools = createGlobalToolRegistry({
+    exa,
+    finnhub,
+    memory,
+    memoryContainerTag: input.branch
+      ? getMemoryContainerTag({
+        scopeId: input.branch.id,
+        prefix: "branch_profile",
+      })
+      : undefined,
+    finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
+    requiredTools: informationConfig.requiredTools,
   });
+  const informationModels = {
+    plannerModel: structuredModelProvider(createOpenRouterChatModelForRole("informationPlanner", {
+      modelOverrides,
+    })),
+    synthesisModel: structuredModelProvider(createOpenRouterChatModelForRole("informationSynthesis", {
+      modelOverrides,
+    })),
+  };
+  const result = await runDebateAgent(config, {
+    models: {
+      judge: structuredModelProvider(createOpenRouterChatModelForRole("debateJudge", { modelOverrides })),
+      bull: structuredModelProvider(createOpenRouterChatModelForRole("debateBull", { modelOverrides })),
+      bear: structuredModelProvider(createOpenRouterChatModelForRole("debateBear", { modelOverrides })),
+      final: structuredModelProvider(createOpenRouterChatModelForRole("debateFinal", { modelOverrides })),
+    },
+    prompts: debateConfig.prompts,
+    enabledTools: {
+      exa_search: Boolean(exa),
+      exa_research: Boolean(exa),
+      ...debateConfig.enabledTools,
+    },
+    requiredTools: debateConfig.requiredTools,
+    globalTools,
+    tools: createInformationDebateTools({
+      ...informationModels,
+      exa,
+      finnhub,
+      memory,
+      supermemory: memory,
+      supermemoryContainerTag: input.branch
+        ? getMemoryContainerTag({
+          scopeId: input.branch.id,
+          prefix: "branch_profile",
+        })
+        : undefined,
+      maxToolCalls: informationConfig.maxToolCalls,
+      enabledTools: informationConfig.enabledTools,
+      requiredTools: informationConfig.requiredTools,
+      finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
+    }),
+  });
+
+  return {
+    output: debateResultOutput(result, input.dryRun),
+    events: debateResultEvents(result, input.payload),
+  };
+}
+
+function structuredModelProvider(
+  model: ReturnType<typeof createOpenRouterChatModelForRole>,
+): StructuredDebateModelProvider & StructuredInformationModelProvider {
+  return {
+    withStructuredOutput: <T>(schema: unknown) => ({
+      invoke: (input: unknown) =>
+        (model.withStructuredOutput as (schema: unknown) => { invoke: (input: unknown) => Promise<T> })(schema).invoke(input),
+    }),
+  };
+}
+
+function createLocalDebateRunConfig(input: DebateCreateInput): DebateRunConfig {
+  const debateConfig = resolveDebateAgentConfig(input.branch?.config);
+  return {
+    debateId: safeId(
+      firstNonEmptyString(
+        readString(input.payload.debateId),
+        readString(readJsonRecord(input.payload.escalation)?.debateId),
+        `debate:${input.branch?.id ?? "manual"}:${new Date().toISOString()}`,
+      ) ?? `debate:${randomUUID()}`,
+    ),
+    startInput: createLocalDebateStartInput(input),
+    budgets: {
+      maxTurns: debateConfig.budgets?.maxTurns,
+      maxToolCalls: debateConfig.budgets?.maxToolCalls,
+    },
+  };
+}
+
+function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput {
+  const escalation = readJsonRecord(input.payload.escalation);
+  const branch = input.branch;
+  const assets = branch?.config?.assets ?? [];
+  const summary = [
+    firstNonEmptyString(
+      readString(input.payload.summary),
+      readString(escalation?.summary),
+      readString(readJsonRecord(escalation?.heartbeatOutput)?.summary),
+      branch ? `Manual debate requested for branch ${branch.id}.` : "Manual Kairos debate requested.",
+    ),
+    branch ? `Branch: ${branch.name} (${branch.id})` : undefined,
+    branch?.description ? `Branch description: ${branch.description}` : undefined,
+    assets.length > 0 ? `Assets: ${assets.join(", ")}` : undefined,
+  ].filter(Boolean).join("\n");
+
+  return {
+    summary,
+    basicFinancials: {
+      branchId: branch?.id ?? readString(input.payload.branchId) ?? readString(escalation?.branchId),
+      lawId: branch?.lawId,
+      law: branch?.law,
+      assets,
+      escalation: escalation ?? null,
+      input: input.payload,
+    },
+    ...(isJsonRecord(input.payload.portfolioContext)
+      ? { portfolioContext: input.payload.portfolioContext }
+      : {}),
+  };
+}
+
+function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecord {
+  return {
+    debateId: result.debateId,
+    status: result.status,
+    decision: result.finalDecision.action,
+    summary: result.finalDecision.summary,
+    finalDecision: result.finalDecision,
+    messages: result.messages,
+    toolEvents: result.toolEvents,
+    humanInterjections: result.humanInterjections,
+    currentPlan: result.currentPlan,
+    dryRun,
+  };
+}
+
+function debateResultEvents(result: DebateRunResult, payload: JsonRecord): AppendRunEventInput[] {
+  return [
+    { type: "debate.created", payload: { debateId: result.debateId, payload } },
+    { type: "debate.started", payload: { debateId: result.debateId } },
+    ...result.messages.map((message) => ({
+      type: "debate.message",
+      payload: message as unknown as JsonRecord,
+    })),
+    ...result.toolEvents.map((event) => ({
+      type: event.status === "failed" ? "debate.tool.failed" : "debate.tool.completed",
+      payload: event as unknown as JsonRecord,
+    })),
+    ...(result.currentPlan
+      ? [{ type: "debate.judge.plan", payload: result.currentPlan as unknown as JsonRecord }]
+      : []),
+    { type: "debate.judge.summary", payload: result.finalDecision as unknown as JsonRecord },
+    { type: "debate.output", payload: debateResultOutput(result, false) },
+  ];
+}
+
+function readJsonRecord(value: unknown): JsonRecord | undefined {
+  return isJsonRecord(value) ? value : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_:-]/g, "_");
 }
 
 function getFailedRunFromError(error: unknown): RunRecord | undefined {
@@ -1794,6 +2027,47 @@ function branchRunContext(branch: BranchRecord): JsonRecord {
     law: branch.law,
     config: branch.config,
     metadata: branch.metadata,
+  };
+}
+
+function toHeartbeatBranchConfig(branch: BranchRecord): HeartbeatBranchConfig {
+  const config = branch.config ?? {};
+  const modelOverrides = branchConfigToModelOverrides(config);
+  const heartbeatModel = resolveKairosModelConfig("heartbeat", undefined, modelOverrides).model;
+  return {
+    id: branch.id,
+    name: branch.name,
+    law: branchLawText(branch),
+    assets: config.assets ?? [],
+    heartbeat: {
+      enabled: branch.enabled,
+      intervalMinutes: config.heartbeat?.intervalMinutes ?? 5,
+      seedWindowDays: config.heartbeat?.seedWindowDays ?? 30,
+      model: heartbeatModel,
+    },
+    seededData: config.seededData,
+    memory: config.memory,
+  };
+}
+
+function branchLawText(branch: BranchRecord): string {
+  const law = branch.law;
+  return firstNonEmptyString(
+    readString(readJsonRecord(law)?.thesis),
+    readString(readJsonRecord(law)?.watchFor),
+    branch.description,
+    branch.name,
+  ) ?? "";
+}
+
+function heartbeatEnabledTools(
+  branch: BranchRecord,
+): Partial<Record<HeartbeatToolName, boolean>> {
+  const tools = branch.config?.tools?.heartbeat;
+  return {
+    supermemory_profile: tools?.supermemory_profile?.enabled,
+    supermemory_search: tools?.supermemory_search?.enabled,
+    exa_news_search: tools?.exa_news_search?.enabled,
   };
 }
 
