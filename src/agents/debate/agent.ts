@@ -216,6 +216,13 @@ function uniqueCitations(
 }
 
 export function createDebateGraph(deps: DebateGraphDependencies = {}) {
+  const prompts = {
+    judgeSystemPrompt: deps.prompts?.judgeSystemPrompt ?? JUDGE_SYSTEM_PROMPT,
+    bullSystemPrompt: deps.prompts?.bullSystemPrompt ?? BULL_SYSTEM_PROMPT,
+    bearSystemPrompt: deps.prompts?.bearSystemPrompt ?? BEAR_SYSTEM_PROMPT,
+    finalSystemPrompt: deps.prompts?.finalSystemPrompt ?? FINAL_SYSTEM_PROMPT,
+  };
+
   const judgeNode = async (
     state: DebateState,
   ): Promise<{
@@ -239,7 +246,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       ? await invokeStructured<JudgePlan>(
           deps.models.judge,
           judgePlanSchema,
-          buildModelInput(state, JUDGE_SYSTEM_PROMPT),
+          buildModelInput(state, prompts.judgeSystemPrompt),
         )
       : deterministicJudgePlan(state);
     const plan = judgePlanSchema.parse(rawPlan);
@@ -524,7 +531,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       ? await invokeStructured<DebateDecision>(
           deps.models.final,
           debateDecisionSchema,
-          buildModelInput(state, FINAL_SYSTEM_PROMPT),
+          buildModelInput(state, prompts.finalSystemPrompt),
         )
       : deterministicFinalDecision(state);
     const parsedDecision = debateDecisionSchema.parse(rawDecision);
@@ -574,8 +581,8 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
 
   return new StateGraph(DebateGraphState)
     .addNode("judge", judgeNode)
-    .addNode("bull", createDebateParticipantNode("bull", BULL_SYSTEM_PROMPT))
-    .addNode("bear", createDebateParticipantNode("bear", BEAR_SYSTEM_PROMPT))
+    .addNode("bull", createDebateParticipantNode("bull", prompts.bullSystemPrompt))
+    .addNode("bear", createDebateParticipantNode("bear", prompts.bearSystemPrompt))
     .addNode("tools", toolsNode)
     .addNode("human_context", humanContextNode)
     .addNode("final", finalNode)

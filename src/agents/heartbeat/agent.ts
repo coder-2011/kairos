@@ -52,6 +52,9 @@ type HeartbeatGenerateText = (options: {
 
 export type HeartbeatAgentDependencies = {
   model: LanguageModel;
+  prompts?: {
+    systemPrompt?: string;
+  };
   seedProviders?: HeartbeatSeedDataProviders;
   tools?: ToolSet;
   maxToolSteps?: number;
@@ -112,7 +115,7 @@ export async function runHeartbeatAgent(
   });
   const result = await runModel({
     model: deps.model,
-    system: HEARTBEAT_SYSTEM_PROMPT,
+    system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
     prompt: buildHeartbeatUserMessage(seedBundle),
     tools: deps.tools,
     stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
