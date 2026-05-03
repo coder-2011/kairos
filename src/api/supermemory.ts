@@ -2,12 +2,15 @@ import type {
   EscalationEvent,
   HeartbeatOutput,
   HeartbeatSeedBundle,
+  HeartbeatToolTrace,
 } from "../agents/heartbeat/types.js";
+import { retryFetch } from "../global/retry.js";
 
 export type SupermemoryConfig = {
   apiKey?: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  retryAttempts?: number;
 };
 
 export type SupermemorySearchMode = "memories" | "documents" | "hybrid";
@@ -119,12 +122,14 @@ export class SupermemoryApi {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly retryAttempts: number;
 
   constructor(config: SupermemoryConfig = {}) {
-    const { apiKey, baseUrl, fetchImpl } = config;
+    const { apiKey, baseUrl, fetchImpl, retryAttempts } = config;
     this.apiKey = apiKey ?? process.env.SUPERMEMORY_API_KEY ?? "";
     this.baseUrl = baseUrl ?? "https://api.supermemory.ai";
     this.fetchImpl = fetchImpl ?? fetch;
+    this.retryAttempts = retryAttempts ?? 3;
 
     if (!this.apiKey) {
       throw new Error("SUPERMEMORY_API_KEY is required.");
@@ -270,6 +275,30 @@ export class SupermemoryApi {
     });
   }
 
+  writeToolTraces(input: {
+    containerTag: string;
+    traces: HeartbeatToolTrace[];
+    metadata?: SupermemoryMetadata;
+  }): Promise<SupermemoryCreateMemoriesResponse> {
+    return this.createMemories({
+      containerTag: input.containerTag,
+      memories: input.traces.map((trace) => ({
+        content: `Heartbeat tool ${trace.toolName} for branch ${trace.branchId}${
+          trace.error ? ` failed: ${trace.error}` : " completed"
+        }`,
+        isStatic: false,
+        metadata: compactMetadata({
+          type: "heartbeat_tool_trace",
+          branch_id: trace.branchId,
+          timestamp: trace.timestamp,
+          tool_name: trace.toolName,
+          failed: Boolean(trace.error),
+          ...input.metadata,
+        }),
+      })),
+    });
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
     return this.request("POST", path, body);
   }
@@ -279,14 +308,19 @@ export class SupermemoryApi {
     path: string,
     body?: unknown,
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
+    const response = await retryFetch(
+      this.fetchImpl,
+      `${this.baseUrl}${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+      { attempts: this.retryAttempts },
+    );
 
     if (!response.ok) {
       throw new Error(`Supermemory ${response.status}: ${await response.text()}`);

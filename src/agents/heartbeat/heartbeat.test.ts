@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ExaApi } from "../../api/exa.js";
 import { FinnhubApi, createFinnhubHeartbeatSeedProviders } from "../../api/finnhub.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
+import { validateKairosEnv } from "../../global/env.js";
 import { createEscalationEvent } from "./escalation.js";
 import { HeartbeatEscalationDeduper } from "./dedupe.js";
 import { getSupermemoryContainerTag } from "./memory.js";
@@ -248,6 +249,52 @@ describe("heartbeat agent", () => {
       }),
     );
   });
+
+  it("extracts AI SDK tool traces from model steps", async () => {
+    const generateText = vi.fn(async () => ({
+      output: {
+        branch_id: "ignored",
+        timestamp: "ignored",
+        decision: "no_escalation",
+        summary: "No useful new event found.",
+      },
+      steps: [
+        {
+          toolCalls: [
+            {
+              toolCallId: "call_1",
+              toolName: "exa_news_search",
+              input: { query: "PLTR" },
+            },
+          ],
+          toolResults: [
+            {
+              toolCallId: "call_1",
+              toolName: "exa_news_search",
+              output: { results: [{ title: "PLTR headline" }] },
+            },
+          ],
+        },
+      ],
+    }));
+
+    const result = await runHeartbeatAgent(branchConfig(), {
+      model: {} as never,
+      generateText,
+      now: () => fixedNow,
+    });
+
+    expect(result.toolTraces).toEqual([
+      {
+        branchId: "pltr enterprise deals",
+        timestamp: "2026-05-03T12:00:00.000Z",
+        toolName: "exa_news_search",
+        input: { query: "PLTR" },
+        output: { results: [{ title: "PLTR headline" }] },
+        error: undefined,
+      },
+    ]);
+  });
 });
 
 describe("heartbeat scheduler", () => {
@@ -350,6 +397,41 @@ describe("heartbeat de-dupe", () => {
     expect(first.escalationEvent).not.toBeNull();
     expect(second.output.decision).toBe("no_escalation");
     expect(second.escalationEvent).toBeNull();
+  });
+
+  it("runHeartbeatOnce persists tool traces through the memory writer", async () => {
+    const writeToolTraces = vi.fn();
+    const result = await runHeartbeatOnce(branchConfig(), {
+      model: {} as never,
+      generateText: vi.fn(async () => ({
+        output: {
+          branch_id: "ignored",
+          timestamp: "ignored",
+          decision: "no_escalation",
+          summary: "No useful new event found.",
+        },
+        steps: [
+          {
+            toolResults: [
+              {
+                toolName: "supermemory_search",
+                output: { results: [] },
+              },
+            ],
+          },
+        ],
+      })),
+      now: () => fixedNow,
+      memoryWriter: {
+        writeToolTraces,
+      },
+    });
+
+    expect(result.toolTraces).toHaveLength(1);
+    expect(writeToolTraces).toHaveBeenCalledWith({
+      containerTag: "branch_pltr_enterprise_deals",
+      traces: result.toolTraces,
+    });
   });
 
   it("persists duplicate suppression frames to a local JSON file", () => {
@@ -466,6 +548,18 @@ describe("API clients", () => {
       customId: "conversation_1",
       messages: [{ role: "user", content: "Watch PLTR deals." }],
     });
+    await api.writeToolTraces({
+      containerTag: "law_branch",
+      traces: [
+        {
+          branchId: "branch",
+          timestamp: "2026-05-03T12:00:00.000Z",
+          toolName: "exa_news_search",
+          input: { query: "PLTR" },
+          output: { results: [] },
+        },
+      ],
+    });
 
     const calls = fetchMock.mock.calls.map(([input, init]) => ({
       url: String(input),
@@ -524,7 +618,64 @@ describe("API clients", () => {
           },
         },
       },
+      {
+        url: "https://api.supermemory.ai/v4/memories",
+        method: "POST",
+        body: {
+          containerTag: "law_branch",
+          memories: [
+            {
+              content: "Heartbeat tool exa_news_search for branch branch completed",
+              isStatic: false,
+              metadata: {
+                type: "heartbeat_tool_trace",
+                branch_id: "branch",
+                tool_name: "exa_news_search",
+                failed: false,
+              },
+            },
+          ],
+        },
+      },
     ]);
+  });
+
+  it("retries retryable Supermemory responses", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }));
+    const api = new SupermemoryApi({
+      apiKey: "sm_key",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      retryAttempts: 2,
+    });
+
+    await expect(api.search({ q: "PLTR" })).resolves.toEqual({ results: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("validates required API keys centrally", () => {
+    expect(validateKairosEnv({} as NodeJS.ProcessEnv)).toEqual({
+      ok: false,
+      missing: [
+        "OPENROUTER_API_KEY",
+        "SUPERMEMORY_API_KEY",
+        "EXA_API_KEY",
+        "FINNHUB_API_KEY",
+      ],
+    });
+    expect(
+      validateKairosEnv({
+        OPENROUTER_API_KEY: "or",
+        SUPERMEMORY_API_KEY: "sm",
+      } as NodeJS.ProcessEnv, {
+        requireModel: true,
+        requireMemory: true,
+        requireSearch: false,
+        requireMarketData: false,
+      }),
+    ).toEqual({ ok: true, missing: [] });
   });
 
   it("calls Exa SDK search with compact news highlights", async () => {

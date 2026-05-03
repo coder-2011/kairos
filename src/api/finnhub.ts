@@ -1,4 +1,5 @@
 import type { HeartbeatSeedDataProviders } from "../agents/heartbeat/types.js";
+import { retryFetch } from "../global/retry.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_SECONDS = 24 * 60 * 60;
@@ -92,6 +93,7 @@ export type FinnhubConfig = {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   packageClient?: FinnhubPackageClient;
+  retryAttempts?: number;
 };
 
 export type FinnhubQuote = {
@@ -132,13 +134,15 @@ export class FinnhubApi {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly packageClient?: FinnhubPackageClient;
+  private readonly retryAttempts: number;
 
   constructor(config: FinnhubConfig = {}) {
-    const { apiKey, baseUrl, fetchImpl, packageClient } = config;
+    const { apiKey, baseUrl, fetchImpl, packageClient, retryAttempts } = config;
     this.apiKey = apiKey ?? process.env.FINNHUB_API_KEY ?? "";
     this.baseUrl = baseUrl ?? "https://finnhub.io/api/v1";
     this.fetchImpl = fetchImpl ?? fetch;
     this.packageClient = packageClient;
+    this.retryAttempts = retryAttempts ?? 3;
 
     if (!this.apiKey) {
       throw new Error("FINNHUB_API_KEY is required.");
@@ -366,7 +370,9 @@ export class FinnhubApi {
       }
     });
 
-    const response = await this.fetchImpl(url);
+    const response = await retryFetch(this.fetchImpl, url, undefined, {
+      attempts: this.retryAttempts,
+    });
     if (!response.ok) {
       throw new Error(`Finnhub ${response.status}: ${await response.text()}`);
     }

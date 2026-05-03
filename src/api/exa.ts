@@ -1,8 +1,10 @@
 import { Exa } from "exa-js";
+import { withRetry } from "../global/retry.js";
 
 export type ExaConfig = {
   apiKey?: string;
   client?: ExaSdkClient;
+  retryAttempts?: number;
 };
 
 export type ExaSearchRequest = {
@@ -66,6 +68,7 @@ export type ExaSdkClient = {
 
 export class ExaApi {
   private readonly client: ExaSdkClient;
+  private readonly retryAttempts: number;
 
   constructor(config: ExaConfig = {}) {
     const apiKey = config.apiKey ?? process.env.EXA_API_KEY;
@@ -74,10 +77,11 @@ export class ExaApi {
     }
 
     this.client = config.client ?? new Exa(apiKey) as ExaSdkClient;
+    this.retryAttempts = config.retryAttempts ?? 3;
   }
 
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
-    const data = await this.client.search(request.query, {
+    const data = await withRetry(() => this.client.search(request.query, {
       type: "auto",
       numResults: request.numResults ?? 10,
       category: request.category ?? "news",
@@ -95,7 +99,7 @@ export class ExaApi {
           maxCharacters: 2000,
         },
       },
-    });
+    }), { attempts: this.retryAttempts });
 
     return {
       results: data.results.map((result: ExaSearchResult) => ({
@@ -117,20 +121,23 @@ export class ExaApi {
       throw new Error("Exa SDK client does not expose answer().");
     }
 
-    return this.client.answer(input.query, { text: input.text ?? true });
+    return withRetry(
+      () => this.client.answer!(input.query, { text: input.text ?? true }),
+      { attempts: this.retryAttempts },
+    );
   }
 
   async contents(input: {
     urls: string[];
     maxCharacters?: number;
   }): Promise<ExaContentsResponse> {
-    const data = await this.client.getContents(input.urls, {
+    const data = await withRetry(() => this.client.getContents(input.urls, {
       text: {
         maxCharacters: input.maxCharacters ?? 10_000,
       },
       highlights: true,
       summary: true,
-    });
+    }), { attempts: this.retryAttempts });
 
     return {
       results: "contents" in data ? data.contents : data.results,
