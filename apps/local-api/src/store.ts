@@ -37,7 +37,6 @@ export type RunRecord = {
   kind: RunKind;
   status: RunStatus;
   branchId?: string;
-  dryRun?: boolean;
   createdAt: string;
   updatedAt: string;
   input: JsonRecord;
@@ -106,7 +105,6 @@ export type CreateRunInput = {
   kind: RunKind;
   status?: RunStatus;
   branchId?: string;
-  dryRun?: boolean;
   input?: JsonRecord;
   output?: JsonRecord;
   metadata?: JsonRecord;
@@ -239,7 +237,6 @@ export class MemoryKairosStore implements KairosLocalStore {
       kind: input.kind,
       status: input.status ?? "pending",
       branchId: input.branchId,
-      dryRun: input.dryRun,
       createdAt: now,
       updatedAt: now,
       input: input.input ?? {},

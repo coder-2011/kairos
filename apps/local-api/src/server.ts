@@ -103,6 +103,7 @@ export type LocalApiContext = {
 
 type HeartbeatTriggerInput = {
   branchId: string;
+  dryRun: boolean;
   payload: JsonRecord;
   branch: BranchRecord;
 };
@@ -113,6 +114,7 @@ type HeartbeatRunResult = {
 };
 
 type DebateCreateInput = {
+  dryRun: boolean;
   payload: JsonRecord;
   branch?: BranchRecord;
 };
@@ -131,6 +133,7 @@ type RouterExtractedSource = {
 
 type RouterUrlRetrieveInput = {
   urls: string[];
+  dryRun: boolean;
 };
 
 type MarketSymbolProvider = {
@@ -179,10 +182,12 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
+  dryRun: z.boolean().optional().default(true),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const debateCreateSchema = z.object({
+  dryRun: z.boolean().optional().default(true),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -199,6 +204,7 @@ const routerChatCreateSchema = z.object({
 
 const routerMessageCreateSchema = z.object({
   text: z.string().optional().default(""),
+  dryRun: z.boolean().optional().default(true),
   attachments: z
     .array(
       z.object({
