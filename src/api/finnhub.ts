@@ -583,7 +583,7 @@ function getOptionalFinnhubSource(
     case "supplyChain":
       return finnhub.supplyChainRelationships(symbol);
     default:
-      return Promise.resolve(null);
+      throw new Error(`Unknown Finnhub optional seed source "${sourceKey}".`);
   }
 }
 
@@ -595,9 +595,14 @@ async function getDailyCandles(
 ): Promise<FinnhubCandleResponse> {
   const to = Math.floor(Date.parse(timestamp) / 1000);
   const from = to - days * DAY_SECONDS;
-  const candles = await finnhub.stockCandles({ symbol, resolution: "D", from, to }).catch(() => {
-    return { s: "no_data" } satisfies FinnhubCandleResponse;
-  });
+  let candles: FinnhubCandleResponse;
+  try {
+    candles = await finnhub.stockCandles({ symbol, resolution: "D", from, to });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Finnhub stock candle request failed for ${symbol}: ${message}`);
+  }
+
   return candles.s === "ok" ? candles : { s: "no_data" };
 }
 
