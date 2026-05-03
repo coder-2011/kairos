@@ -28,6 +28,7 @@ import {
   lifecyclePatchForEvent,
   lifecyclePatchForStatus,
   normalizeRunLifecycle,
+  uniqueStrings,
   type AppendRunEventInput,
   type BranchRecord,
   type CreateBranchInput,
@@ -336,6 +337,64 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     },
   ): Promise<PortfolioSnapshot> {
     return this.tradingStore.createPortfolioSnapshot(input);
+  }
+
+  private async updateRunLifecycleFromEvent(
+    runId: string,
+    event: RunEventRecord,
+  ): Promise<void> {
+    const current = await this.store.getRun(runId);
+    if (!current) return;
+
+    await this.store.updateRun(runId, {
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...toRunRecord(current).lifecycle,
+          ...lifecyclePatchForEvent(event),
+          lastEventAt: event.timestamp,
+        },
+        {
+          createdAt: current.createdAt,
+          updatedAt: event.timestamp,
+          kind:
+            current.kind === "debate" || current.kind === "router"
+              ? current.kind
+              : "heartbeat",
+          status: current.status,
+        },
+      ),
+    });
+  }
+
+  private async linkParentRun(
+    childRunId: string,
+    parentRunId: string | undefined,
+  ): Promise<void> {
+    if (!parentRunId) return;
+
+    const parent = await this.store.getRun(parentRunId);
+    if (!parent) return;
+
+    await this.store.updateRun(parentRunId, {
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...toRunRecord(parent).lifecycle,
+          childRunIds: uniqueStrings([
+            ...(toRunRecord(parent).lifecycle?.childRunIds ?? []),
+            childRunId,
+          ]),
+        },
+        {
+          createdAt: parent.createdAt,
+          updatedAt: parent.updatedAt,
+          kind:
+            parent.kind === "debate" || parent.kind === "router"
+              ? parent.kind
+              : "heartbeat",
+          status: parent.status,
+        },
+      ),
+    });
   }
 
   private get routerDir(): string {
