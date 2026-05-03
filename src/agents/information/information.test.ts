@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createGlobalToolRegistry } from "../../global/tools.js";
+import { FINNHUB_REST_ENDPOINT_CATALOG } from "../../global/finnhub-catalog.js";
+import { buildInformationPlannerMessage } from "./prompt.js";
 import { runInformationAgent } from "./agent.js";
 import { informationToolNameSchema } from "./schema.js";
 import {
@@ -100,7 +102,7 @@ function fakeDeps(
 }
 
 describe("information agent", () => {
-  it("exposes every Finnhub method currently implemented by the local API wrapper", () => {
+  it("exposes non-premium Finnhub wrapper methods by default", () => {
     const finnhub = {
       apiRequest: vi.fn(),
       quote: vi.fn(),
@@ -129,10 +131,100 @@ describe("information agent", () => {
       name.startsWith("finnhub_"),
     );
 
-    expect(finnhubToolNames).toHaveLength(21);
+    expect(finnhubToolNames).toHaveLength(12);
+    expect(finnhubToolNames).toContain("finnhub_api_request");
+    expect(finnhubToolNames).toContain("finnhub_filings");
+    expect(finnhubToolNames).not.toContain("finnhub_stock_candles");
+    expect(finnhubToolNames).not.toContain("finnhub_news_sentiment");
     finnhubToolNames.forEach((toolName) => {
       expect(informationToolNameSchema.safeParse(toolName).success).toBe(true);
     });
+  });
+
+  it("exposes premium Finnhub wrapper methods when premium access is enabled", () => {
+    const finnhub = {
+      apiRequest: vi.fn(),
+      quote: vi.fn(),
+      companyNews: vi.fn(),
+      stockCandles: vi.fn(),
+      aggregateIndicator: vi.fn(),
+      basicFinancials: vi.fn(),
+      companyEarnings: vi.fn(),
+      companyEpsEstimates: vi.fn(),
+      companyPeers: vi.fn(),
+      companyProfile2: vi.fn(),
+      earningsCalendar: vi.fn(),
+      filings: vi.fn(),
+      financialsReported: vi.fn(),
+      insiderTransactions: vi.fn(),
+      newsSentiment: vi.fn(),
+      ownership: vi.fn(),
+      pressReleases: vi.fn(),
+      recommendationTrends: vi.fn(),
+      socialSentiment: vi.fn(),
+      supplyChainRelationships: vi.fn(),
+      upgradeDowngrade: vi.fn(),
+    };
+    const registry = createGlobalToolRegistry({
+      finnhub,
+      finnhubPremiumAccess: true,
+    });
+    const finnhubToolNames = Object.keys(registry).filter((name) =>
+      name.startsWith("finnhub_"),
+    );
+
+    expect(finnhubToolNames).toHaveLength(21);
+    expect(finnhubToolNames).toContain("finnhub_stock_candles");
+    expect(finnhubToolNames).toContain("finnhub_news_sentiment");
+    finnhubToolNames.forEach((toolName) => {
+      expect(informationToolNameSchema.safeParse(toolName).success).toBe(true);
+    });
+  });
+
+  it("hides premium Finnhub catalog entries unless premium access is enabled", () => {
+    const message = buildInformationPlannerMessage({
+      query: "Find AAPL filings and analyst estimates.",
+    });
+
+    expect(FINNHUB_REST_ENDPOINT_CATALOG).toHaveLength(112);
+    expect(message).not.toContain("/global-filings/search");
+    expect(message).not.toContain("/stock/revenue-estimate");
+    expect(message).not.toContain("/economic/code");
+    expect(message).toContain("/stock/filings");
+    expect(message).toContain("/country");
+  });
+
+  it("passes the full documented Finnhub REST catalog into the planner when premium access is enabled", () => {
+    const message = buildInformationPlannerMessage(
+      {
+        query: "Find AAPL filings and analyst estimates.",
+      },
+      { finnhubPremiumAccess: true },
+    );
+
+    expect(message).toContain("/global-filings/search");
+    expect(message).toContain("/stock/revenue-estimate");
+    expect(message).toContain("/stock/usa-spending");
+    expect(message).toContain("/economic/code");
+  });
+
+  it("blocks generic Finnhub premium REST requests unless premium access is enabled", async () => {
+    const apiRequest = vi.fn(async () => ({ ok: true }));
+    const registry = createGlobalToolRegistry({
+      finnhub: { apiRequest },
+      finnhubPremiumAccess: false,
+    });
+
+    await expect(
+      registry.finnhub_api_request?.(
+        JSON.stringify({
+          method: "POST",
+          path: "/global-filings/search",
+          body: { query: "artificial intelligence", symbols: "AAPL" },
+        }),
+      ),
+    ).rejects.toThrow("premium endpoint");
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 
   it("plans from available providers, calls real dependency methods, and compiles cited output", async () => {

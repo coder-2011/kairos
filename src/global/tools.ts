@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import type { ExaApi } from "../api/exa.js";
 import type { FinnhubApi } from "../api/finnhub.js";
+import { hasFinnhubPremiumAccess } from "./env.js";
+import { isFinnhubPremiumPath } from "./finnhub-catalog.js";
 import {
   GLOBAL_MEMORY_CONTAINER_TAG,
   type GlobalMemoryApi,
@@ -121,6 +123,7 @@ export type GlobalToolDependencies = {
       | "apiRequest"
     >
   >;
+  finnhubPremiumAccess?: boolean;
   memory?: Pick<GlobalMemoryApi, "search"> & Partial<Pick<GlobalMemoryApi, "profile">>;
   memoryContainerTag?: string;
   now?: () => Date;
@@ -181,6 +184,8 @@ export function createGlobalToolRegistry(
   }
 
   if (deps.finnhub) {
+    const premiumAccess =
+      deps.finnhubPremiumAccess ?? hasFinnhubPremiumAccess();
     const tickerInput = (input: string) =>
       inferTicker(input) ?? input.trim().split(/\s+/)[0];
     const dateWindow = (
@@ -217,6 +222,11 @@ export function createGlobalToolRegistry(
     if (apiRequest) {
       registry.finnhub_api_request = async (input) => {
         const request = parseFinnhubApiRequest(input);
+        if (!premiumAccess && isFinnhubPremiumPath(request.path)) {
+          throw new Error(
+            `Finnhub premium endpoint ${request.path} requested while FINNHUB_PREMIUM_ACCESS is disabled.`,
+          );
+        }
         const result = await apiRequest(request);
         return finnhubResult(
           `Finnhub API request ${request.path}`,
@@ -265,7 +275,7 @@ export function createGlobalToolRegistry(
       };
     }
     const stockCandles = deps.finnhub.stockCandles;
-    if (stockCandles) {
+    if (stockCandles && premiumAccess) {
       registry.finnhub_stock_candles = async (input, context) => {
         const ticker = tickerInput(input);
         const { from, to } = unixWindow(context, 30);
@@ -282,7 +292,7 @@ export function createGlobalToolRegistry(
       };
     }
     const aggregateIndicator = deps.finnhub.aggregateIndicator;
-    if (aggregateIndicator) {
+    if (aggregateIndicator && premiumAccess) {
       registry.finnhub_aggregate_indicator = async (input) => {
         const ticker = tickerInput(input);
         const indicator = await aggregateIndicator(ticker, "D");
@@ -313,7 +323,7 @@ export function createGlobalToolRegistry(
       };
     }
     const companyEpsEstimates = deps.finnhub.companyEpsEstimates;
-    if (companyEpsEstimates) {
+    if (companyEpsEstimates && premiumAccess) {
       registry.finnhub_company_eps_estimates = async (input) => {
         const ticker = tickerInput(input);
         const estimates = await companyEpsEstimates(ticker, "quarterly");
@@ -390,7 +400,7 @@ export function createGlobalToolRegistry(
       };
     }
     const newsSentiment = deps.finnhub.newsSentiment;
-    if (newsSentiment) {
+    if (newsSentiment && premiumAccess) {
       registry.finnhub_news_sentiment = async (input) => {
         const ticker = tickerInput(input);
         const sentiment = await newsSentiment(ticker);
@@ -398,7 +408,7 @@ export function createGlobalToolRegistry(
       };
     }
     const ownership = deps.finnhub.ownership;
-    if (ownership) {
+    if (ownership && premiumAccess) {
       registry.finnhub_ownership = async (input) => {
         const ticker = tickerInput(input);
         const rawOwnership = await ownership(ticker, 20);
@@ -406,7 +416,7 @@ export function createGlobalToolRegistry(
       };
     }
     const pressReleases = deps.finnhub.pressReleases;
-    if (pressReleases) {
+    if (pressReleases && premiumAccess) {
       registry.finnhub_press_releases = async (input) => {
         const ticker = tickerInput(input);
         const releases = await pressReleases(ticker);
@@ -430,7 +440,7 @@ export function createGlobalToolRegistry(
       };
     }
     const socialSentiment = deps.finnhub.socialSentiment;
-    if (socialSentiment) {
+    if (socialSentiment && premiumAccess) {
       registry.finnhub_social_sentiment = async (input) => {
         const ticker = tickerInput(input);
         const sentiment = await socialSentiment(ticker);
@@ -438,7 +448,7 @@ export function createGlobalToolRegistry(
       };
     }
     const supplyChainRelationships = deps.finnhub.supplyChainRelationships;
-    if (supplyChainRelationships) {
+    if (supplyChainRelationships && premiumAccess) {
       registry.finnhub_supply_chain_relationships = async (input) => {
         const ticker = tickerInput(input);
         const relationships = await supplyChainRelationships(ticker);
@@ -449,7 +459,7 @@ export function createGlobalToolRegistry(
       };
     }
     const upgradeDowngrade = deps.finnhub.upgradeDowngrade;
-    if (upgradeDowngrade) {
+    if (upgradeDowngrade && premiumAccess) {
       registry.finnhub_upgrade_downgrade = async (input, context) => {
         const ticker = tickerInput(input);
         const { from, to } = dateWindow(context, 30);
@@ -650,8 +660,10 @@ function extractUrls(input: string): string[] {
 }
 
 function parseFinnhubApiRequest(input: string): {
+  method?: "GET" | "POST";
   path: string;
   params?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
 } {
   let parsed: unknown;
   try {
@@ -691,9 +703,16 @@ function parseFinnhubApiRequest(input: string): {
     );
   }
 
+  const method = record.method === undefined ? "GET" : record.method;
+  if (method !== "GET" && method !== "POST") {
+    throw new Error('finnhub_api_request method must be "GET" or "POST".');
+  }
+
   return {
+    method,
     path: record.path,
     params,
+    body: record.body,
   };
 }
 

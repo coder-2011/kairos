@@ -97,8 +97,10 @@ export type FinnhubConfig = {
 };
 
 export type FinnhubApiRequest = {
+  method?: "GET" | "POST";
   path: string;
   params?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
 };
 
 export type FinnhubQuote = {
@@ -364,16 +366,20 @@ export class FinnhubApi {
   }
 
   apiRequest(input: FinnhubApiRequest): Promise<unknown> {
+    const method = input.method ?? "GET";
     const path = input.path.startsWith("/") ? input.path : `/${input.path}`;
-    return this.get(
-      path,
-      Object.fromEntries(
-        Object.entries(input.params ?? {}).map(([key, value]) => [
-          key,
-          value === undefined ? undefined : String(value),
-        ]),
-      ),
+    const params = Object.fromEntries(
+      Object.entries(input.params ?? {}).map(([key, value]) => [
+        key,
+        value === undefined ? undefined : String(value),
+      ]),
     );
+
+    if (method === "GET") {
+      return this.get(path, params);
+    }
+
+    return this.request(method, path, params, input.body);
   }
 
   private async get<T>(
@@ -396,6 +402,40 @@ export class FinnhubApi {
     }
 
     return response.json() as Promise<T>;
+  }
+
+  private async request<T>(
+    method: "POST",
+    path: string,
+    params: Record<string, string | undefined>,
+    body: unknown,
+  ): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    url.searchParams.set("token", this.apiKey);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        url.searchParams.set(key, value);
+      }
+    });
+
+    const response = await retryFetch(
+      this.fetchImpl,
+      url,
+      {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      },
+      { attempts: this.retryAttempts },
+    );
+    if (!response.ok) {
+      throw new Error(`Finnhub ${response.status}: ${await response.text()}`);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    return contentType.includes("application/json")
+      ? ((await response.json()) as T)
+      : ((await response.text()) as T);
   }
 
   private packageOrGet<T>(

@@ -9,6 +9,7 @@ import {
   type GlobalToolResult,
   type GlobalToolCitation,
   GLOBAL_MEMORY_CONTAINER_TAG,
+  hasFinnhubPremiumAccess,
 } from "../../global/index.js";
 import {
   buildInformationPlannerMessage,
@@ -77,6 +78,8 @@ function deterministicPlan(
   const toolCalls: InformationPlan["toolCalls"] = [];
   const ticker = inferTicker(request.query);
   const query = request.query.toLowerCase();
+  const premiumAccess =
+    deps.finnhubPremiumAccess ?? hasFinnhubPremiumAccess();
 
   if (deps.exa) {
     toolCalls.push({
@@ -108,7 +111,10 @@ function deterministicPlan(
     if (/financial|valuation|metric|revenue|margin|growth|balance/i.test(query)) {
       toolCalls.push({ toolName: "finnhub_basic_financials", input: ticker });
     }
-    if (/price|chart|technical|momentum|trend|support|resistance|candle/i.test(query)) {
+    if (
+      premiumAccess &&
+      /price|chart|technical|momentum|trend|support|resistance|candle/i.test(query)
+    ) {
       toolCalls.push(
         { toolName: "finnhub_stock_candles", input: ticker },
         { toolName: "finnhub_aggregate_indicator", input: ticker },
@@ -117,9 +123,11 @@ function deterministicPlan(
     if (/earnings|eps|estimate/i.test(query)) {
       toolCalls.push(
         { toolName: "finnhub_company_earnings", input: ticker },
-        { toolName: "finnhub_company_eps_estimates", input: ticker },
         { toolName: "finnhub_earnings_calendar", input: ticker },
       );
+      if (premiumAccess) {
+        toolCalls.push({ toolName: "finnhub_company_eps_estimates", input: ticker });
+      }
     }
     if (/filing|sec|10-k|10-q|8-k/i.test(query)) {
       toolCalls.push(
@@ -128,18 +136,18 @@ function deterministicPlan(
       );
     }
     if (/analyst|rating|upgrade|downgrade|recommendation/i.test(query)) {
-      toolCalls.push(
-        { toolName: "finnhub_recommendation_trends", input: ticker },
-        { toolName: "finnhub_upgrade_downgrade", input: ticker },
-      );
+      toolCalls.push({ toolName: "finnhub_recommendation_trends", input: ticker });
+      if (premiumAccess) {
+        toolCalls.push({ toolName: "finnhub_upgrade_downgrade", input: ticker });
+      }
     }
-    if (/ownership|holder|institution/i.test(query)) {
+    if (premiumAccess && /ownership|holder|institution/i.test(query)) {
       toolCalls.push({ toolName: "finnhub_ownership", input: ticker });
     }
     if (/insider|executive transaction/i.test(query)) {
       toolCalls.push({ toolName: "finnhub_insider_transactions", input: ticker });
     }
-    if (/sentiment|social|reddit|twitter/i.test(query)) {
+    if (premiumAccess && /sentiment|social|reddit|twitter/i.test(query)) {
       toolCalls.push(
         { toolName: "finnhub_news_sentiment", input: ticker },
         { toolName: "finnhub_social_sentiment", input: ticker },
@@ -151,10 +159,10 @@ function deterministicPlan(
         { toolName: "finnhub_company_peers", input: ticker },
       );
     }
-    if (/press release|announcement/i.test(query)) {
+    if (premiumAccess && /press release|announcement/i.test(query)) {
       toolCalls.push({ toolName: "finnhub_press_releases", input: ticker });
     }
-    if (/supply chain|supplier|customer/i.test(query)) {
+    if (premiumAccess && /supply chain|supplier|customer/i.test(query)) {
       toolCalls.push({
         toolName: "finnhub_supply_chain_relationships",
         input: ticker,
@@ -254,6 +262,7 @@ export function createInformationAgentGraph(
   const registry = createGlobalToolRegistry({
     exa: deps.exa,
     finnhub: deps.finnhub,
+    finnhubPremiumAccess: deps.finnhubPremiumAccess,
     memory: deps.memory ?? deps.supermemory,
     memoryContainerTag:
       deps.supermemoryContainerTag ?? GLOBAL_MEMORY_CONTAINER_TAG,
@@ -269,7 +278,11 @@ export function createInformationAgentGraph(
           informationPlanSchema,
           [
             new SystemMessage(INFORMATION_PLANNER_SYSTEM_PROMPT),
-            new HumanMessage(buildInformationPlannerMessage(state.request)),
+            new HumanMessage(
+              buildInformationPlannerMessage(state.request, {
+                finnhubPremiumAccess: deps.finnhubPremiumAccess,
+              }),
+            ),
           ],
         )
       : deterministicPlan(state.request, deps);

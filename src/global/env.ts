@@ -44,3 +44,9 @@ export function assertKairosEnv(
     throw new Error(`Missing required environment variables: ${result.missing.join(", ")}`);
   }
 }
+
+export function hasFinnhubPremiumAccess(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return /^(1|true|yes)$/i.test(env.FINNHUB_PREMIUM_ACCESS ?? "");
+}

@@ -2,6 +2,38 @@ import type {
   InformationRequest,
   InformationToolResult,
 } from "./types.js";
+import { finnhubCatalogForAccess } from "../../global/finnhub-catalog.js";
+
+const BASE_AVAILABLE_TOOLS = [
+  "exa_search",
+  "exa_research",
+  "exa_contents",
+  "finnhub_api_request",
+  "finnhub_quote",
+  "finnhub_company_news",
+  "finnhub_basic_financials",
+  "finnhub_company_earnings",
+  "finnhub_company_peers",
+  "finnhub_company_profile",
+  "finnhub_earnings_calendar",
+  "finnhub_filings",
+  "finnhub_financials_reported",
+  "finnhub_insider_transactions",
+  "finnhub_recommendation_trends",
+  "supermemory_search",
+] as const;
+
+const PREMIUM_AVAILABLE_TOOLS = [
+  "finnhub_stock_candles",
+  "finnhub_aggregate_indicator",
+  "finnhub_company_eps_estimates",
+  "finnhub_news_sentiment",
+  "finnhub_ownership",
+  "finnhub_press_releases",
+  "finnhub_social_sentiment",
+  "finnhub_supply_chain_relationships",
+  "finnhub_upgrade_downgrade",
+] as const;
 
 export const INFORMATION_PLANNER_SYSTEM_PROMPT = [
   "You are the Kairos information agent planner.",
@@ -11,7 +43,7 @@ export const INFORMATION_PLANNER_SYSTEM_PROMPT = [
   "Use exa_contents when the query includes a URL or asks about a specific source.",
   "Use Finnhub tools when the query contains a ticker and market, technical, financial, analyst, earnings, filings, ownership, insider, sentiment, supply-chain, or corporate-profile data would materially improve the answer.",
   "Pick the specific Finnhub tool that matches the question instead of defaulting to quote/news/financials.",
-  'Use finnhub_api_request for documented Finnhub REST endpoints that do not have a named convenience tool. Its input must be JSON like {"path":"/stock/profile2","params":{"symbol":"AAPL"}}.',
+  'Use finnhub_api_request for documented Finnhub REST endpoints that do not have a named convenience tool. Its input must be JSON like {"method":"GET","path":"/stock/profile2","params":{"symbol":"AAPL"}} or {"method":"POST","path":"/global-filings/search","body":{"query":"artificial intelligence","symbols":"AAPL"}}.',
   "Use supermemory_search when prior Kairos memory, human corrections, preferences, or historical false positives may matter.",
   "Prefer 2-4 tool calls. Do not call every tool by default. Return only the structured plan.",
 ].join("\n");
@@ -29,37 +61,18 @@ export const INFORMATION_SYNTHESIS_SYSTEM_PROMPT = [
 
 export function buildInformationPlannerMessage(
   request: InformationRequest,
+  options: { finnhubPremiumAccess?: boolean } = {},
 ): string {
   return JSON.stringify(
     {
       query: request.query,
-      availableTools: [
-        "exa_search",
-        "exa_research",
-        "exa_contents",
-        "finnhub_api_request",
-        "finnhub_quote",
-        "finnhub_company_news",
-        "finnhub_stock_candles",
-        "finnhub_aggregate_indicator",
-        "finnhub_basic_financials",
-        "finnhub_company_earnings",
-        "finnhub_company_eps_estimates",
-        "finnhub_company_peers",
-        "finnhub_company_profile",
-        "finnhub_earnings_calendar",
-        "finnhub_filings",
-        "finnhub_financials_reported",
-        "finnhub_insider_transactions",
-        "finnhub_news_sentiment",
-        "finnhub_ownership",
-        "finnhub_press_releases",
-        "finnhub_recommendation_trends",
-        "finnhub_social_sentiment",
-        "finnhub_supply_chain_relationships",
-        "finnhub_upgrade_downgrade",
-        "supermemory_search",
-      ],
+      availableTools: options.finnhubPremiumAccess
+        ? [...BASE_AVAILABLE_TOOLS, ...PREMIUM_AVAILABLE_TOOLS]
+        : BASE_AVAILABLE_TOOLS,
+      finnhubPremiumAccess: options.finnhubPremiumAccess ?? false,
+      finnhubRestEndpointCatalog: finnhubCatalogForAccess({
+        premiumAccess: options.finnhubPremiumAccess ?? false,
+      }),
     },
     null,
     2,

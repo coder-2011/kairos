@@ -96,6 +96,7 @@ export type InformationAgentDependencies = {
   model?: StructuredInformationModelProvider;
   exa?: InformationExaClient;
   finnhub?: InformationFinnhubClient;
+  finnhubPremiumAccess?: boolean;
   memory?: InformationSupermemoryClient;
   supermemory?: InformationSupermemoryClient;
   supermemoryContainerTag?: string;
