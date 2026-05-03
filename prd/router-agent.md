@@ -389,4 +389,4 @@ Required deterministic tests:
 - Which Bun-compatible PDF text extractor should be used first?
 - Which OpenRouter multimodal model should handle images?
 - Should disabled branches be eligible for routing when the model thinks the match is strong, or only visible as context?
-- Should router-triggered heartbeat runs be dry-run by default in development?
+- Should router-triggered heartbeat runs use a cheaper development model by default?

@@ -195,7 +195,7 @@ function requireDeterministicFallback(
       [
         `Information ${stage} model is required.`,
         "Deterministic fallback is disabled because it does not preserve enough production functionality.",
-        "Pass a model/plannerModel/synthesisModel, or explicitly set allowDeterministicFallback for tests and dry-runs.",
+        "Pass a model/plannerModel/synthesisModel, or explicitly set allowDeterministicFallback for tests.",
       ].join(" "),
     );
   }
