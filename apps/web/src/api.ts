@@ -43,7 +43,6 @@ export type RunRecord = {
   branchId?: string;
   createdAt: string;
   updatedAt: string;
-  dryRun: boolean;
   input: JsonRecord;
   output?: JsonRecord;
   metadata?: JsonRecord;
@@ -298,7 +297,6 @@ export async function sendRouterMessage(input: {
     method: "POST",
     body: JSON.stringify({
       text: input.text,
-      dryRun: false,
     }),
   });
 }
@@ -309,7 +307,7 @@ export async function triggerHeartbeat(
 ): Promise<RunRecord> {
   return request<{ run: RunRecord }>(`/branches/${branchId}/heartbeat-runs`, {
     method: "POST",
-    body: JSON.stringify({ dryRun: false, input }),
+    body: JSON.stringify({ input }),
   }).then((response) => response.run);
 }
 
@@ -320,7 +318,6 @@ export async function createDebate(input: {
   return request<{ run: RunRecord }>("/debates", {
     method: "POST",
     body: JSON.stringify({
-      dryRun: false,
       escalation: input.escalation,
       input: { branchId: input.branchId },
     }),
@@ -361,6 +358,12 @@ export async function updateBranch(
   }).then((response) => response.branch);
 }
 
+export async function deleteBranch(branchId: string): Promise<void> {
+  await request<void>(`/branches/${branchId}`, {
+    method: "DELETE",
+  });
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
@@ -380,7 +383,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new KairosApiError(message, response.status, body);
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  return parseJsonOrText(text) as T;
 }
 
 function parseJsonOrText(text: string): unknown {

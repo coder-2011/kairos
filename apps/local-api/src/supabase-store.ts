@@ -122,7 +122,6 @@ export class SupabaseKairosStore implements KairosLocalStore {
       branchId: input.branchId,
       createdAt: now,
       updatedAt: now,
-      dryRun: input.dryRun ?? true,
       input: input.input ?? {},
       output: input.output,
       metadata: input.metadata,

@@ -340,7 +340,6 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       metadata: {
         run_kind: run.kind,
         run_status: run.status,
-        dry_run: run.dryRun,
       },
       customId: `kairos:run:${run.id}:${type}:${run.updatedAt}`,
     });
