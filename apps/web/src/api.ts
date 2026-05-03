@@ -1,4 +1,8 @@
-import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+import type {
+  KairosBranchAgentConfig,
+  KairosConfigModelRole,
+  KairosReasoningEffort,
+} from "../../../src/global/agent-config.js";
 
 export type JsonRecord = Record<string, unknown>;
 export type TradingMode = "disabled" | "paper";
@@ -7,6 +11,7 @@ export type AllowedOrderType = "market" | "limit" | "bracket";
 export type BranchTradingConfig = {
   mode?: TradingMode;
   symbol?: string;
+  symbols?: string[];
   paperAutoBuyEnabled?: boolean;
   notifyOnBuySignal?: boolean;
   maxNotionalPerOrder?: number;
@@ -60,6 +65,16 @@ export type OpenRouterModelRecord = {
   inputModalities: string[];
   outputModalities: string[];
 };
+
+export type ModelRoleDefaults = Partial<
+  Record<
+    KairosConfigModelRole,
+    {
+      model: string;
+      reasoningEffort?: KairosReasoningEffort;
+    }
+  >
+>;
 
 export type PortfolioSnapshot = {
   account?: JsonRecord;
@@ -167,10 +182,17 @@ export async function getRunEvents(runId: string): Promise<RunEventRecord[]> {
   );
 }
 
-export async function getOpenRouterModels(): Promise<OpenRouterModelRecord[]> {
-  return request<{ models: OpenRouterModelRecord[] }>("/openrouter/models").then(
-    (response) => response.models,
-  );
+export async function getOpenRouterModels(): Promise<{
+  models: OpenRouterModelRecord[];
+  defaults: ModelRoleDefaults;
+}> {
+  return request<{
+    models: OpenRouterModelRecord[];
+    defaults?: ModelRoleDefaults;
+  }>("/openrouter/models").then((response) => ({
+    models: response.models,
+    defaults: response.defaults ?? {},
+  }));
 }
 
 export async function getPortfolio(): Promise<PortfolioSnapshot> {

@@ -9,6 +9,7 @@ import {
   createSupermemoryMirror,
   getMemoryContainerTag,
   listOpenRouterModels,
+  resolveKairosModelConfig,
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
 import {
@@ -218,7 +219,10 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
           return json({ ok: true, service: "kairos-local-api", mode: "local" });
 
         case "listOpenRouterModels":
-          return json({ models: await listOpenRouterModels({ requireTools: true }) });
+          return json({
+            models: await listOpenRouterModels({ requireTools: true }),
+            defaults: openRouterModelDefaults(),
+          });
 
         case "listBranches":
           return json({ branches: await context.store.listBranches() });
@@ -1694,7 +1698,32 @@ function normalizeTradingDecisionAction(
 }
 
 function firstConfiguredSymbol(branch: BranchRecord | undefined): string | undefined {
-  return branch?.config?.trading?.symbol ?? branch?.config?.assets?.[0];
+  return branch?.config?.trading?.symbols?.[0] ??
+    branch?.config?.trading?.symbol ??
+    branch?.config?.assets?.[0];
+}
+
+function openRouterModelDefaults(): JsonRecord {
+  return Object.fromEntries(
+    [
+      "heartbeat",
+      "informationPlanner",
+      "informationSynthesis",
+      "debateJudge",
+      "debateBull",
+      "debateBear",
+      "debateFinal",
+    ].map((role) => {
+      const config = resolveKairosModelConfig(role as never);
+      return [
+        role,
+        {
+          model: config.model,
+          reasoningEffort: config.reasoning?.effort,
+        },
+      ];
+    }),
+  );
 }
 
 function resolveTradingConfig(
