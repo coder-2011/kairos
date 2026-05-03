@@ -567,135 +567,131 @@ function DebateView({
   );
 }
 
-function BranchDetail({
-  branch,
+function RunDeepDive({
+  branches,
+  events,
   runs,
-  onEdit,
-  onDryRun,
-  onEscalate,
+  selectedRun,
+  onSelectRun,
 }: {
-  branch: BranchRecord;
+  branches: BranchRecord[];
+  events: RunEventRecord[];
   runs: RunRecord[];
-  onEdit: () => void;
-  onDryRun: () => void;
-  onEscalate: () => void;
+  selectedRun?: RunRecord;
+  onSelectRun: (runId: string) => void;
 }) {
-  const assets = readAssets(branch).join(", ") || "No assets configured";
-  const branchRuns = runs.filter((run) => run.branchId === branch.id);
-  const lawText =
-    typeof branch.law?.thesis === "string"
-      ? branch.law.thesis
-      : branch.description ?? "No law text returned by the local API.";
+  const selectedBranch = branches.find(
+    (branch) => branch.id === selectedRun?.branchId,
+  );
 
   return (
-    <main className="detail-canvas">
-      <section className="detail-main">
-        <div className="detail-head">
-          <div>
-            <h1>{branch.name}</h1>
-            <p>
-              Target Asset: <b>{assets}</b> | Heartbeat:{" "}
-              <b>{formatHeartbeat(branch)}</b>
-            </p>
-          </div>
-          <div className="button-row">
-            <button className="command-button" onClick={onEdit} type="button">
-              <Icon name="edit" /> EDIT LAW
-            </button>
-            <button className="command-button" onClick={onDryRun} type="button">
-              <Icon name="play_arrow" /> TRIGGER DRY RUN
-            </button>
-            <button className="command-button primary" onClick={onEscalate} type="button">
-              <Icon name="warning" /> MANUAL ESCALATION
-            </button>
-          </div>
-        </div>
-        <section className="law-block">
-          <div className="section-title">
-            <span>THESIS / THE LAW</span>
-            <b>{branch.lawId ?? branch.id}</b>
-          </div>
-          <pre>{lawText}</pre>
-        </section>
-        <section className="recent-runs">
-          <div className="section-title">RECENT RUNS (HEARTBEAT)</div>
-          {branchRuns.length === 0 ? (
+    <main className="run-deep-dive">
+      <section className="run-list-pane">
+        <PaneHeader icon="receipt_long" title="RECORDED RUNS" meta={`${runs.length} RUNS`} />
+        <div className="run-list">
+          {runs.length === 0 ? (
             <EmptyPanel
               icon="history"
-              title="No Runs"
-              message="Heartbeat and debate runs for this branch will appear here after the local API records them."
+              title="No Recorded Runs"
+              message="Heartbeat and debate runs recorded by the local API will appear here for trace review."
             />
           ) : (
-            branchRuns.map((run) => (
-              <div className={`run-row ${run.status === "failed" ? "alert" : ""}`} key={run.id}>
-                <span>{timeOnly(run.createdAt)}</span>
-                <b>{run.kind.toUpperCase()}</b>
-                <em>{run.status}</em>
-                <a>{run.id}</a>
-              </div>
+            runs.map((run) => (
+              <button
+                className={`run-list-item ${run.id === selectedRun?.id ? "active" : ""}`}
+                key={run.id}
+                onClick={() => onSelectRun(run.id)}
+                type="button"
+              >
+                <span>{run.kind.toUpperCase()}</span>
+                <b>{run.id}</b>
+                <em>{selectedBranchName(branches, run.branchId)}</em>
+                <small>{run.status} | {timeOnly(run.createdAt)}</small>
+              </button>
             ))
           )}
-        </section>
+        </div>
       </section>
-      <aside className="detail-side">
-        <SettingsPanel branch={branch} />
-        <EscalationCard runs={branchRuns} />
-      </aside>
+      <section className="run-trace-pane">
+        <div className="detail-head">
+          <div>
+            <h1>{selectedRun ? selectedRun.id : "Run Deep-Dive"}</h1>
+            <p>
+              {selectedRun
+                ? `${selectedRun.kind.toUpperCase()} | ${selectedRun.status} | ${selectedBranch?.name ?? "No branch"}`
+                : "Select a recorded run to review agent trace events, inputs, and outputs."}
+            </p>
+          </div>
+        </div>
+        {!selectedRun ? (
+          <EmptyPanel
+            icon="timeline"
+            title="No Run Selected"
+            message="Run Deep-Dive is for reviewing previous agent traces and durable run payloads."
+          />
+        ) : (
+          <div className="run-deep-grid">
+            <section className="trace-section">
+              <div className="section-title">RUN INPUT</div>
+              <pre className="json-block">{JSON.stringify(selectedRun.input, null, 2)}</pre>
+            </section>
+            <section className="trace-section">
+              <div className="section-title">RUN OUTPUT</div>
+              <pre className="json-block">{JSON.stringify(selectedRun.output ?? {}, null, 2)}</pre>
+            </section>
+            <section className="trace-section full">
+              <div className="section-title">AGENT TRACE EVENTS</div>
+              {events.length === 0 ? (
+                <EmptyPanel
+                  icon="stream"
+                  title="No Trace Events"
+                  message="No events were recorded for this run."
+                />
+              ) : (
+                <div className="trace-event-list">
+                  {events.map((event) => (
+                    <EventRecordCard event={event} key={event.id} />
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </section>
+      <EvidencePane events={events} run={selectedRun} />
     </main>
   );
 }
 
-function DraftLaw({ onCompile }: { onCompile: () => void }) {
+function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
+  if (!branchId) return "No branch";
+  return branches.find((branch) => branch.id === branchId)?.name ?? branchId;
+}
+
+function RunModeSwitch({
+  value,
+  onChange,
+}: {
+  value: RunMode;
+  onChange: (mode: RunMode) => void;
+}) {
   return (
-    <main className="editor-canvas">
-      <section className="editor-main">
-        <div className="editor-head">
-          <h1>Draft New Monitoring Law</h1>
-          <div className="button-row">
-            <button className="command-button" type="button">DISCARD</button>
-            <button className="command-button primary" onClick={onCompile} type="button">
-              COMPILE LAW
-            </button>
-          </div>
-        </div>
-        <div className="editor-body">
-          <FieldLabel label="Thesis Title">
-            <input placeholder="Enter a monitoring-law title..." />
-          </FieldLabel>
-          <FieldLabel label="Market Signal Logic">
-            <textarea
-              className="code-area"
-              placeholder="Describe the branch-specific signal logic to compile..."
-            />
-          </FieldLabel>
-          <div>
-            <div className="field-label">ESCALATION THRESHOLDS</div>
-            <div className="threshold-grid">
-              {["INFO", "WARN", "CRITICAL"].map((label) => (
-                <div className="threshold-cell" key={label}>
-                  <span className={`dot ${label.toLowerCase()}`} />
-                  <b>{label}</b>
-                  <input placeholder="Match Count" type="number" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-      <aside className="snippet-side">
-        <PaneHeader title="LOGIC SNIPPETS" meta="" />
-        <EmptyPanel
-          icon="inventory_2"
-          title="No Saved Snippets"
-          message="Saved law snippets from the real workspace will appear here when that source exists."
-        />
-        <div className="simulation-panel">
-          <div className="section-title">SIMULATION: DRY RUN</div>
-          <Icon name="query_stats" />
-          <p>Compile logic to preview historical behavior.</p>
-        </div>
-      </aside>
-    </main>
+    <div className="run-mode-switch" role="group" aria-label="Run mode">
+      <button
+        className={value === "dry" ? "active" : ""}
+        onClick={() => onChange("dry")}
+        type="button"
+      >
+        DRY
+      </button>
+      <button
+        className={value === "live" ? "active" : ""}
+        onClick={() => onChange("live")}
+        type="button"
+      >
+        LIVE
+      </button>
+    </div>
   );
 }
 
