@@ -7,4 +7,5 @@ export * from "./model-config.js";
 export * from "./observability.js";
 export * from "./openrouter.js";
 export * from "./retry.js";
+export * from "./supermemory-mirror.js";
 export * from "./tools.js";

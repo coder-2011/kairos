@@ -3,6 +3,7 @@ import type { ExaApi } from "../../api/exa.js";
 import type { FinnhubApi } from "../../api/finnhub.js";
 import type { GlobalMemoryApi } from "../../global/memory.js";
 import type { AgentObserver } from "../../global/observability.js";
+import type { SupermemoryMirror } from "../../global/supermemory-mirror.js";
 
 export type InformationToolName =
   | "exa_search"
@@ -108,6 +109,7 @@ export type InformationAgentDependencies = {
   requiredTools?: Partial<Record<InformationToolName, boolean>>;
   now?: () => Date;
   observer?: AgentObserver;
+  supermemoryMirror?: SupermemoryMirror;
   runId?: string;
   /**
    * Production default is false. Enable only for tests, fixtures, local dry-runs,

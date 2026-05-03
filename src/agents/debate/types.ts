@@ -1,5 +1,6 @@
 import type { GlobalToolRegistry } from "../../global/tools.js";
 import type { AgentObserver } from "../../global/observability.js";
+import type { SupermemoryMirror } from "../../global/supermemory-mirror.js";
 
 export type DebateAgentName = "judge" | "bull" | "bear" | "tool_agent";
 
@@ -149,6 +150,7 @@ export type DebateGraphDependencies = {
   now?: () => Date;
   id?: () => string;
   observer?: AgentObserver;
+  supermemoryMirror?: SupermemoryMirror;
   runId?: string;
   /**
    * Production default is false. Enable only for tests, fixtures, local dry-runs,

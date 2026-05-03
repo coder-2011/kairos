@@ -514,5 +514,10 @@ export async function runInformationAgent(
       citationCount: parsedResult.citations.length,
     },
   });
+  await runDeps.supermemoryMirror?.mirrorInformationResult({
+    query: parsedRequest.query,
+    result: parsedResult,
+    runId,
+  });
   return parsedResult;
 }

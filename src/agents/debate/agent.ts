@@ -695,7 +695,7 @@ export async function runDebateAgent(
     },
   });
 
-  return {
+  const runResult = {
     debateId: result.debateId,
     status: result.status,
     messages: result.messages.map((message) => message),
@@ -708,6 +708,13 @@ export async function runDebateAgent(
     currentPlan: result.currentPlan,
     finalDecision,
   };
+  await runDeps.supermemoryMirror?.mirrorDebateResult({
+    result: runResult,
+    runId,
+    branchId: branchIdFromStartInput(startInput),
+    lawId: lawIdFromStartInput(startInput),
+  });
+  return runResult;
 }
 
 function branchIdFromState(state: DebateState): string | undefined {
@@ -719,6 +726,13 @@ function branchIdFromStartInput(
 ): string | undefined {
   const branchId = startInput.basicFinancials.branchId;
   return typeof branchId === "string" ? branchId : undefined;
+}
+
+function lawIdFromStartInput(
+  startInput: ReturnType<typeof debateStartInputSchema.parse>,
+): string | undefined {
+  const lawId = startInput.basicFinancials.lawId;
+  return typeof lawId === "string" ? lawId : undefined;
 }
 
 export async function* streamDebateAgentUpdates(
