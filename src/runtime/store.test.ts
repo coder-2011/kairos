@@ -10,6 +10,7 @@ import {
   kairosSourceRecordSchema,
 } from "./index.js";
 import {
+  buildFrontendToolConfigurationCatalog,
   kairosBranchAgentConfigSchema,
   resolveDebateAgentConfig,
   resolveHeartbeatAgentConfig,
@@ -253,6 +254,24 @@ describe("runtime schemas", () => {
       },
       maxToolCalls: 5,
       finnhubPremiumAccess: true,
+    });
+    expect(buildFrontendToolConfigurationCatalog({
+      finnhubPremiumAccess: false,
+    })).toMatchObject({
+      finnhubPremiumAccess: false,
+      configurableByFrontend: expect.arrayContaining([
+        "named information tool enablement",
+        "Finnhub premium access",
+      ]),
+      notConfiguredByFrontend: expect.arrayContaining([
+        "Finnhub REST parameter shapes",
+      ]),
+      finnhubApiRequestEndpoints: expect.arrayContaining([
+        expect.objectContaining({
+          id: "filings",
+          access: "free",
+        }),
+      ]),
     });
   });
 
