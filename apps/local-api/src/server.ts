@@ -1476,87 +1476,23 @@ async function listMarketSymbols(
         query,
         limit,
       }),
-      1500,
-      "Market symbol provider timed out.",
+      15000,
+      "Market symbol directory provider timed out.",
     );
-    const assembled = assembleMarketSymbols(symbols, { query, limit });
     return json({
-      symbols: assembled.symbols,
-      count: assembled.symbols.length,
-      source: assembled.usedFallback ? "assembled" : "alpaca",
+      symbols,
+      count: symbols.length,
+      source: "nasdaq_trader_yahoo",
       cacheTags: marketSymbolCacheTags(query),
     });
   } catch (error) {
-    const fallback = await enrichedFallbackSymbols(context, { query, limit });
     return json({
-      symbols: fallback,
-      count: fallback.length,
-      source: "fallback",
+      symbols: [],
+      count: 0,
+      source: "unavailable",
       cacheTags: marketSymbolCacheTags(query),
       error: error instanceof Error ? error.message : "Unable to load market symbols.",
     });
-  }
-}
-
-function assembleMarketSymbols(
-  symbols: AlpacaMarketSymbol[],
-  input: AlpacaMarketSymbolQuery,
-): { symbols: AlpacaMarketSymbol[]; usedFallback: boolean } {
-  const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
-  const records = new Map<string, AlpacaMarketSymbol>();
-
-  let usedFallback = false;
-  for (const symbol of fallbackSymbols({ query: input.query, limit })) {
-    const normalized = normalizeMarketSymbol(symbol.symbol);
-    if (normalized) {
-      records.set(normalized, { ...symbol, symbol: normalized });
-      usedFallback = true;
-    }
-  }
-
-  for (const symbol of symbols) {
-    const normalized = normalizeMarketSymbol(symbol.symbol);
-    if (normalized) records.set(normalized, { ...symbol, symbol: normalized });
-  }
-
-  return {
-    symbols: [...records.values()].slice(0, limit),
-    usedFallback,
-  };
-}
-
-function fallbackSymbols(input: AlpacaMarketSymbolQuery): AlpacaMarketSymbol[] {
-  const query = input.query?.trim().toUpperCase();
-  const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
-  return fallbackMarketSymbols
-    .filter((symbol) => {
-      if (!query) return true;
-      return (
-        symbol.symbol.includes(query) ||
-        symbol.name?.toUpperCase().includes(query) ||
-        symbol.exchange?.toUpperCase().includes(query)
-      );
-    })
-    .slice(0, limit);
-}
-
-async function enrichedFallbackSymbols(
-  context: LocalApiContext,
-  input: AlpacaMarketSymbolQuery,
-): Promise<AlpacaMarketSymbol[]> {
-  const fallback = fallbackSymbols(input);
-  const provider = getMarketSymbolProvider(context);
-  if (!provider.getMarketSymbols || fallback.length === 0) return fallback;
-
-  try {
-    const liveSymbols = await withTimeout(
-      provider.getMarketSymbols(fallback.map((symbol) => symbol.symbol)),
-      1500,
-      "Fallback symbol price provider timed out.",
-    );
-    return assembleMarketSymbols(liveSymbols, input).symbols;
-  } catch {
-    return fallback;
   }
 }
 
@@ -1567,10 +1503,6 @@ function marketSymbolCacheTags(query: string | undefined): string[] {
       ? `market-symbols:query:${query.trim().toUpperCase()}`
       : "market-symbols:starter",
   ];
-}
-
-function normalizeMarketSymbol(symbol: string | undefined): string {
-  return symbol?.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "") ?? "";
 }
 
 async function withTimeout<T>(
@@ -1591,21 +1523,12 @@ async function withTimeout<T>(
 }
 
 function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
-  context.marketSymbolProvider ??= lazyAlpacaMarketSymbolProvider();
+  context.marketSymbolProvider ??= lazyMarketSymbolProvider();
   return context.marketSymbolProvider;
 }
 
-function lazyAlpacaMarketSymbolProvider(): MarketSymbolProvider {
-  let client: ReturnType<typeof createAlpacaTradingClient> | undefined;
-  const current = () => {
-    client ??= createAlpacaTradingClient();
-    return client;
-  };
-
-  return {
-    listMarketSymbols: (input) => current().listMarketSymbols(input),
-    getMarketSymbols: (symbols) => current().getMarketSymbols(symbols),
-  };
+function lazyMarketSymbolProvider(): MarketSymbolProvider {
+  return createMarketSymbolDirectoryProvider();
 }
 
 async function runConfiguredHeartbeat(input: HeartbeatTriggerInput): Promise<HeartbeatRunResult> {
