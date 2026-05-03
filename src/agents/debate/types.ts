@@ -161,7 +161,7 @@ export type DebateGraphDependencies = {
   supermemoryMirror?: SupermemoryMirror;
   runId?: string;
   /**
-   * Production default is false. Enable only for tests, fixtures, local dry-runs,
+   * Production default is false. Enable only for tests, fixtures,
    * or UI demos where deterministic debate behavior is explicitly desired.
    */
   allowDeterministicFallback?: boolean;

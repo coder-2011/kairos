@@ -112,7 +112,7 @@ export type InformationAgentDependencies = {
   supermemoryMirror?: SupermemoryMirror;
   runId?: string;
   /**
-   * Production default is false. Enable only for tests, fixtures, local dry-runs,
+   * Production default is false. Enable only for tests, fixtures,
    * or UI demos where deterministic behavior is explicitly desired.
    */
   allowDeterministicFallback?: boolean;

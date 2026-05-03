@@ -276,7 +276,7 @@ function requireDeterministicFallback(
       [
         `Debate ${role} model is required.`,
         "Deterministic fallback is disabled because it does not preserve enough production functionality.",
-        "Pass all debate models, or explicitly set allowDeterministicFallback for tests and dry-runs.",
+        "Pass all debate models, or explicitly set allowDeterministicFallback for tests.",
       ].join(" "),
     );
   }
