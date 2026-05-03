@@ -489,6 +489,15 @@ function toRunRecord(run: KairosRun): RunRecord {
     input: isJsonRecord(run.input) ? run.input : {},
     output: isJsonRecord(run.output) ? run.output : undefined,
     metadata: isJsonRecord(run.metadata) ? run.metadata : undefined,
+    lifecycle: normalizeRunLifecycle(run.lifecycle, {
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      kind:
+        run.kind === "debate" || run.kind === "router"
+          ? run.kind
+          : "heartbeat",
+      status: run.status,
+    }),
   };
 }
 
@@ -550,6 +559,12 @@ function slugId(value: string): string {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function isNotFoundError(error: unknown): boolean {
