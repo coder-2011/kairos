@@ -116,6 +116,17 @@ export const FINNHUB_REST_ENDPOINT_CATALOG = [
 export type FinnhubRestEndpointCatalogEntry =
   (typeof FINNHUB_REST_ENDPOINT_CATALOG)[number];
 
+export type FinnhubAccessLevel = "free" | "premium";
+
+export type FinnhubRestEndpointMetadata = {
+  id: string;
+  method: string;
+  path: string;
+  title: string;
+  access: FinnhubAccessLevel;
+  purpose: string;
+};
+
 export function isFinnhubPremiumCatalogEntry(
   entry: FinnhubRestEndpointCatalogEntry | string,
 ): boolean {
@@ -128,6 +139,31 @@ export function finnhubCatalogForAccess(input: {
   return FINNHUB_REST_ENDPOINT_CATALOG.filter(
     (entry) => input.premiumAccess || !isFinnhubPremiumCatalogEntry(entry),
   );
+}
+
+export function finnhubEndpointCatalogForAccess(input: {
+  premiumAccess?: boolean;
+} = {}): FinnhubRestEndpointMetadata[] {
+  return finnhubCatalogForAccess(input).map(parseFinnhubCatalogEntry);
+}
+
+export function parseFinnhubCatalogEntry(
+  entry: FinnhubRestEndpointCatalogEntry | string,
+): FinnhubRestEndpointMetadata {
+  const [rawId, rawMethod, rawPath, rawTitle] = entry
+    .split("|")
+    .map((part) => part.trim());
+  const access = isFinnhubPremiumCatalogEntry(entry) ? "premium" : "free";
+  const title = (rawTitle ?? rawId).replace(/\s+Premium\b/i, "").trim();
+
+  return {
+    id: rawId,
+    method: rawMethod,
+    path: normalizeFinnhubPath(rawPath),
+    title,
+    access,
+    purpose: `Returns ${title.toLowerCase()} data from Finnhub.`,
+  };
 }
 
 export function isFinnhubPremiumPath(path: string): boolean {
