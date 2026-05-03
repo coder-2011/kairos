@@ -1292,7 +1292,7 @@ Sample response
 
 ## Company Profile 2
 
-Get general information of a company. You can query by symbol, ISIN or CUSIP. This is the free version of [Company Profile](https://finnhub.io/docs/api/library#company-profile).
+Get general information of a company. You can query by symbol, ISIN or CUSIP. This is the free version of [Company Profile](https://finnhub.io/docs/api/introduction#company-profile).
 
 **Method:**`GET`
 
@@ -3243,7 +3243,7 @@ Sample response
 
 ## Financial Statements Premium
 
-Get standardized balance sheet, income statement and cash flow for global companies going back 30+ years. Data is sourced from original filings most of which made available through [SEC Filings](https://finnhub.io/docs/api/library#filings) and [International Filings](https://finnhub.io/docs/api/library#international-filings) endpoints.
+Get standardized balance sheet, income statement and cash flow for global companies going back 30+ years. Data is sourced from original filings most of which made available through [SEC Filings](https://finnhub.io/docs/api/introduction#filings) and [International Filings](https://finnhub.io/docs/api/introduction#international-filings) endpoints.
 
 Set `preliminary` param to true for faster updates for US companies.
 
@@ -11097,7 +11097,7 @@ Array of transcripts' metadata
 
 **id**
 
-Transcript's ID used to get the [full transcript](https://finnhub.io/docs/api/library#transcripts).
+Transcript's ID used to get the [full transcript](https://finnhub.io/docs/api/introduction#transcripts).
 
 **quarter**
 
@@ -11242,7 +11242,7 @@ Get earnings call transcripts, audio and participants' list. Data is available f
 
 **id**REQUIRED
 
-Transcript's id obtained with [Transcripts List endpoint](https://finnhub.io/docs/api/library#transcripts-list).
+Transcript's id obtained with [Transcripts List endpoint](https://finnhub.io/docs/api/introduction#transcripts-list).
 
 **Response Attributes:**
 
