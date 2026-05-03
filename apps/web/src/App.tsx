@@ -13,7 +13,12 @@ import {
   type RunEventRecord,
   type RunRecord,
 } from "./api";
-import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+import type {
+  InformationConfigToolName,
+  KairosBranchAgentConfig,
+  KairosConfigModelRole,
+  KairosReasoningEffort,
+} from "../../../src/global/agent-config.js";
 
 type View = "branches" | "debate" | "detail" | "draft" | "config";
 type LoadState = "loading" | "api" | "offline";
@@ -26,26 +31,61 @@ const views: Array<{ id: View; label: string; icon: string }> = [
   { id: "config", label: "Configuration", icon: "settings" },
 ];
 
-const personaPromptFields = [
-  {
-    role: "Judge",
-    key: "debateJudgeSystemPrompt",
-    defaultText:
-      "Orchestrate the debate, preserve uncertainty, and synthesize only from cited evidence.",
-  },
-  {
-    role: "Bull",
-    key: "debateBullSystemPrompt",
-    defaultText: "Argue materiality and opportunity when evidence supports it.",
-  },
-  {
-    role: "Bear",
-    key: "debateBearSystemPrompt",
-    defaultText: "Argue noise, stale evidence, source risk, and priced-in scenarios.",
-  },
-] as const;
+type PromptConfigKey = keyof NonNullable<KairosBranchAgentConfig["prompts"]>;
 
-const informationToolFields = [
+const promptFields: Array<{
+  role: string;
+  key: PromptConfigKey;
+  description: string;
+}> = [
+  {
+    role: "Heartbeat",
+    key: "heartbeatSystemPrompt",
+    description: "Frequent branch monitor instructions.",
+  },
+  {
+    role: "Debate Judge",
+    key: "debateJudgeSystemPrompt",
+    description: "Debate orchestration and speaker-selection instructions.",
+  },
+  {
+    role: "Debate Bull",
+    key: "debateBullSystemPrompt",
+    description: "Materiality and opportunity-side argument instructions.",
+  },
+  {
+    role: "Debate Bear",
+    key: "debateBearSystemPrompt",
+    description: "Noise, risk, stale-evidence, and priced-in argument instructions.",
+  },
+  {
+    role: "Final Synthesis",
+    key: "debateFinalSystemPrompt",
+    description: "Final decision synthesis instructions.",
+  },
+];
+
+const modelRoleFields: Array<{ label: string; key: KairosConfigModelRole }> = [
+  { label: "Heartbeat", key: "heartbeat" },
+  { label: "Information Planner", key: "informationPlanner" },
+  { label: "Information Synthesis", key: "informationSynthesis" },
+  { label: "Debate Judge", key: "debateJudge" },
+  { label: "Debate Bull", key: "debateBull" },
+  { label: "Debate Bear", key: "debateBear" },
+  { label: "Debate Final", key: "debateFinal" },
+];
+
+const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
+  "",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+const informationToolFields: Array<{ label: string; key: InformationConfigToolName }> = [
   { label: "SEC Filings", key: "finnhub_filings" },
   { label: "Exa News Search", key: "exa_search" },
   { label: "Exa Research", key: "exa_research" },
@@ -55,7 +95,7 @@ const informationToolFields = [
   { label: "Finnhub Basic Financials", key: "finnhub_basic_financials" },
   { label: "Finnhub Earnings", key: "finnhub_company_earnings" },
   { label: "Finnhub Insider Transactions", key: "finnhub_insider_transactions" },
-] as const;
+];
 
 export function App() {
   const [view, setView] = useState<View>("branches");
@@ -656,7 +696,11 @@ function BranchConfig({
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
-  const buyConfidence = Math.round((config.thresholds?.buyConfidence ?? 0.9) * 100);
+  const paperTradeDraftConfidence = Math.round(
+    (config.thresholds?.paperTradeDraftConfidence ??
+      config.thresholds?.buyConfidence ??
+      0.9) * 100,
+  );
 
   return (
     <main className="config-canvas">
@@ -689,11 +733,12 @@ function BranchConfig({
           />
         </FieldLabel>
         <div>
-          <div className="field-label">AGENT PERSONA PROMPTS</div>
-          <div className="persona-grid">
-            {personaPromptFields.map((field) => (
-              <FieldLabel label={field.role} key={field.role}>
+          <div className="field-label">AGENT SYSTEM PROMPTS</div>
+          <div className="prompt-grid">
+            {promptFields.map((field) => (
+              <FieldLabel label={field.role} key={field.key}>
                 <textarea
+                  className="prompt-area"
                   onChange={(event) =>
                     setConfig((current) => ({
                       ...current,
@@ -703,9 +748,60 @@ function BranchConfig({
                       },
                     }))
                   }
-                  value={config.prompts?.[field.key] ?? field.defaultText}
+                  placeholder={field.description}
+                  value={config.prompts?.[field.key] ?? ""}
                 />
               </FieldLabel>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="field-label">MODEL ROLE CONFIGURATION</div>
+          <div className="model-grid">
+            {modelRoleFields.map((field) => (
+              <div className="model-row" key={field.key}>
+                <span>{field.label}</span>
+                <input
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      models: {
+                        ...current.models,
+                        [field.key]: {
+                          ...current.models?.[field.key],
+                          model: event.target.value || undefined,
+                        },
+                      },
+                    }))
+                  }
+                  placeholder="OpenRouter model id"
+                  value={config.models?.[field.key]?.model ?? ""}
+                />
+                <select
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      models: {
+                        ...current.models,
+                        [field.key]: {
+                          ...current.models?.[field.key],
+                          reasoningEffort:
+                            event.target.value === ""
+                              ? undefined
+                              : (event.target.value as KairosReasoningEffort),
+                        },
+                      },
+                    }))
+                  }
+                  value={config.models?.[field.key]?.reasoningEffort ?? ""}
+                >
+                  {reasoningEffortOptions.map((effort) => (
+                    <option key={effort || "default"} value={effort}>
+                      {effort === "" ? "DEFAULT EFFORT" : effort.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ))}
           </div>
         </div>
@@ -828,17 +924,17 @@ function BranchConfig({
               value={`${notifyConfidence}%`}
             />
             <Slider
-              label="Buy Threshold"
+              label="Paper Trade Draft Threshold"
               onChange={(value) =>
                 setConfig((current) => ({
                   ...current,
                   thresholds: {
                     ...current.thresholds,
-                    buyConfidence: value / 100,
+                    paperTradeDraftConfidence: value / 100,
                   },
                 }))
               }
-              value={`${buyConfidence}%`}
+              value={`${paperTradeDraftConfidence}%`}
             />
           </div>
         </div>
@@ -922,7 +1018,12 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
         />
       </FieldLabel>
       <FieldLabel label="Paper Trade Draft Threshold">
-        <input readOnly value={formatConfidence(thresholds?.buyConfidence)} />
+        <input
+          readOnly
+          value={formatConfidence(
+            thresholds?.paperTradeDraftConfidence ?? thresholds?.buyConfidence,
+          )}
+        />
       </FieldLabel>
       <FieldLabel label="Operational Mode">
         <div className="mode-list">
@@ -1203,7 +1304,7 @@ function normalizeBranchConfig(branch: BranchRecord): KairosBranchAgentConfig {
     },
     thresholds: {
       notifyConfidence: 0.75,
-      buyConfidence: 0.9,
+      paperTradeDraftConfidence: 0.9,
       ...config.thresholds,
     },
     research: {
