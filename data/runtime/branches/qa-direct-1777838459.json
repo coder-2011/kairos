@@ -1,0 +1,18 @@
+{
+  "branchId": "qa-direct-1777838459",
+  "name": "Direct QA",
+  "status": "enabled",
+  "assets": [],
+  "createdAt": "2026-05-03T20:00:59.102Z",
+  "updatedAt": "2026-05-03T20:00:59.102Z",
+  "summary": "law",
+  "payload": {
+    "config": {
+      "heartbeat": {
+        "intervalMinutes": 5,
+        "seedWindowDays": 30,
+        "maxToolSteps": 3
+      }
+    }
+  }
+}
