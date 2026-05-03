@@ -58,18 +58,6 @@ describe("preflightPaperOrder", () => {
     );
   });
 
-  it("does not silently submit unsupported bracket order configuration", async () => {
-    const result = await preflightPaperOrder(
-      createMockBroker(),
-      createIntent(),
-      { allowedOrderType: "bracket" },
-    );
-
-    expect(result.ok).toBe(false);
-    expect(result.reasons).toContain(
-      "Bracket paper orders are not implemented for Alpaca submission yet.",
-    );
-  });
 });
 
 function createIntent(overrides: Partial<CreateTradeIntentInput> = {}) {

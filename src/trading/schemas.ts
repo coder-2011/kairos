@@ -46,7 +46,7 @@ export const tradingConfigSchema = z
     notifyOnBuySignal: z.boolean().optional(),
     maxNotionalPerOrder: moneySchema.optional(),
     maxOpenPositionNotionalPerSymbol: moneySchema.optional(),
-    allowedOrderType: z.enum(["market", "limit", "bracket"]).optional(),
+    allowedOrderType: brokerOrderTypeSchema.optional(),
     allowQueuedOrdersWhenMarketClosed: z.boolean().optional(),
     notifyConfidenceThreshold: confidenceSchema.optional(),
     paperTradeConfidenceThreshold: confidenceSchema.optional(),

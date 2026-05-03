@@ -10,11 +10,13 @@ import {
 } from "../trading/schemas.js";
 
 export const ALPACA_PAPER_BASE_URL = "https://paper-api.alpaca.markets";
+export const ALPACA_MARKET_DATA_BASE_URL = "https://data.alpaca.markets";
 
 export type AlpacaClientOptions = {
   apiKey?: string;
   secretKey?: string;
   baseUrl?: string;
+  marketDataBaseUrl?: string;
   fetch?: typeof fetch;
   fetchImpl?: typeof fetch;
   retryAttempts?: number;
@@ -54,13 +56,62 @@ type AlpacaClock = {
   next_close?: string;
 };
 type AlpacaAsset = {
+  name?: string;
   symbol?: string;
+  exchange?: string;
   tradable?: boolean;
+  marginable?: boolean;
+  shortable?: boolean;
+  easy_to_borrow?: boolean;
+  fractionable?: boolean;
   status?: string;
   asset_class?: string;
 };
+type AlpacaStockSnapshot = {
+  latestTrade?: {
+    p?: number;
+    t?: string;
+  };
+  latestQuote?: {
+    ap?: number;
+    bp?: number;
+    t?: string;
+  };
+  dailyBar?: {
+    c?: number;
+    h?: number;
+    l?: number;
+    o?: number;
+    t?: string;
+    v?: number;
+  };
+  prevDailyBar?: {
+    c?: number;
+  };
+};
 type ListOrdersInput = {
   status?: "open" | "closed" | "all";
+  limit?: number;
+};
+export type AlpacaMarketSymbol = {
+  symbol: string;
+  name?: string;
+  exchange?: string;
+  assetClass?: string;
+  tradable: boolean;
+  marginable?: boolean;
+  shortable?: boolean;
+  easyToBorrow?: boolean;
+  fractionable?: boolean;
+  price?: number;
+  previousClose?: number;
+  dayChangePercent?: number;
+  dailyVolume?: number;
+  updatedAt?: string;
+  source: "alpaca";
+};
+export type AlpacaMarketSymbolQuery = {
+  query?: string;
   limit?: number;
 };
 
@@ -68,6 +119,7 @@ export class AlpacaTradingClient {
   private readonly apiKey: string;
   private readonly secretKey: string;
   private readonly baseUrl: string;
+  private readonly marketDataBaseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly retryAttempts: number;
 
@@ -76,6 +128,11 @@ export class AlpacaTradingClient {
     this.secretKey = config.secretKey ?? process.env.ALPACA_SECRET_KEY ?? "";
     this.baseUrl = removeTrailingSlash(
       config.baseUrl ?? process.env.ALPACA_BASE_URL ?? ALPACA_PAPER_BASE_URL,
+    );
+    this.marketDataBaseUrl = removeTrailingSlash(
+      config.marketDataBaseUrl ??
+        process.env.ALPACA_MARKET_DATA_BASE_URL ??
+        ALPACA_MARKET_DATA_BASE_URL,
     );
     this.fetchImpl = config.fetchImpl ?? config.fetch ?? fetch;
     this.retryAttempts = config.retryAttempts ?? 3;
@@ -145,6 +202,58 @@ export class AlpacaTradingClient {
       "GET",
       `/v2/assets/${encodeURIComponent(symbol)}`,
     );
+  }
+
+  listActiveEquityAssets(): Promise<AlpacaAsset[]> {
+    return this.request<AlpacaAsset[]>(
+      "GET",
+      "/v2/assets?status=active&asset_class=us_equity",
+    );
+  }
+
+  async listMarketSymbols(
+    input: AlpacaMarketSymbolQuery = {},
+  ): Promise<AlpacaMarketSymbol[]> {
+    const query = input.query?.trim().toUpperCase();
+    const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
+    const assets = await this.listActiveEquityAssets();
+    const filtered = assets
+      .filter((asset) => {
+        const symbol = stringValue(asset.symbol);
+        if (!symbol) return false;
+        if (!query) return true;
+        return (
+          symbol.toUpperCase().includes(query) ||
+          stringValue(asset.name)?.toUpperCase().includes(query)
+        );
+      })
+      .slice(0, limit);
+    const snapshots = await this.getStockSnapshots(
+      filtered.map((asset) => stringValue(asset.symbol)).filter(Boolean) as string[],
+    );
+
+    return filtered.map((asset) =>
+      toMarketSymbol(asset, snapshots[stringValue(asset.symbol) ?? ""]),
+    );
+  }
+
+  async getStockSnapshots(
+    symbols: string[],
+  ): Promise<Record<string, AlpacaStockSnapshot>> {
+    const normalized = [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
+    const chunks = chunkArray(normalized, 100);
+    const snapshots: Record<string, AlpacaStockSnapshot> = {};
+
+    for (const chunk of chunks) {
+      const params = new URLSearchParams();
+      params.set("symbols", chunk.join(","));
+      const response = await this.marketDataRequest<{
+        snapshots?: Record<string, AlpacaStockSnapshot>;
+      }>(`/v2/stocks/snapshots?${params.toString()}`);
+      Object.assign(snapshots, response.snapshots ?? {});
+    }
+
+    return snapshots;
   }
 
   listPositions(): Promise<Record<string, unknown>[]> {
@@ -225,6 +334,31 @@ export class AlpacaTradingClient {
 
     if (!response.ok) {
       throw new Error(`Alpaca ${response.status}: ${await response.text()}`);
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    return contentType.includes("application/json")
+      ? ((await response.json()) as T)
+      : ((await response.text()) as T);
+  }
+
+  private async marketDataRequest<T>(path: string): Promise<T> {
+    const response = await retryFetch(
+      this.fetchImpl,
+      `${this.marketDataBaseUrl}${path}`,
+      {
+        method: "GET",
+        headers: {
+          "APCA-API-KEY-ID": this.apiKey,
+          "APCA-API-SECRET-KEY": this.secretKey,
+          "content-type": "application/json",
+        },
+      },
+      { attempts: this.retryAttempts },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Alpaca market data ${response.status}: ${await response.text()}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
@@ -321,6 +455,51 @@ function normalizeTimeInForce(value: unknown): BrokerTimeInForce | undefined {
   )
     ? (value as BrokerTimeInForce)
     : undefined;
+}
+
+function toMarketSymbol(
+  asset: AlpacaAsset,
+  snapshot?: AlpacaStockSnapshot,
+): AlpacaMarketSymbol {
+  const price =
+    numberValue(snapshot?.latestTrade?.p) ??
+    numberValue(snapshot?.dailyBar?.c) ??
+    numberValue(snapshot?.latestQuote?.ap) ??
+    numberValue(snapshot?.latestQuote?.bp);
+  const previousClose = numberValue(snapshot?.prevDailyBar?.c);
+  const dayChangePercent =
+    price !== undefined && previousClose !== undefined && previousClose !== 0
+      ? ((price - previousClose) / previousClose) * 100
+      : undefined;
+
+  return {
+    symbol: stringValue(asset.symbol) ?? "UNKNOWN",
+    name: stringValue(asset.name),
+    exchange: stringValue(asset.exchange),
+    assetClass: stringValue(asset.asset_class),
+    tradable: boolValue(asset.tradable) ?? false,
+    marginable: boolValue(asset.marginable),
+    shortable: boolValue(asset.shortable),
+    easyToBorrow: boolValue(asset.easy_to_borrow),
+    fractionable: boolValue(asset.fractionable),
+    price,
+    previousClose,
+    dayChangePercent,
+    dailyVolume: numberValue(snapshot?.dailyBar?.v),
+    updatedAt:
+      stringValue(snapshot?.latestTrade?.t) ??
+      stringValue(snapshot?.latestQuote?.t) ??
+      stringValue(snapshot?.dailyBar?.t),
+    source: "alpaca",
+  };
+}
+
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function toBrokerOrder(

@@ -54,9 +54,7 @@ export async function preflightPaperOrder(
   if (maxOrderNotional !== undefined && notional > maxOrderNotional) {
     reasons.push(`Intent exceeds configured max order notional ${maxOrderNotional}.`);
   }
-  if (config.allowedOrderType === "bracket") {
-    reasons.push("Bracket paper orders are not implemented for Alpaca submission yet.");
-  } else if (config.allowedOrderType !== undefined && intent.orderType !== config.allowedOrderType) {
+  if (config.allowedOrderType !== undefined && intent.orderType !== config.allowedOrderType) {
     reasons.push(`Intent order type ${intent.orderType} does not match configured allowedOrderType ${config.allowedOrderType}.`);
   }
 
