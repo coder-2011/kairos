@@ -288,29 +288,51 @@ export class MemoryKairosStore implements KairosLocalStore {
   async createRun(input: CreateRunInput): Promise<RunRecord> {
     const now = new Date().toISOString();
     const id = input.id ?? this.nextId(input.kind);
+    const status = input.status ?? "pending";
     const run: RunRecord = {
       id,
       kind: input.kind,
-      status: input.status ?? "pending",
+      status,
       branchId: input.branchId,
       createdAt: now,
       updatedAt: now,
       input: input.input ?? {},
       output: input.output,
       metadata: input.metadata,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...input.lifecycle,
+          parentRunId:
+            input.lifecycle?.parentRunId ??
+            readString(input.metadata?.parentRunId) ??
+            readString(input.input?.sourceRunId),
+        },
+        { createdAt: now, updatedAt: now, kind: input.kind, status },
+      ),
     };
     this.runs.set(id, run);
+    this.linkParentRun(run);
     return run;
   }
 
-  async updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata">>): Promise<RunRecord | undefined> {
+  async updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>): Promise<RunRecord | undefined> {
     const current = this.runs.get(id);
     if (!current) return undefined;
 
+    const now = new Date().toISOString();
+    const status = input.status ?? current.status;
     const run: RunRecord = {
       ...current,
       ...definedFields(input),
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...current.lifecycle,
+          ...input.lifecycle,
+          ...lifecyclePatchForStatus(status),
+        },
+        { createdAt: current.createdAt, updatedAt: now, kind: current.kind, status },
+      ),
     };
     this.runs.set(id, run);
     return run;
@@ -331,6 +353,7 @@ export class MemoryKairosStore implements KairosLocalStore {
     const events = this.events.get(runId) ?? [];
     events.push(event);
     this.events.set(runId, events);
+    this.updateRunLifecycleFromEvent(runId, event);
 
     for (const subscriber of this.subscribers.get(runId) ?? []) {
       subscriber(event);
@@ -546,6 +569,56 @@ export class MemoryKairosStore implements KairosLocalStore {
   private nextId(prefix: string): string {
     this.sequence += 1;
     return `${prefix}_${this.sequence.toString().padStart(6, "0")}`;
+  }
+
+  private updateRunLifecycleFromEvent(runId: string, event: RunEventRecord): void {
+    const current = this.runs.get(runId);
+    if (!current) return;
+
+    this.runs.set(runId, {
+      ...current,
+      updatedAt: event.timestamp,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...current.lifecycle,
+          ...lifecyclePatchForEvent(event),
+          lastEventAt: event.timestamp,
+        },
+        {
+          createdAt: current.createdAt,
+          updatedAt: event.timestamp,
+          kind: current.kind,
+          status: current.status,
+        },
+      ),
+    });
+  }
+
+  private linkParentRun(run: RunRecord): void {
+    const parentRunId = run.lifecycle?.parentRunId;
+    if (!parentRunId) return;
+
+    const parent = this.runs.get(parentRunId);
+    if (!parent) return;
+
+    this.runs.set(parentRunId, {
+      ...parent,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...parent.lifecycle,
+          childRunIds: uniqueStrings([
+            ...(parent.lifecycle?.childRunIds ?? []),
+            run.id,
+          ]),
+        },
+        {
+          createdAt: parent.createdAt,
+          updatedAt: parent.updatedAt,
+          kind: parent.kind,
+          status: parent.status,
+        },
+      ),
+    });
   }
 }
 
