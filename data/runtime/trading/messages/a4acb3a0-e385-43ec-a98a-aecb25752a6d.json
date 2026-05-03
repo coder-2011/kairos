@@ -1,0 +1,9 @@
+{
+  "id": "a4acb3a0-e385-43ec-a98a-aecb25752a6d",
+  "createdAt": "2026-05-03T20:04:09.739Z",
+  "type": "sms_notification_failed",
+  "severity": "warning",
+  "title": "SMS notification failed",
+  "body": "'To' and 'From' number cannot be the same: +1866940XXXX",
+  "confidence": 0.7
+}
