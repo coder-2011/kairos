@@ -136,6 +136,20 @@ describe("information agent", () => {
     });
   });
 
+  it("allows branch configuration to override model choices per role", () => {
+    expect(
+      resolveKairosModelConfig("heartbeat", {} as NodeJS.ProcessEnv, {
+        heartbeat: {
+          model: "openai/gpt-5.5-mini",
+          reasoningEffort: "low",
+        },
+      }),
+    ).toEqual({
+      model: "openai/gpt-5.5-mini",
+      reasoning: { effort: "low" },
+    });
+  });
+
   it("exposes non-premium Finnhub wrapper methods by default", () => {
     const finnhub = {
       apiRequest: vi.fn(),

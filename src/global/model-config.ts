@@ -29,6 +29,24 @@ export type KairosRoleModelConfig = {
   };
 };
 
+export type KairosRoleModelOverrides = Partial<
+  Record<
+    KairosModelRole,
+    {
+      model?: string;
+      reasoningEffort?: OpenRouterReasoningEffort;
+    }
+  >
+>;
+
+export type OpenRouterRoleModelFactoryConfig = Omit<
+  OpenRouterModelConfig,
+  "model" | "reasoning"
+> & {
+  env?: NodeJS.ProcessEnv;
+  modelOverrides?: KairosRoleModelOverrides;
+};
+
 export const DEFAULT_KAIROS_MODEL_CONFIGS: Record<
   KairosModelRole,
   KairosRoleModelConfig
@@ -92,14 +110,16 @@ const VALID_REASONING_EFFORTS = new Set<OpenRouterReasoningEffort>([
 export function resolveKairosModelConfig(
   role: KairosModelRole,
   env: NodeJS.ProcessEnv = process.env,
+  overrides: KairosRoleModelOverrides = {},
 ): KairosRoleModelConfig {
   const defaults = DEFAULT_KAIROS_MODEL_CONFIGS[role];
   const model =
+    overrides[role]?.model ??
     env[MODEL_ENV_BY_ROLE[role]] ??
     legacyModelOverride(role, env) ??
     defaults.model;
   const reasoningEffort = parseReasoningEffort(
-    env[REASONING_ENV_BY_ROLE[role]],
+    overrides[role]?.reasoningEffort ?? env[REASONING_ENV_BY_ROLE[role]],
   );
 
   return {
@@ -113,21 +133,23 @@ export function resolveKairosModelConfig(
 
 export function createOpenRouterChatModelForRole(
   role: KairosModelRole,
-  config: Omit<OpenRouterModelConfig, "model" | "reasoning"> = {},
+  config: OpenRouterRoleModelFactoryConfig = {},
 ) {
+  const { env, modelOverrides, ...openRouterConfig } = config;
   return createOpenRouterChatModel({
-    ...config,
-    ...resolveKairosModelConfig(role),
+    ...openRouterConfig,
+    ...resolveKairosModelConfig(role, env, modelOverrides),
   });
 }
 
 export function createOpenRouterAiSdkModelForRole(
   role: KairosModelRole,
-  config: Omit<OpenRouterModelConfig, "model" | "reasoning"> = {},
+  config: OpenRouterRoleModelFactoryConfig = {},
 ): OpenRouterAiSdkChatModel {
+  const { env, modelOverrides, ...openRouterConfig } = config;
   return createOpenRouterModel({
-    ...config,
-    ...resolveKairosModelConfig(role),
+    ...openRouterConfig,
+    ...resolveKairosModelConfig(role, env, modelOverrides),
   });
 }
 
