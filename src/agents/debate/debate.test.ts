@@ -287,6 +287,64 @@ describe("debate agent", () => {
     expect(resolveDebatePrompts({})).toBeUndefined();
   });
 
+  it("supports the built-in portfolio tool during debate", async () => {
+    const judge = queuedStructuredModel<JudgePlan>([
+      { plan: "Ask bull to inspect portfolio context.", nextNode: "bull" },
+      { plan: "Move to final.", nextNode: "final" },
+    ]);
+    const bull = queuedStructuredModel<DebateAgentOutput>([
+      {
+        argument: "Bull wants current exposure before arguing.",
+        confidence: 0.5,
+        toolRequest: { toolName: "portfolio", input: "Current portfolio context" },
+      },
+    ]);
+    const final = queuedStructuredModel<DebateDecision>([
+      {
+        summary: "Portfolio-aware final: watch.",
+        action: "watch",
+        confidence: 0.55,
+        citations: [],
+      },
+    ]);
+
+    const result = await runDebateAgent(
+      {
+        debateId: "debate-portfolio-1",
+        startInput: {
+          ...startInput,
+          portfolioContext: {
+            capturedAt: "2026-05-03T12:00:00.000Z",
+            account: { cash: 1000, buyingPower: 2000, portfolioValue: 3000 },
+            positions: [{ symbol: "PLTR", qty: 12, marketValue: 300 }],
+          },
+        },
+        budgets: {
+          maxTurns: 1,
+          maxToolCalls: 1,
+        },
+      },
+      {
+        models: {
+          judge: judge.model,
+          bull: bull.model,
+          final: final.model,
+        },
+        now: () => fixedNow,
+        id: () => "portfolio-tool-1",
+      },
+    );
+
+    expect(result.toolEvents).toEqual([
+      expect.objectContaining({
+        toolName: "portfolio",
+        requestedBy: "bull",
+        status: "completed",
+        summary: expect.stringContaining("buyingPower=2000"),
+      }),
+    ]);
+  });
+
   it("passes human interjections through as unverified context", async () => {
     const result = await runDebateAgent(
       {
