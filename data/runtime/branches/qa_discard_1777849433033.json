@@ -1,0 +1,38 @@
+{
+  "branchId": "qa_discard_1777849433033",
+  "name": "QA Discard Baseline",
+  "status": "enabled",
+  "assets": [
+    "PLTR"
+  ],
+  "createdAt": "2026-05-03T23:03:54.022Z",
+  "updatedAt": "2026-05-03T23:03:54.022Z",
+  "summary": "baseline law text",
+  "payload": {
+    "law": {
+      "thesis": "baseline law text"
+    },
+    "config": {
+      "assets": [
+        "PLTR"
+      ],
+      "heartbeat": {
+        "intervalMinutes": 5,
+        "seedWindowDays": 30,
+        "maxToolSteps": 3
+      },
+      "trading": {
+        "mode": "disabled",
+        "symbol": "PLTR",
+        "symbols": [
+          "PLTR"
+        ],
+        "paperAutoBuyEnabled": false,
+        "notifyOnBuySignal": true,
+        "maxNotionalPerOrder": 500,
+        "maxOpenPositionNotionalPerSymbol": 1500,
+        "allowedOrderType": "market"
+      }
+    }
+  }
+}
