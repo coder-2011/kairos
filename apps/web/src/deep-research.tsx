@@ -1,0 +1,354 @@
+import { useEffect, useMemo, useState } from "react";
+
+import type { RouterToolCallRecord } from "./api";
+import {
+  createDeepResearchChat,
+  getDeepResearchChats,
+  getDeepResearchMessages,
+  getDeepResearchModels,
+  sendDeepResearchMessage,
+  type DeepResearchChatRecord,
+  type DeepResearchMessageRecord,
+  type DeepResearchModelOption,
+} from "./deep-research-api";
+import "./deep-research.css";
+
+type LoadState = "loading" | "api" | "offline";
+
+export function DeepResearchView() {
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [modelState, setModelState] = useState<LoadState>("loading");
+  const [chats, setChats] = useState<DeepResearchChatRecord[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState("");
+  const [messages, setMessages] = useState<DeepResearchMessageRecord[]>([]);
+  const [models, setModels] = useState<DeepResearchModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [draft, setDraft] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+
+  const activeModel = useMemo(
+    () => models.find((model) => model.id === selectedModel) ?? models[0],
+    [models, selectedModel],
+  );
+
+  useEffect(() => {
+    void refreshModels();
+    void refreshChats();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedChatId) {
+      setMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    getDeepResearchMessages(selectedChatId)
+      .then((nextMessages) => {
+        if (!cancelled) setMessages(nextMessages);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState("offline");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChatId]);
+
+  async function refreshModels() {
+    setModelState("loading");
+    try {
+      const response = await getDeepResearchModels();
+      setModels(response.models);
+      setSelectedModel((current) =>
+        current && response.models.some((model) => model.id === current)
+          ? current
+          : response.defaultModel,
+      );
+      setModelState("api");
+    } catch {
+      setModels([]);
+      setModelState("offline");
+    }
+  }
+
+  async function refreshChats() {
+    setLoadState("loading");
+    try {
+      const nextChats = await getDeepResearchChats();
+      setChats(nextChats);
+      setSelectedChatId((current) =>
+        current && nextChats.some((chat) => chat.id === current)
+          ? current
+          : nextChats[0]?.id ?? "",
+      );
+      setLoadState("api");
+    } catch {
+      setChats([]);
+      setLoadState("offline");
+    }
+  }
+
+  async function startChat() {
+    setError("");
+    try {
+      const chat = await createDeepResearchChat();
+      setChats((current) => [chat, ...current]);
+      setSelectedChatId(chat.id);
+      setMessages([]);
+      setLoadState("api");
+    } catch {
+      setLoadState("offline");
+    }
+  }
+
+  async function submit() {
+    if (!draft.trim() || running) return;
+
+    let chatId = selectedChatId;
+    setRunning(true);
+    setError("");
+    try {
+      if (!chatId) {
+        const chat = await createDeepResearchChat();
+        chatId = chat.id;
+        setChats((current) => [chat, ...current]);
+        setSelectedChatId(chat.id);
+      }
+
+      const result = await sendDeepResearchMessage({
+        chatId,
+        text: draft.trim(),
+        model: selectedModel,
+      });
+      setDraft("");
+      setMessages((current) => [
+        ...current,
+        result.userMessage,
+        result.assistantMessage,
+      ]);
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                title: result.chat?.title ?? chat.title ?? buildTitle(result.userMessage.text),
+                updatedAt: result.assistantMessage.createdAt,
+              }
+            : chat,
+        ),
+      );
+      setLoadState("api");
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Deep Research failed.");
+      setLoadState("api");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <main className="deep-research-canvas">
+      <aside className="deep-research-sidebar">
+        <div className="deep-research-brand">
+          <div className="deep-research-logo" aria-hidden="true">
+            <span>DR</span>
+          </div>
+          <div>
+            <h2>Deep Research</h2>
+            <p>Supermemory + full tool access</p>
+          </div>
+        </div>
+        <button
+          className="command-button primary deep-research-new"
+          onClick={() => void startChat()}
+          type="button"
+        >
+          <span className="material-symbols-outlined">add</span>
+          NEW RESEARCH
+        </button>
+        <div className="deep-research-chat-list">
+          {chats.length === 0 ? (
+            <div className="deep-research-empty">
+              <span className="material-symbols-outlined">travel_explore</span>
+              <b>No Research Chats</b>
+              <p>Start a thread to investigate with memory and tools.</p>
+            </div>
+          ) : (
+            chats.map((chat) => (
+              <button
+                className={`deep-research-chat ${chat.id === selectedChatId ? "active" : ""}`}
+                key={chat.id}
+                onClick={() => setSelectedChatId(chat.id)}
+                type="button"
+              >
+                <span>RESEARCH</span>
+                <b>{chat.title ?? "Untitled research"}</b>
+                <em>{formatChatTimestamp(chat.updatedAt)}</em>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
+      <section className="deep-research-main">
+        <header className="deep-research-head">
+          <div>
+            <h1>Deep Research Agent</h1>
+            <p>Isolated chat workspace with OpenRouter models, Supermemory, Exa, and Kairos market tools.</p>
+          </div>
+          <div className="deep-research-controls">
+            <span className={`source-pill ${loadState === "offline" || modelState === "offline" ? "warning" : ""}`}>
+              {loadState === "loading" || modelState === "loading"
+                ? "SYNCING"
+                : loadState === "api" && modelState === "api"
+                  ? "RESEARCH ONLINE"
+                  : "RESEARCH OFFLINE"}
+            </span>
+            <ModelSelect
+              model={activeModel}
+              models={models}
+              value={selectedModel}
+              onChange={setSelectedModel}
+            />
+          </div>
+        </header>
+
+        <div className="deep-research-transcript">
+          {messages.length === 0 ? (
+            <div className="deep-research-start">
+              <span className="material-symbols-outlined">psychology_alt</span>
+              <h2>Ask for a sourced investigation.</h2>
+              <p>
+                The agent can search Supermemory globally, inspect branch profiles,
+                query Exa, read URLs, and call the Kairos information toolchain.
+              </p>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <DeepResearchMessage message={message} key={message.id} />
+            ))
+          )}
+        </div>
+
+        {error && (
+          <div className="deep-research-error">
+            <span className="material-symbols-outlined">error</span>
+            {error}
+          </div>
+        )}
+
+        <footer className="deep-research-composer">
+          <textarea
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
+            placeholder="Ask for deep research across memory, current sources, filings, market context, and prior Kairos decisions..."
+            value={draft}
+          />
+          <button
+            className="command-button primary"
+            disabled={!draft.trim() || running || !selectedModel}
+            onClick={() => void submit()}
+            type="button"
+          >
+            <span className="material-symbols-outlined">
+              {running ? "hourglass_top" : "send"}
+            </span>
+            {running ? "RESEARCHING" : "SEND"}
+          </button>
+        </footer>
+      </section>
+    </main>
+  );
+}
+
+function ModelSelect({
+  model,
+  models,
+  value,
+  onChange,
+}: {
+  model?: DeepResearchModelOption;
+  models: DeepResearchModelOption[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="deep-model-select">
+      <span className="deep-model-current-logo">{model?.logo ?? "AI"}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {models.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <span className="deep-model-meta">
+        {model ? `${model.provider}${model.reasoningEffort ? ` / ${model.reasoningEffort}` : ""}` : "Models"}
+      </span>
+    </label>
+  );
+}
+
+function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }) {
+  return (
+    <article className={`deep-research-message ${message.role}`}>
+      <div className="deep-research-message-head">
+        <b>{message.role === "user" ? "YOU" : "DEEP RESEARCH"}</b>
+        <span>{message.model ?? formatChatTimestamp(message.createdAt)}</span>
+      </div>
+      <p>{message.text}</p>
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="deep-tool-list">
+          {message.toolCalls.map((call) => (
+            <DeepToolCall call={call} key={call.id} />
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
+  return (
+    <details className={`deep-tool-call ${call.status}`}>
+      <summary>
+        <span>
+          <span className="material-symbols-outlined">
+            {call.status === "failed" ? "warning" : "build"}
+          </span>
+          {humanize(call.name)}
+        </span>
+        <b>{call.status}</b>
+      </summary>
+      <p>{call.summary}</p>
+    </details>
+  );
+}
+
+function buildTitle(text: string | undefined): string {
+  const title = text?.replace(/\s+/g, " ").trim();
+  if (!title) return "Untitled research";
+  return title.length > 64 ? `${title.slice(0, 61).trimEnd()}...` : title;
+}
+
+function formatChatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function humanize(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}

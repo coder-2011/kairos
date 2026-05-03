@@ -50,8 +50,9 @@ import {
   type TradeSymbolRecord,
   type WebBranchConfig,
 } from "./api";
+import { DeepResearchView } from "./deep-research";
 
-type View = "branches" | "router" | "monitoring" | "portfolio" | "runDeepDive" | "config";
+type View = "branches" | "router" | "deepResearch" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
@@ -88,11 +89,12 @@ function routeHash(route: AppRoute): string {
   return `#/${route.view}`;
 }
 
-const routeViews: View[] = ["branches", "router", "monitoring", "portfolio", "runDeepDive", "config"];
+const routeViews: View[] = ["branches", "router", "deepResearch", "monitoring", "portfolio", "runDeepDive", "config"];
 
 const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
   { id: "router", label: "Router", icon: "route" },
+  { id: "deepResearch", label: "Deep Research", icon: "travel_explore" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
   { id: "runDeepDive", label: "Runs", icon: "timeline" },
@@ -687,6 +689,7 @@ export function App() {
             onSend={(text) => void submitRouterMessage(text)}
           />
         )}
+        {view === "deepResearch" && <DeepResearchView />}
         {view === "monitoring" && (
           <MonitoringView
             branches={branches}
@@ -2098,7 +2101,9 @@ function BranchConfig({
   const branchAssets = config.assets ?? [];
   const tradingConfig = config.trading ?? {};
   const tradingMode = tradingConfig.mode ?? "disabled";
-  const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
+  const tradingEnabled = tradingMode === "enabled" || tradingMode === "paper";
+  const autoTradeEnabled =
+    tradingConfig.autoTradeEnabled ?? tradingConfig.paperAutoBuyEnabled ?? false;
   const tradeSymbolUniverse = mergeSymbolSelection(
     branchAssets,
     tradeSymbols.map((symbol) => symbol.symbol),
@@ -2209,13 +2214,13 @@ function BranchConfig({
             ))}
           </div>
         </div>
-        <section className={`trading-panel ${paperAutoBuyEnabled ? "auto-buy" : ""}`}>
+        <section className={`trading-panel ${autoTradeEnabled ? "auto-buy" : ""}`}>
           <div className="trading-panel-head">
             <div>
-              <div className="field-label">PAPER TRADING CONTROLS</div>
+              <div className="field-label">TRADING CONTROLS</div>
               <h2>
-                {tradingMode === "paper"
-                  ? "Paper trading enabled"
+                {tradingEnabled
+                  ? "Trading enabled"
                   : "Trading disabled"}
               </h2>
             </div>
@@ -2226,15 +2231,22 @@ function BranchConfig({
               <div className="trading-card-row">
                 <label className="checkbox-card">
                   <input
-                    checked={tradingMode === "paper"}
+                    checked={tradingEnabled}
                     onChange={(event) =>
                       setConfig((current) => ({
                         ...current,
                         trading: {
                           ...current.trading,
-                          mode: event.target.checked ? "paper" : "disabled",
+                          mode: event.target.checked ? "enabled" : "disabled",
+                          autoTradeEnabled: event.target.checked
+                            ? current.trading?.autoTradeEnabled ??
+                              current.trading?.paperAutoBuyEnabled ??
+                              false
+                            : false,
                           paperAutoBuyEnabled: event.target.checked
-                            ? current.trading?.paperAutoBuyEnabled ?? false
+                            ? current.trading?.autoTradeEnabled ??
+                              current.trading?.paperAutoBuyEnabled ??
+                              false
                             : false,
                         },
                       }))
@@ -2242,28 +2254,31 @@ function BranchConfig({
                     type="checkbox"
                   />
                   <span>
-                    <b>Enable paper trading</b>
-                    <small>Allows Kairos to create paper trade intents.</small>
+                    <b>Enable trading</b>
+                    <small>Allows Kairos to create guarded trade intents.</small>
                   </span>
                 </label>
                 <label className="checkbox-card">
                   <input
-                    checked={paperAutoBuyEnabled}
+                    checked={autoTradeEnabled}
                     onChange={(event) =>
                       setConfig((current) => ({
                         ...current,
                         trading: {
                           ...current.trading,
+                          autoTradeEnabled: event.target.checked,
                           paperAutoBuyEnabled: event.target.checked,
-                          mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
+                          mode: event.target.checked
+                            ? "enabled"
+                            : current.trading?.mode ?? "disabled",
                         },
                       }))
                     }
                     type="checkbox"
                   />
                   <span>
-                    <b>Auto-submit paper orders</b>
-                    <small>Enables paper mode when switched on.</small>
+                    <b>Auto-submit orders</b>
+                    <small>Submits through the configured Alpaca trading API.</small>
                   </span>
                 </label>
               </div>
@@ -2351,7 +2366,7 @@ function BranchConfig({
             </div>
             <div className="threshold-inline">
               <Slider
-                label="Paper Trade Threshold"
+                label="Trade Threshold"
                 onChange={(value) =>
                   setConfig((current) => ({
                     ...current,
@@ -3301,6 +3316,7 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
+      autoTradeEnabled: false,
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
@@ -3374,12 +3390,15 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       mode: "disabled",
       symbol: config.trading?.symbol || config.assets?.[0] || readAssets(branch)[0],
       symbols: config.trading?.symbols ?? [],
+      autoTradeEnabled: false,
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
       maxOpenPositionNotionalPerSymbol: 1_500,
       allowedOrderType: "market",
       ...config.trading,
+      autoTradeEnabled:
+        config.trading?.autoTradeEnabled ?? config.trading?.paperAutoBuyEnabled ?? false,
     },
     research: {
       ...config.research,

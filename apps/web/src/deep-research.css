@@ -1,0 +1,329 @@
+.deep-research-canvas {
+  background: var(--surface-low);
+  display: grid;
+  grid-template-columns: 292px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.deep-research-sidebar,
+.deep-research-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.deep-research-sidebar {
+  background: var(--surface-lowest);
+  border-right: 1px solid var(--outline-variant);
+}
+
+.deep-research-brand {
+  align-items: center;
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  gap: 12px;
+  min-height: 76px;
+  padding: 14px;
+}
+
+.deep-research-logo {
+  align-items: center;
+  background: linear-gradient(135deg, #111827, #0f766e);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, transparent);
+  border-radius: 8px;
+  color: white;
+  display: flex;
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 900;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.deep-research-brand h2,
+.deep-research-head h1,
+.deep-research-start h2 {
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.deep-research-brand h2 {
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 18px;
+}
+
+.deep-research-brand p,
+.deep-research-head p,
+.deep-research-start p {
+  color: var(--on-variant);
+  margin: 4px 0 0;
+}
+
+.deep-research-new {
+  margin: 12px;
+}
+
+.deep-research-chat-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 12px;
+}
+
+.deep-research-chat {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  text-align: left;
+}
+
+.deep-research-chat:hover,
+.deep-research-chat.active {
+  background: var(--surface);
+  border-color: var(--outline-variant);
+}
+
+.deep-research-chat span,
+.deep-research-chat em,
+.deep-research-message-head,
+.deep-model-meta,
+.deep-tool-call summary {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.deep-research-chat b {
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-research-head {
+  align-items: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 84px;
+  padding: 16px 18px;
+}
+
+.deep-research-head h1 {
+  font-size: 22px;
+  line-height: 26px;
+}
+
+.deep-research-controls {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.deep-model-select {
+  align-items: center;
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 2px 10px;
+  grid-template-columns: 34px minmax(210px, 1fr);
+  min-height: 52px;
+  padding: 8px 10px;
+}
+
+.deep-model-current-logo {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 7px;
+  color: var(--on-primary);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 900;
+  grid-row: span 2;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.deep-model-select select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--on-surface);
+  font-weight: 700;
+  min-width: 0;
+  outline: 0;
+}
+
+.deep-research-transcript {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.deep-research-start,
+.deep-research-empty {
+  align-items: center;
+  color: var(--on-variant);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.deep-research-start .material-symbols-outlined,
+.deep-research-empty .material-symbols-outlined {
+  color: var(--secondary);
+  font-size: 42px;
+  margin-bottom: 10px;
+}
+
+.deep-research-message {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: 8px;
+  max-width: 78%;
+  padding: 13px;
+}
+
+.deep-research-message.user {
+  align-self: flex-end;
+  background: var(--surface);
+}
+
+.deep-research-message.assistant {
+  align-self: flex-start;
+}
+
+.deep-research-message-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.deep-research-message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.deep-tool-list {
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.deep-tool-call {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.deep-tool-call summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+}
+
+.deep-tool-call summary span {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.deep-tool-call p {
+  border-top: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  margin: 0;
+  padding: 8px;
+}
+
+.deep-research-error {
+  align-items: center;
+  background: var(--error-container);
+  color: var(--on-error-container);
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+}
+
+.deep-research-composer {
+  align-items: stretch;
+  background: var(--surface);
+  border-top: 1px solid var(--outline-variant);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.deep-research-composer textarea {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  min-height: 58px;
+  outline: 0;
+  padding: 10px;
+  resize: none;
+}
+
+.deep-research-composer textarea:focus {
+  border-color: var(--outline);
+}
+
+@media (max-width: 900px) {
+  .deep-research-canvas {
+    grid-template-columns: 1fr;
+  }
+
+  .deep-research-sidebar {
+    border-bottom: 1px solid var(--outline-variant);
+    border-right: 0;
+    max-height: 220px;
+  }
+
+  .deep-research-head,
+  .deep-research-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .deep-research-message {
+    max-width: 92%;
+  }
+}
