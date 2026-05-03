@@ -139,32 +139,8 @@ type RouterUrlRetrieveInput = {
 };
 
 type MarketSymbolProvider = {
-  listMarketSymbols: (input: AlpacaMarketSymbolQuery) => Promise<AlpacaMarketSymbol[]>;
-  getMarketSymbols?: (symbols: string[]) => Promise<AlpacaMarketSymbol[]>;
+  listMarketSymbols: (input: MarketSymbolQuery) => Promise<MarketSymbolRecord[]>;
 };
-
-const fallbackMarketSymbols: AlpacaMarketSymbol[] = [
-  { symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "MSFT", name: "Microsoft Corporation", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "NVDA", name: "NVIDIA Corporation", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "PLTR", name: "Palantir Technologies Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "CRWV", name: "CoreWeave, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "AMD", name: "Advanced Micro Devices, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "AVGO", name: "Broadcom Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "AMZN", name: "Amazon.com, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "GOOGL", name: "Alphabet Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "META", name: "Meta Platforms, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "COIN", name: "Coinbase Global, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "MSTR", name: "Strategy Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "HOOD", name: "Robinhood Markets, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "SOFI", name: "SoFi Technologies, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "TSM", name: "Taiwan Semiconductor Manufacturing Company Limited", exchange: "NYSE", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "SMCI", name: "Super Micro Computer, Inc.", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "JPM", name: "JPMorgan Chase & Co.", exchange: "NYSE", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "SPY", name: "SPDR S&P 500 ETF Trust", exchange: "NYSEARCA", assetClass: "us_equity", tradable: true, source: "fallback" },
-  { symbol: "QQQ", name: "Invesco QQQ Trust", exchange: "NASDAQ", assetClass: "us_equity", tradable: true, source: "fallback" },
-];
 
 type RouterSourceExtractionResult = {
   sources: RouterExtractedSource[];
