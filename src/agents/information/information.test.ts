@@ -383,6 +383,35 @@ describe("information agent", () => {
     expect("toolResults" in result).toBe(false);
   });
 
+  it("retries transient global tool failures before returning a failure summary", async () => {
+    const search = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary search outage"))
+      .mockResolvedValueOnce({
+        results: [
+          {
+            title: "PLTR rebound catalyst",
+            url: "https://example.com/pltr-rebound",
+            author: "Example News",
+            summary: "Search recovered after one transient failure.",
+          },
+        ],
+      });
+    const registry = createGlobalToolRegistry({
+      exa: {
+        search,
+        answer: vi.fn(async () => ({ answer: "", citations: [] })),
+        contents: vi.fn(async () => ({ results: [] })),
+      },
+    });
+
+    const result = await registry.exa_search?.("PLTR latest catalyst");
+
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result?.summary).toContain("PLTR rebound catalyst");
+    expect(result?.summary).not.toContain("Tool exa_search failed");
+  });
+
   it("exposes the information agent as debate and AI SDK tools", async () => {
     const deps = fakeDeps();
     const debateTools = createInformationDebateTools(deps);

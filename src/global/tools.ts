@@ -9,6 +9,7 @@ import {
   GLOBAL_MEMORY_CONTAINER_TAG,
   type GlobalMemoryApi,
 } from "./memory.js";
+import { withRetry } from "./retry.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_SUMMARY_TEXT = 2000;
@@ -18,6 +19,8 @@ const MAX_EXA_RESULTS = 5;
 const MAX_EXA_CONTENT_CHARACTERS = 10_000;
 const MAX_TOOL_LIST_ITEMS = 5;
 const MAX_RAW_SNIPPET_LENGTH = 1200;
+const TOOL_RETRY_ATTEMPTS = 2;
+const TOOL_RETRY_DELAY_MS = 150;
 const IGNORED_TICKER_TOKENS = new Set([
   "API",
   "CEO",
@@ -82,9 +85,10 @@ function toolCallSafe<T extends GlobalToolResult>(
   action: () => Promise<T>,
   suggestion?: string,
 ): Promise<T> {
-  return action().catch((error) =>
-    toolFailureResult(toolName, error, suggestion) as T,
-  );
+  return withRetry(action, {
+    attempts: TOOL_RETRY_ATTEMPTS,
+    delayMs: TOOL_RETRY_DELAY_MS,
+  }).catch((error) => toolFailureResult(toolName, error, suggestion) as T);
 }
 
 function summarizeUnknown(value: unknown, maxLength = MAX_SUMMARY_TEXT): string {
