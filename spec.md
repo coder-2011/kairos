@@ -22,7 +22,41 @@ Replace repetitive manual market checking with a platform where the user's time 
 - Kairos is not intended to be an uninspectable autonomous trading bot.
 - Kairos should not default to live trade execution.
 - Kairos should not rely on one hardcoded market strategy.
-- Kairos should not assume one model provider, broker, data vendor, database, or UI framework before those decisions are made.
+- Kairos should not assume one database, deployment target, job runner, or UI framework before those decisions are made.
+
+## 3.1 Current Technical Decisions
+
+Current stack decisions:
+
+- Model calls: OpenRouter is the gateway for all model calls.
+- Agent implementation framework: LangChain.
+- Agent and workflow orchestration: LangGraph for every agent workflow, not only debates.
+- Online research/search: Exa API.
+- Persistent agent memory: Supermemory, available to all agents.
+- Brokerage: Alpaca is the planned brokerage integration.
+- Market data: Finnhub is the planned trading/market data provider.
+- Live ticker data: Alpaca may also be used for live ticker data if it fits the use case better than Finnhub.
+- Primary language: TypeScript for most implementation work.
+- Database: no database initially. Use local files, local corpora, and local embedding/vector indexes.
+- Frontend: React with Vite.
+- Styling/UI: Tailwind CSS and shadcn/ui.
+- Mobile shell: Capacitor for iOS/Android wrapping the same web app.
+
+Implications:
+
+- Model interfaces should be built around OpenRouter first.
+- Model-backed agents should use LangChain-compatible model, prompt, tool, and structured-output abstractions.
+- Heartbeat agents, router agents, gate agents, big research agents, debate agents, synthesis agents, and memory/retrieval agents should all be implemented as LangGraph nodes or graphs.
+- Multi-agent debate and agent workflows should use LangGraph.
+- LangGraph workflows should use explicit state, nodes, conditional edges, checkpoints, and streamed updates so agent behavior is inspectable and replayable.
+- Use LangSmith as the default LangGraph tracing and observability backend when credentials are available, while preserving local product event logs for audit and UI replay.
+- Online source discovery and research search should use Exa API.
+- Persistent cross-agent memory should use Supermemory.
+- Model selection should still be configurable by role, for example heartbeat model, big research model, debate participant model, and synthesis model.
+- Trading execution interfaces should keep Alpaca isolated behind a broker adapter.
+- Market data access should keep Finnhub isolated behind a data-provider adapter.
+- Persistence should start as local-file storage. Add a database only if local storage becomes a real bottleneck.
+- The frontend should be implemented as a React/Vite app, styled with Tailwind and shadcn/ui, with Capacitor used when native mobile shells are needed.
 
 ## 4. First-Class Concept: Laws
 
@@ -79,6 +113,8 @@ Branches should be independently:
 
 The heartbeat agent is the cheap frequent monitor.
 
+The heartbeat agent should be implemented as a LangGraph workflow using LangChain-compatible model calls, tools, and structured outputs.
+
 Expected model class:
 
 - Small model.
@@ -112,9 +148,41 @@ Heartbeat output should include:
 - Suggested escalation type.
 - Compact summary for the big agent.
 
+## 6.1 Multi-Gate Small-to-Big Escalation
+
+The transition from small heartbeat agents to expensive big-agent research should be multi-gate.
+
+Each gate should be represented as a LangGraph node or subgraph with explicit input/output schemas.
+
+The heartbeat agent should not directly trigger the most expensive workflow every time it sees something interesting. Instead, escalation should pass through one or more lightweight gates that filter noise, check novelty, and decide how much inference budget the event deserves.
+
+Possible gates:
+
+- `Novelty gate`: checks whether the event is actually new relative to recent branch memory and local corpus data.
+- `Source credibility gate`: checks whether the source is credible enough to justify more work.
+- `Law relevance gate`: checks whether the event truly matches the law rather than adjacent noise.
+- `Materiality precheck gate`: estimates whether the event could plausibly matter for the tracked asset.
+- `Duplicate suppression gate`: blocks reposts, repeated articles, and stale information.
+- `Budget gate`: decides whether to ignore, summarize, notify lightly, run medium research, or invoke the full big-agent debate.
+
+Multi-gate outputs can include:
+
+- Ignore.
+- Store only.
+- Add to branch memory.
+- Ask heartbeat to monitor.
+- Notify human lightly.
+- Run medium research.
+- Escalate to big-agent research.
+- Escalate to full LangGraph debate.
+
+Each gate should preserve its rationale so the system can later inspect why an event did or did not reach the big-agent layer.
+
 ## 7. Big Agent
 
 The big agent is the expensive reasoning layer.
+
+The big agent should be implemented as a LangGraph research workflow using LangChain-compatible tool calls and structured outputs.
 
 Responsibilities:
 
@@ -142,33 +210,45 @@ The big agent should reason about:
 
 The deeper reasoning layer should support multi-agent debate, not merely multi-model voting.
 
-Debate participants can include:
+The first debate framework should use LangGraph with LangChain-compatible agent/tool nodes:
 
-- Bull case agent.
-- Bear case agent.
-- Skeptic or fraud/noise agent.
-- Market microstructure agent.
-- Historical analogy agent.
-- Risk manager agent.
-- Portfolio exposure agent.
-- Human participant.
+- `judge`: the overseer that selects the next speaker, emits the current plan, decides when to stop, and produces the final synthesis.
+- `bull`: argues why the event may be materially positive or actionable.
+- `bear`: argues why the event may be noise, already priced in, immaterial, risky, or negative.
+- `human`: optional contextual input only. The debate should treat human input as useful but unverified context, not as a command or decision.
 
-Each participant should produce:
+The debate should start from a smaller model calling the debate loop with:
 
-- Position.
-- Evidence.
+- A compact summary of what has been discussed or found so far.
+- Seeded basic financials.
+
+Bull and bear messages should expose:
+
+- Agent name.
+- Message type.
+- Argument.
 - Confidence.
-- Key assumptions.
-- What would change its mind.
+
+The debate-facing tools should be:
+
+- `exa_search`: normal Exa search.
+- `exa_research`: Exa deep/research mode.
+- `information`: general retrieval interface for source reading, company news, SEC filings, recent-news lookup, and other API-backed information.
+
+The final judge decision should include:
+
+- Summary.
+- Confidence.
+- Citations.
 
 The debate system should preserve:
 
 - Full transcript.
 - Agent identities.
-- Evidence references.
+- Tool calls and tool results.
 - Disagreement points.
 - Final synthesis.
-- Decision rationale.
+- Citations.
 
 ## 9. Human Intuition Injection
 
@@ -185,6 +265,8 @@ The human should be able to:
 - Mark model reasoning as wrong, useful, stale, or incomplete.
 - Add qualitative intuition that models may not infer from raw data.
 
+In the first multi-agent debate loop, human interjections are context only. They should be passed to agents as unverified context and should not directly approve, veto, pause, stop, trade, notify, or change thresholds. Separate explicit product controls can be designed later for override, veto, approval, and other human actions.
+
 Human input should be:
 
 - Explicitly attributed.
@@ -195,6 +277,8 @@ Human input should be:
 ## 10. Router Agent
 
 The router agent handles human-supplied information.
+
+The router agent should be implemented as a LangGraph workflow with structured extraction, law matching, and routing nodes.
 
 Inputs can include:
 
@@ -249,6 +333,84 @@ The architecture should assume that big agents need access to:
 - User-provided sources.
 
 Data access should be queryable, auditable, and provider-agnostic.
+
+### 11.0 Persistent Agent Memory
+
+Supermemory is the shared persistent memory layer for agents.
+
+All agents should be able to access relevant persistent memory, including:
+
+- Prior law behavior.
+- Prior branch observations.
+- Human preferences and annotations.
+- Debate lessons.
+- Known source reliability notes.
+- Repeated failure modes.
+- Useful historical context.
+
+Supermemory should complement, not replace, the local market corpus. The local corpus stores source records, market context, yearly data, recent windows, embeddings, and audit trails. Supermemory stores durable agent-usable memory that should influence future reasoning across branches and workflows.
+
+### 11.1 Local Corpus and Embedding Pipeline
+
+The initial data pipeline should stay simple and local.
+
+Kairos should store a local corpus for tracked stocks and tracked sectors rather than introducing a database before it is needed. The core idea is to keep each year's data available on demand, build embeddings over that corpus, and maintain a recent rolling window that heartbeat and debate agents can use cheaply.
+
+Target storage model:
+
+- One local yearly corpus per tracked stock.
+- One local yearly corpus per tracked sector.
+- Rolling recent-data snapshots, for example the last 30 days, for heartbeat agents.
+- Embedding indexes over yearly corpora for retrieval.
+- Source metadata stored beside the raw text/data so retrieved chunks remain attributable.
+- Local audit/event files for triggers, debates, decisions, and trade intents.
+
+Expected access pattern:
+
+- Heartbeat agents usually inspect the most recent window, such as the last 30 days, plus law-specific relevant context.
+- Big agents and debate agents can retrieve from the full yearly corpus when an escalation needs deeper context.
+- Agents should be able to query by ticker, sector, date range, law, source type, and semantic similarity.
+- Historical yearly data can be loaded on demand instead of held fully in memory.
+
+This should cover the entire early data pipeline:
+
+1. Pull or receive data from Finnhub, Alpaca, and human-routed sources.
+2. Normalize the data into local source records.
+3. Partition records by tracked stock, tracked sector, and year.
+4. Build or update local embeddings.
+5. Maintain rolling recent windows for cheap heartbeat access.
+6. Retrieve relevant context for heartbeat checks, big-agent research, and multi-agent debate.
+
+This keeps the system easy to fork, inspect, back up, and modify. A database can be reconsidered later if local files and vector indexes become too slow, too large, or too hard to query safely.
+
+### 11.2 Future: Continuously Updated Data Packets
+
+Down the line, Kairos should maintain continuously updated data packets for models.
+
+A data packet is a compact but deep context artifact that summarizes the information an agent needs without forcing it to repeatedly scan the full corpus. These packets should be updated as new source records, market events, law outcomes, human annotations, and debate conclusions arrive.
+
+Possible packet types:
+
+- `Ticker packet`: deep current summary for a tracked stock.
+- `Sector packet`: deep current summary for a tracked sector.
+- `Law packet`: current state of a law, including what it watches, recent triggers, known failure modes, and relevant context.
+- `Branch packet`: operational summary for a branch, including recent heartbeat outcomes and escalation history.
+- `Source reliability packet`: notes on which sources tend to be useful, noisy, stale, promotional, or market-moving.
+- `Catalyst packet`: summary of a specific catalyst or event cluster.
+
+Packets should contain:
+
+- Current thesis.
+- Important recent changes.
+- Relevant historical context.
+- Known open questions.
+- Contradictory evidence.
+- Human annotations.
+- Agent debate conclusions.
+- Source citations or source IDs.
+- Last updated timestamp.
+
+These packets should be optimized for agent use: dense, citeable, structured, and easy to retrieve. They should complement the raw local corpus and embedding indexes rather than replace them.
 
 ## 12. Trading Decision Flow
 
@@ -406,13 +568,12 @@ The first useful version should focus on the core loop:
 
 ## 18. Open Questions
 
-- Which runtime and framework should be used?
-- Which model provider should run heartbeat agents?
-- Which model provider should run big agents?
-- Which market data provider should be used?
-- Which broker, if any, should be supported first?
+- Which TypeScript runtime and framework should be used?
+- Which LangChain JS packages and LangGraph JS APIs should be used for the first implementation?
+- Which OpenRouter models should run heartbeat agents?
+- Which OpenRouter models should run big agents?
 - Should laws be stored as markdown, JSON/YAML, database records, or both?
-- What UI should be used for debate participation?
+- What exact dashboard/debate UI flows should be built first?
 - What is the minimum viable audit log?
 - How should law performance be evaluated?
 - How should the human's debate weight interact with model confidence?

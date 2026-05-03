@@ -13,27 +13,52 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Keep this file aligned with `spec.md` when project direction changes.
 - If implementation details conflict with `spec.md`, surface the conflict before making broad changes.
 
+## Stack Decisions
+- Model gateway: OpenRouter for all model calls.
+- Agent implementation framework: LangChain.
+- Agent/workflow orchestration: LangGraph for every agent workflow, not only debates.
+- Online research/search: Exa API.
+- Persistent agent memory: Supermemory, available to all agents.
+- Brokerage: Alpaca is the planned brokerage integration.
+- Market data: Finnhub is the planned trading/market data provider.
+- Live ticker data: Alpaca may be used where it fits better than Finnhub.
+- Primary implementation language: TypeScript.
+- Runtime/package manager: Bun.
+- Frontend: React with Vite.
+- Styling/UI: Tailwind CSS and shadcn/ui.
+- Mobile shell: Capacitor for iOS/Android wrapping the web app.
+- Database: none planned initially. Prefer local files, yearly corpora, rolling recent-data snapshots, and local embedding/vector indexes.
+
 ## Core Product Concepts
 - `Law`: a human-authored rule or thesis defining one narrow market-relevant thing to watch.
 - `Branch`: one law-bound monitoring lane with its own heartbeat model, state, memory, thresholds, and escalation policy.
 - `Heartbeat agent`: a small, cheap model that runs frequently, usually every 5 minutes, and checks whether its law has encountered high-information or high-entropy evidence.
-- `Escalation`: the transition from heartbeat monitoring to a larger research/debate workflow.
+- `Escalation`: the multi-gate transition from heartbeat monitoring to a larger research/debate workflow.
 - `Big agent`: a stronger agent that performs deeper research, queries market/context data, reasons about materiality, and decides whether to notify, debate, or trade.
 - `Router agent`: an ingestion agent that accepts human-supplied links, notes, documents, or source descriptions and routes them to relevant branches.
-- `Human participant`: the user can join debates as a weighted participant whose input is explicit, attributable, and configurable.
+- `Human participant`: in the first debate loop, the user can add contextual input that agents consider as useful but unverified context, not as a direct command or decision.
 
 ## Architecture Principles
 - Keep laws first-class and portable. A law should be data/config plus versioned instructions, not hardcoded behavior.
 - Design for many branches. Each branch should be independently inspectable, configurable, enabled, disabled, and evaluated.
 - Prefer event-driven escalation over constant expensive reasoning.
+- Small-to-big escalation should be multi-gate: use lightweight checks between heartbeat detection and expensive big-agent research.
 - Preserve evidence trails. Every escalation should cite triggering evidence, source metadata, timestamps, model outputs, confidence, and decision rationale.
 - Separate monitoring, research, debate, execution, and notification responsibilities.
 - Make human override and human review natural parts of the system.
 - Treat trading execution as a high-risk boundary requiring explicit safeguards, audit logs, and configurable permissions.
+- Keep the initial data pipeline simple: store tracked-stock and tracked-sector corpora locally, build embeddings over yearly data, and maintain rolling recent windows for heartbeat and debate agents.
+- Down the line, support continuously updated data packets: deep, compact, citeable summaries for tickers, sectors, laws, branches, sources, and catalysts.
 
 ## Agent Behavior Rules for This Repo
 - Before implementing non-trivial behavior, read `spec.md`.
-- Do not assume the trading stack, broker integration, data providers, model providers, or database are finalized unless existing code or docs say so.
+- Treat OpenRouter, LangChain, LangGraph, Exa, Supermemory, Alpaca, Finnhub, and TypeScript as current stack decisions unless the user changes them.
+- Do not assume a database, job runner, queue, or deployment target are finalized unless existing code or docs say so.
+- Default persistence should be local-file based unless the user explicitly asks for a database.
+- Implement model-backed agents with LangChain-compatible model, prompt, tool, and structured-output abstractions.
+- Represent heartbeat agents, router agents, gate agents, big research agents, debate agents, synthesis agents, and memory/retrieval agents as LangGraph nodes or graphs.
+- Use explicit LangGraph state, nodes, conditional edges, checkpoints, and streamed updates for inspectable agent workflows.
+- Use LangSmith tracing for LangGraph observability when credentials are present, but keep local product event logs as the audit and UI replay source.
 - Keep interfaces provider-agnostic where practical.
 - Prefer explicit schemas for laws, branch state, source events, escalations, debate transcripts, decisions, and trade intents.
 - Do not implement live trading, broker orders, or account-affecting actions unless the user explicitly asks in that turn.
@@ -50,6 +75,32 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
   - `documentation/trading-safety.md`
 - Avoid creating documentation hierarchy before it is needed.
 
+## Current Folder Layout
+- `prd/`: product requirement docs and behavior specs for agent components before full implementation.
+- `src/agents/heartbeat/`: the small-model heartbeat agent implemented as a constrained LangGraph/LangChain workflow.
+- `src/agents/heartbeat/types.ts`: branch config, seed bundle, heartbeat output, provider, and escalation event types.
+- `src/agents/heartbeat/schema.ts`: Zod schemas for model output and runtime validation.
+- `src/agents/heartbeat/seed.ts`: deterministic seed bundle construction.
+- `src/agents/heartbeat/agent.ts`: LangGraph heartbeat workflow and LangChain structured output call.
+- `src/agents/heartbeat/escalation.ts`: helper that creates a pending big-model escalation event when the heartbeat output says to escalate.
+
+## Heartbeat Agent Configuration
+- The heartbeat agent output is intentionally small: `branch_id`, `timestamp`, `decision`, and `summary`.
+- The default seed bundle is fixed initially: current price, recent volume, recent ticker movement, Supermemory context, and news headlines/summaries for the configured seed window.
+- The default seed window is `30` days unless branch configuration overrides it.
+- Optional seeded data sources should be represented as generic keyed toggles in `BranchConfig.seededData.optionalSources`.
+- Do not hardcode a large optional source list in the core branch config; the UI can own that source catalog later.
+- Supermemory should be scoped with `BranchConfig.memory.supermemoryContainerTag` when provided; otherwise derive a `branch_...` container tag from the branch ID.
+- If the heartbeat output decision is `escalate`, preserve the full seed bundle with the escalation event for the big model.
+
+## Top-Level Directory Map
+- `apps/`: runnable applications and user-facing entrypoints, such as the CLI, local API server, web dashboard, and future mobile shell integration.
+- `packages/`: reusable TypeScript packages that contain Kairos domain logic, schemas, local storage, provider adapters, heartbeat logic, debate workflows, router logic, and trading-intent boundaries.
+- `services/`: separately runnable supporting services when a workflow needs its own process boundary, runtime, worker, or long-lived integration that should not live inside an app.
+- `data/`: local-file persistence for laws, branches, corpora, recent windows, event logs, debate records, artifacts, and audit trails. Do not store secrets here.
+- `documentation/`: focused implementation and integration documentation that expands on `spec.md` only when useful.
+- `prd/`: product requirement documents for specific implementation slices and feature phases.
+
 ## Reasoning and Explanations
 - Prioritize clarity and truthfulness.
 - Separate facts, assumptions, inferences, and speculation.
@@ -64,11 +115,12 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Do not use `.codex/STATE.md` in this repo.
 
 ## Environment Setup
-- Runtime and framework are not finalized.
-- Do not invent setup commands in this file until they exist in the repo.
+- Use Bun for installs, scripts, local CLIs, tests, and development commands.
+- Prefer `bun install`, `bun run <script>`, and `bunx <tool>` over npm, npx, pnpm, or yarn equivalents.
 - When setup commands are added, keep `README.md`, `justfile`, and this section aligned.
 
 ## Build, Test, and Development Commands
+- Use Bun commands by default.
 - Prefer existing `just` recipes when available.
 - Do not add live/external API tests as default validation.
 - Treat broker, market-data, browser, and paid-model calls as external-integration behavior requiring explicit user awareness.
