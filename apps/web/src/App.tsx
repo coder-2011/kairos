@@ -1246,10 +1246,12 @@ function HeartbeatHandoffPanel({
         <b>{decision}</b>
       </div>
       <p>{readDisplay(run.output?.summary, "Heartbeat completed without a summary.")}</p>
-      {canStartDebate ? (
+      {escalation && branchId ? (
         <button
           className="command-button primary"
-          onClick={() => onStartDebate(branchId, escalation)}
+          onClick={() => {
+            if (escalation) onStartDebate(branchId, escalation);
+          }}
           type="button"
         >
           <Icon name="forum" /> START DEBATE FROM HEARTBEAT
