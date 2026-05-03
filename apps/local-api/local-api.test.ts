@@ -117,7 +117,7 @@ describe("local API handler", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("triggers deterministic dry-run heartbeat runs and exposes run events", async () => {
+  it("triggers normal heartbeat runs by default and exposes run events", async () => {
     const { requestJson } = makeClient();
     await requestJson("POST", "/branches", {
       id: "branch_1",
@@ -142,7 +142,6 @@ describe("local API handler", () => {
       kind: "heartbeat",
       status: "succeeded",
       branchId: "branch_1",
-      dryRun: true,
     });
     expect(created.body.run.output.decision).toBe("monitor");
     expect(created.body.run.input.branch.config.tools.information.exa_search.enabled).toBe(false);
@@ -162,7 +161,7 @@ describe("local API handler", () => {
     ]);
   });
 
-  it("creates deterministic debate runs from escalation-like payloads", async () => {
+  it("creates normal debate runs from escalation-like payloads by default", async () => {
     const { requestJson } = makeClient();
     await requestJson("POST", "/branches", {
       id: "branch_pltr_deals",
@@ -186,7 +185,6 @@ describe("local API handler", () => {
       kind: "debate",
       status: "succeeded",
       branchId: "branch_pltr_deals",
-      dryRun: true,
     });
     expect(response.body.run.input.branch.config.prompts.debateBullSystemPrompt).toBe(
       "Custom bull",
@@ -198,10 +196,10 @@ describe("local API handler", () => {
     const debatePayloads: unknown[] = [];
     const { requestJson } = makeClient({
       tradingBroker: createMockTradingBroker(),
-      createDebate: async ({ dryRun, payload }) => {
+      createDebate: async ({ payload }) => {
         debatePayloads.push(payload);
         return {
-          output: { decision: "needs_review", dryRun },
+          output: { decision: "needs_review" },
           events: [{ type: "debate.created", payload }],
         };
       },
@@ -236,7 +234,7 @@ describe("local API handler", () => {
   it("creates a sell-side paper intent from a sell debate decision when holdings exist", async () => {
     const { requestJson } = makeClient({
       tradingBroker: createMockTradingBroker(),
-      createDebate: async ({ dryRun, payload }) => ({
+      createDebate: async ({ payload }) => ({
         output: {
           finalDecision: {
             summary: "Bear case says the branch thesis is broken.",
@@ -244,7 +242,6 @@ describe("local API handler", () => {
             confidence: 0.91,
             citations: [],
           },
-          dryRun,
         },
         events: [{ type: "debate.created", payload }],
       }),
@@ -286,13 +283,12 @@ describe("local API handler", () => {
   it("routes chat text to matching branches and wakes their heartbeat agents", async () => {
     const heartbeatPayloads: unknown[] = [];
     const { requestJson } = makeClient({
-      runHeartbeat: async ({ branchId, dryRun, payload }) => {
+      runHeartbeat: async ({ branchId, payload }) => {
         heartbeatPayloads.push({ branchId, payload });
         return {
           output: {
             branchId,
             decision: "monitor",
-            dryRun,
             summary: `Router woke ${branchId}.`,
           },
           events: [
@@ -406,17 +402,17 @@ describe("local API handler", () => {
       },
     };
     const { requestJson } = makeClient({
-      runHeartbeat: async ({ branchId, dryRun, payload, branch }) => {
-        heartbeatInputs.push({ branchId, dryRun, payload, branch });
+      runHeartbeat: async ({ branchId, payload, branch }) => {
+        heartbeatInputs.push({ branchId, payload, branch });
         return {
-          output: { branchId, decision: "monitor", dryRun },
+          output: { branchId, decision: "monitor" },
           events: [{ type: "heartbeat.seeded", payload }],
         };
       },
-      createDebate: async ({ dryRun, payload, branch }) => {
-        debateInputs.push({ dryRun, payload, branch });
+      createDebate: async ({ payload, branch }) => {
+        debateInputs.push({ payload, branch });
         return {
-          output: { decision: "needs_review", dryRun },
+          output: { decision: "needs_review" },
           events: [{ type: "debate.created", payload }],
         };
       },
@@ -630,7 +626,6 @@ describe("local API handler", () => {
           kind: "heartbeat",
           status: "failed",
           branchId: "branch_runtime",
-          dryRun: false,
         },
       });
       expect(heartbeatBody.message).toContain("Agent pipeline heartbeat is not configured");
@@ -645,19 +640,18 @@ describe("local API handler", () => {
       dependencies: {
         store: new MemoryKairosStore(),
         supermemoryMirror: createMockMirror(mirrored),
-        runHeartbeat: async ({ branchId, dryRun, payload }) => ({
-          output: { branchId, decision: "monitor", dryRun, summary: "Heartbeat summary" },
+        runHeartbeat: async ({ branchId, payload }) => ({
+          output: { branchId, decision: "monitor", summary: "Heartbeat summary" },
           events: [
             { type: "heartbeat.seeded", payload },
             { type: "heartbeat.decision", payload: { decision: "monitor" } },
           ],
         }),
-        createDebate: async ({ dryRun, payload }) => ({
+        createDebate: async ({ payload }) => ({
           output: {
             decision: "needs_review",
             confidence: 0.7,
             summary: "Debate found a notification-worthy catalyst.",
-            dryRun,
           },
           events: [
             { type: "debate.created", payload },
@@ -1047,15 +1041,15 @@ function makeClient(options: {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
     store,
-    runHeartbeat: options.runHeartbeat ?? (async ({ branchId, dryRun, payload }) => ({
-      output: { branchId, decision: "monitor", dryRun },
+    runHeartbeat: options.runHeartbeat ?? (async ({ branchId, payload }) => ({
+      output: { branchId, decision: "monitor" },
       events: [
         { type: "heartbeat.seeded", payload },
         { type: "heartbeat.decision", payload: { decision: "monitor" } },
       ],
     })),
-    createDebate: options.createDebate ?? (async ({ dryRun, payload }) => ({
-      output: { decision: "needs_review", dryRun },
+    createDebate: options.createDebate ?? (async ({ payload }) => ({
+      output: { decision: "needs_review" },
       events: [
         { type: "debate.created", payload },
         { type: "debate.judge.summary", payload: { decision: "needs_review" } },

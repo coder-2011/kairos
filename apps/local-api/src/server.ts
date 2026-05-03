@@ -179,12 +179,10 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
-  dryRun: z.boolean().optional().default(false),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 const debateCreateSchema = z.object({
-  dryRun: z.boolean().optional().default(false),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -197,11 +195,11 @@ const interjectionSchema = z.object({
 
 const routerChatCreateSchema = z.object({
   id: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
 });
 
 const routerMessageCreateSchema = z.object({
   text: z.string().optional().default(""),
-  dryRun: z.boolean().optional().default(false),
   attachments: z
     .array(
       z.object({
@@ -232,8 +230,8 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
   });
   return {
     store,
-    runHeartbeat: options.dependencies?.runHeartbeat ?? runHeartbeatRuntime,
-    createDebate: options.dependencies?.createDebate ?? createDebateRuntime,
+    runHeartbeat: options.dependencies?.runHeartbeat ?? runConfiguredHeartbeat,
+    createDebate: options.dependencies?.createDebate ?? runConfiguredDebate,
     retrieveUrlContents:
       options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
     tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
@@ -438,7 +436,6 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   try {
     completed = await runHeartbeatForBranch(context, branch, {
       input: input.input,
-      metadataSource: "runtime",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -473,7 +470,6 @@ async function runHeartbeatForBranch(
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "heartbeat", branchId: branch.id },
   });
 
   let result: HeartbeatRunResult;
@@ -736,9 +732,7 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     status: "running",
     branchId,
     input: runPayload,
-    metadata: { source: "runtime" },
   });
-  await context.store.appendRunEvent(run.id, { type: "run.started", payload: { kind: "debate" } });
 
   let result: DebateCreateResult;
   try {
@@ -814,11 +808,9 @@ async function createRouterMessage(
       text: userMessage.text,
       attachments: userMessage.attachments ?? [],
     },
-    metadata: { source: "runtime" },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
-    payload: { kind: "router", chatId },
   });
   await context.store.appendRunEvent(run.id, {
     type: "router.message.received",
@@ -1967,7 +1959,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
   };
 }
 
-function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecord {
+function debateResultOutput(result: DebateRunResult): JsonRecord {
   return {
     debateId: result.debateId,
     status: result.status,
@@ -1978,7 +1970,6 @@ function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecor
     toolEvents: result.toolEvents,
     humanInterjections: result.humanInterjections,
     currentPlan: result.currentPlan,
-    dryRun,
   };
 }
 
@@ -1998,7 +1989,7 @@ function debateResultEvents(result: DebateRunResult, payload: JsonRecord): Appen
       ? [{ type: "debate.judge.plan", payload: result.currentPlan as unknown as JsonRecord }]
       : []),
     { type: "debate.judge.summary", payload: result.finalDecision as unknown as JsonRecord },
-    { type: "debate.output", payload: debateResultOutput(result, false) },
+    { type: "debate.output", payload: debateResultOutput(result) },
   ];
 }
 

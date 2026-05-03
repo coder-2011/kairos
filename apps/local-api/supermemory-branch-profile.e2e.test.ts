@@ -30,11 +30,10 @@ describe("Supermemory branch profile E2E", () => {
     const { baseUrl, closeServer } = await startApiServer({
       store: new MemoryKairosStore(),
       supermemoryMirror: createRecordingMirror(mirrored),
-      runHeartbeat: async ({ branchId, dryRun, payload }) => ({
+      runHeartbeat: async ({ branchId, payload }) => ({
         output: {
           branchId,
           decision: "monitor",
-          dryRun,
           summary: "Dry-run heartbeat accepted router-origin source.",
         },
         events: [
@@ -67,7 +66,6 @@ describe("Supermemory branch profile E2E", () => {
       {
         data: {
           text: "PLTR government contract source should route to this branch.",
-          dryRun: true,
         },
       },
     );
