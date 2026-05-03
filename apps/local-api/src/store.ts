@@ -74,6 +74,18 @@ export type RouterMessageRecord = {
   text?: string;
   attachments?: RouterAttachmentRecord[];
   runId?: string;
+  toolCalls?: RouterToolCallRecord[];
+};
+
+export type RouterToolCallRecord = {
+  id: string;
+  name: string;
+  status: "succeeded" | "failed" | "skipped";
+  summary: string;
+  input?: JsonRecord;
+  output?: JsonRecord;
+  error?: string;
+  createdAt: string;
 };
 
 export type CreateBranchInput = {
@@ -118,6 +130,7 @@ export type CreateRouterMessageInput = {
   text?: string;
   attachments?: RouterAttachmentRecord[];
   runId?: string;
+  toolCalls?: RouterToolCallRecord[];
 };
 
 export type RunEventSubscriber = (event: RunEventRecord) => void;
@@ -316,6 +329,7 @@ export class MemoryKairosStore implements KairosLocalStore {
       text: input.text,
       attachments: input.attachments,
       runId: input.runId,
+      toolCalls: input.toolCalls,
       createdAt: new Date().toISOString(),
     };
     const messages = this.routerMessages.get(input.chatId) ?? [];

@@ -218,6 +218,7 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       text: input.text,
       attachments: input.attachments,
       runId: input.runId,
+      toolCalls: input.toolCalls,
       createdAt: new Date().toISOString(),
     };
     await mkdir(dirname(this.routerMessagesPath(input.chatId)), { recursive: true });

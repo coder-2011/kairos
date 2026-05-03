@@ -131,6 +131,94 @@ describe("local API handler", () => {
     expect(response.body.run.output.decision).toBe("needs_review");
   });
 
+  it("injects the latest cached portfolio context into debate runs", async () => {
+    const debatePayloads: unknown[] = [];
+    const { requestJson } = makeClient({
+      tradingBroker: createMockTradingBroker(),
+      createDebate: async ({ dryRun, payload }) => {
+        debatePayloads.push(payload);
+        return {
+          output: { decision: "needs_review", dryRun },
+          events: [{ type: "debate.created", payload }],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_deals",
+      name: "PLTR deals",
+      config: { assets: ["PLTR"] },
+    });
+    await requestJson("POST", "/portfolio/refresh");
+
+    const response = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_deals",
+        summary: "Potentially material contract news.",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(debatePayloads[0]).toMatchObject({
+      portfolioContext: {
+        account: {
+          cash: 100000,
+          buyingPower: 100000,
+          portfolioValue: 100000,
+        },
+        positions: [{ symbol: "PLTR", qty: 10 }],
+      },
+    });
+  });
+
+  it("creates a sell-side paper intent from a sell debate decision when holdings exist", async () => {
+    const { requestJson } = makeClient({
+      tradingBroker: createMockTradingBroker(),
+      createDebate: async ({ dryRun, payload }) => ({
+        output: {
+          finalDecision: {
+            summary: "Bear case says the branch thesis is broken.",
+            action: "sell",
+            confidence: 0.91,
+            citations: [],
+          },
+          dryRun,
+        },
+        events: [{ type: "debate.created", payload }],
+      }),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_deals",
+      name: "PLTR deals",
+      config: {
+        assets: ["PLTR"],
+        trading: {
+          notifyConfidenceThreshold: 0.65,
+          paperTradeConfidenceThreshold: 0.85,
+          paperAutoBuyEnabled: false,
+        },
+      },
+    });
+    await requestJson("POST", "/portfolio/refresh");
+
+    const response = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_deals",
+        summary: "Potentially thesis-breaking news.",
+      },
+    });
+    const intents = await requestJson("GET", "/trade-intents");
+
+    expect(response.status).toBe(201);
+    expect(intents.body.tradeIntents).toEqual([
+      expect.objectContaining({
+        symbol: "PLTR",
+        side: "sell",
+        qty: 10,
+        status: "draft",
+      }),
+    ]);
+  });
+
   it("routes chat text to matching branches and wakes their heartbeat agents", async () => {
     const heartbeatPayloads: unknown[] = [];
     const { requestJson } = makeClient({
@@ -549,8 +637,9 @@ describe("local API handler", () => {
     expect(response.status).toBe(201);
     expect(response.body.policy).toMatchObject({
       thresholdResult: "paper_trade_candidate",
-      permittedAction: "paper_buy_intent",
+      permittedAction: "paper_trade_intent",
       paperAutoBuyEnabled: false,
+      paperAutoTradeEnabled: false,
     });
     expect(response.body.tradeIntent).toMatchObject({
       symbol: "PLTR",
@@ -630,6 +719,34 @@ describe("local API handler", () => {
     expect(brokerOrders.body.brokerOrders).toHaveLength(1);
   });
 
+  it("preflights and submits an Alpaca paper sell order against cached holdings", async () => {
+    const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      side: "sell",
+      qty: 5,
+      notional: undefined,
+      confidence: 0.91,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+        paperAutoBuyEnabled: true,
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(response.body.tradeIntent).toMatchObject({
+      side: "sell",
+      status: "paper_submitted",
+    });
+    expect(response.body.brokerOrder).toMatchObject({
+      side: "sell",
+      symbol: "PLTR",
+      qty: 5,
+    });
+    expect(response.body.preflight).toEqual({ ok: true, reasons: [] });
+  });
+
   it("refreshes and persists portfolio snapshots through the trading broker", async () => {
     const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
 
@@ -662,6 +779,7 @@ describe("local API handler", () => {
 function makeClient(options: {
   store?: MemoryKairosStore | SupabaseKairosStore;
   runHeartbeat?: LocalApiContext["runHeartbeat"];
+  createDebate?: LocalApiContext["createDebate"];
   tradingBroker?: PaperTradingBroker;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
@@ -676,13 +794,13 @@ function makeClient(options: {
         { type: "heartbeat.decision", payload: { decision: "monitor" } },
       ],
     })),
-    createDebate: async ({ dryRun, payload }) => ({
+    createDebate: options.createDebate ?? (async ({ dryRun, payload }) => ({
       output: { decision: "needs_review", dryRun },
       events: [
         { type: "debate.created", payload },
         { type: "debate.judge.summary", payload: { decision: "needs_review" } },
       ],
-    }),
+    })),
     retrieveUrlContents: async ({ urls }) =>
       urls.map((url, index) => ({
         id: `webpage_${index + 1}`,
