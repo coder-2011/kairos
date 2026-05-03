@@ -169,6 +169,18 @@ const apiBaseUrl =
   import.meta.env.VITE_KAIROS_API_URL?.replace(/\/$/, "") ??
   "http://127.0.0.1:4321";
 
+export class KairosApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = "KairosApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export async function getBranches(): Promise<BranchRecord[]> {
   return request<{ branches: BranchRecord[] }>("/branches").then(
     (response) => response.branches,
@@ -360,10 +372,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Kairos API request failed: ${response.status}`);
+    const body = parseJsonOrText(text);
+    const message =
+      isJsonRecord(body) && typeof body.message === "string"
+        ? body.message
+        : text || `Kairos API request failed: ${response.status}`;
+    throw new KairosApiError(message, response.status, body);
   }
 
   return response.json() as Promise<T>;
+}
+
+function parseJsonOrText(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
 }
 
 function normalizePortfolioResponse(response: JsonRecord): PortfolioSnapshot {
