@@ -114,6 +114,10 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Optional seeded data sources should be represented as generic keyed toggles in `BranchConfig.seededData.optionalSources`.
 - Do not hardcode a large optional source list in the core branch config; the UI can own that source catalog later.
 - Supermemory should be scoped with `BranchConfig.memory.supermemoryContainerTag` when provided; otherwise derive a `branch_...` container tag from the branch ID.
+- Supermemory user profiles should be branch-specific. Use
+  `BranchConfig.memory.supermemoryProfileContainerTag` when provided; otherwise
+  derive a `branch_profile_...` container tag from the branch ID, and use that
+  tag for branch profile/search context.
 - Supermemory context should use branch-scoped `profile` plus `search` where possible.
 - The heartbeat agent can run a bounded one-pass tool step before final structured output. Keep tool access cheap and limited to Supermemory and Exa until there is a clear reason to broaden it.
 - Duplicate escalations are suppressed per branch if the same normalized summary appeared in the previous three heartbeat calls.

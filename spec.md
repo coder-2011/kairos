@@ -383,6 +383,9 @@ Target storage model:
 
 - Supermemory global container for cross-branch system memory.
 - Supermemory branch containers for law-specific memory and observations.
+- Supermemory branch profile containers for user-profile context, one per
+  branch, using a deterministic `branch_profile_<branchId>` container tag unless
+  explicitly overridden.
 - Full records written as Supermemory documents/conversations for source and
   transcript fidelity.
 - Compact direct memories written for high-signal summaries and future
