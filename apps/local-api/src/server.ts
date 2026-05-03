@@ -355,6 +355,19 @@ function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResu
   });
 }
 
+function branchRunContext(branch: BranchRecord): JsonRecord {
+  return {
+    id: branch.id,
+    lawId: branch.lawId,
+    name: branch.name,
+    description: branch.description,
+    enabled: branch.enabled,
+    law: branch.law,
+    config: branch.config,
+    metadata: branch.metadata,
+  };
+}
+
 type Route =
   | { name: "health"; params: Record<string, never> }
   | { name: "listBranches"; params: Record<string, never> }
