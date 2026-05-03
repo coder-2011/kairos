@@ -1351,20 +1351,84 @@ async function listMarketSymbols(
   context: LocalApiContext,
   params: URLSearchParams,
 ): Promise<Response> {
+  const query = params.get("query") ?? undefined;
+  const limit = parsePositiveInteger(params.get("limit")) ?? 500;
+
   try {
     const symbols = await getMarketSymbolProvider(context).listMarketSymbols({
-      query: params.get("query") ?? undefined,
-      limit: parsePositiveInteger(params.get("limit")) ?? 500,
+      query,
+      limit,
     });
-    return json({ symbols, count: symbols.length, source: "alpaca" });
-  } catch (error) {
+    const assembled = assembleMarketSymbols(symbols, { query, limit });
     return json({
-      symbols: [],
-      count: 0,
-      source: "alpaca",
+      symbols: assembled.symbols,
+      count: assembled.symbols.length,
+      source: assembled.usedFallback ? "assembled" : "alpaca",
+      cacheTags: marketSymbolCacheTags(query),
+    });
+  } catch (error) {
+    const fallback = fallbackSymbols({ query, limit });
+    return json({
+      symbols: fallback,
+      count: fallback.length,
+      source: "fallback",
+      cacheTags: marketSymbolCacheTags(query),
       error: error instanceof Error ? error.message : "Unable to load market symbols.",
     });
   }
+}
+
+function assembleMarketSymbols(
+  symbols: AlpacaMarketSymbol[],
+  input: AlpacaMarketSymbolQuery,
+): { symbols: AlpacaMarketSymbol[]; usedFallback: boolean } {
+  const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
+  const records = new Map<string, AlpacaMarketSymbol>();
+  for (const symbol of symbols) {
+    const normalized = normalizeMarketSymbol(symbol.symbol);
+    if (normalized) records.set(normalized, { ...symbol, symbol: normalized });
+  }
+
+  let usedFallback = false;
+  for (const symbol of fallbackSymbols({ query: input.query, limit })) {
+    if (!records.has(symbol.symbol)) {
+      records.set(symbol.symbol, symbol);
+      usedFallback = true;
+    }
+  }
+
+  return {
+    symbols: [...records.values()].slice(0, limit),
+    usedFallback,
+  };
+}
+
+function fallbackSymbols(input: AlpacaMarketSymbolQuery): AlpacaMarketSymbol[] {
+  const query = input.query?.trim().toUpperCase();
+  const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
+  return fallbackMarketSymbols
+    .filter((symbol) => {
+      if (!query) return true;
+      return (
+        symbol.symbol.includes(query) ||
+        symbol.name?.toUpperCase().includes(query) ||
+        symbol.exchange?.toUpperCase().includes(query)
+      );
+    })
+    .slice(0, limit);
+}
+
+function marketSymbolCacheTags(query: string | undefined): string[] {
+  return [
+    "market-symbols",
+    query?.trim()
+      ? `market-symbols:query:${query.trim().toUpperCase()}`
+      : "market-symbols:starter",
+  ];
+}
+
+function normalizeMarketSymbol(symbol: string | undefined): string {
+  return symbol?.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "") ?? "";
 }
 
 function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
