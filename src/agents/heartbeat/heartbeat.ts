@@ -28,6 +28,13 @@ export async function runHeartbeatOnce(
     seedBundle: result.seedBundle,
   });
 
+  if (result.toolTraces.length > 0) {
+    await deps.memoryWriter?.writeToolTraces?.({
+      containerTag,
+      traces: result.toolTraces,
+    });
+  }
+
   if (escalationEvent) {
     await deps.memoryWriter?.writeEscalationEvent?.({
       containerTag,

@@ -18,6 +18,7 @@ import type {
   HeartbeatOutput,
   HeartbeatSeedBundle,
   HeartbeatSeedDataProviders,
+  HeartbeatToolTrace,
 } from "./types.js";
 import { createEscalationEvent } from "./escalation.js";
 
@@ -28,7 +29,25 @@ type HeartbeatGenerateText = (options: {
   tools?: ToolSet;
   stopWhen: ReturnType<typeof stepCountIs>;
   output: ReturnType<typeof Output.object>;
-}) => Promise<{ output: unknown }>;
+}) => Promise<{
+  output: unknown;
+  steps?: Array<{
+    toolCalls?: Array<{
+      toolName?: string;
+      toolCallId?: string;
+      input?: unknown;
+      args?: unknown;
+    }>;
+    toolResults?: Array<{
+      toolName?: string;
+      toolCallId?: string;
+      input?: unknown;
+      output?: unknown;
+      result?: unknown;
+      error?: unknown;
+    }>;
+  }>;
+}>;
 
 export type HeartbeatAgentDependencies = {
   model: LanguageModel;
@@ -43,6 +62,7 @@ export type HeartbeatRunResult = {
   output: HeartbeatOutput;
   seedBundle: HeartbeatSeedBundle;
   escalationEvent: EscalationEvent | null;
+  toolTraces: HeartbeatToolTrace[];
 };
 
 export async function runHeartbeatAgent(
@@ -85,5 +105,36 @@ export async function runHeartbeatAgent(
     output,
     seedBundle,
     escalationEvent: createEscalationEvent(output, seedBundle),
+    toolTraces: extractToolTraces(result.steps, seedBundle),
   };
+}
+
+function extractToolTraces(
+  steps: Awaited<ReturnType<HeartbeatGenerateText>>["steps"],
+  seedBundle: HeartbeatSeedBundle,
+): HeartbeatToolTrace[] {
+  return (steps ?? []).flatMap((step) => {
+    const calls = step.toolCalls ?? [];
+    const results = step.toolResults ?? [];
+
+    return results.map((result, index) => {
+      const call = calls.find((candidate) => {
+        return candidate.toolCallId && candidate.toolCallId === result.toolCallId;
+      }) ?? calls[index];
+      const error = result.error instanceof Error
+        ? result.error.message
+        : result.error == null
+          ? undefined
+          : String(result.error);
+
+      return {
+        branchId: seedBundle.branchId,
+        timestamp: seedBundle.timestamp,
+        toolName: result.toolName ?? call?.toolName ?? "unknown_tool",
+        input: result.input ?? call?.input ?? call?.args,
+        output: result.output ?? result.result,
+        error,
+      };
+    });
+  });
 }

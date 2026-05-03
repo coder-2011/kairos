@@ -7,6 +7,15 @@ export type HeartbeatOutput = {
   summary: string;
 };
 
+export type HeartbeatToolTrace = {
+  branchId: string;
+  timestamp: string;
+  toolName: string;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+};
+
 export type HeartbeatSeedSource =
   | "currentPrice"
   | "recentVolume"
@@ -108,5 +117,9 @@ export type HeartbeatMemoryWriter = {
   writeEscalationEvent?: (input: {
     containerTag: string;
     event: EscalationEvent;
+  }) => Promise<unknown>;
+  writeToolTraces?: (input: {
+    containerTag: string;
+    traces: HeartbeatToolTrace[];
   }) => Promise<unknown>;
 };
