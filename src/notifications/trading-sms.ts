@@ -26,6 +26,10 @@ export type TradingSmsNotifier = {
   send(input: TradingSmsNotificationInput): Promise<TradingSmsNotificationResult>;
 };
 
+export type SmsFormatter = {
+  format(input: TradingSmsNotificationInput): Promise<string>;
+};
+
 export const TRADING_SMS_FORMATTING_GOAL = [
   "Format a concise SMS alert for a human monitoring Kairos trading agents.",
   "Use the final answer and the whole multi-agent debate transcript as context.",
@@ -114,11 +118,12 @@ export class GemmaSmsFormatter {
 
 export class TwilioTradingSmsNotifier implements TradingSmsNotifier {
   constructor(
-    private readonly formatter = new GemmaSmsFormatter(),
+    private readonly formatter: SmsFormatter = new GemmaSmsFormatter(),
     private readonly smsClient: TwilioSmsClient = createTwilioSmsClient(),
   ) {}
 
   async send(input: TradingSmsNotificationInput): Promise<TradingSmsNotificationResult> {
+    this.smsClient.validateConfigured();
     const body = await this.formatter.format(input);
     const result = await this.smsClient.send({
       body,
