@@ -1133,6 +1133,7 @@ function MonitoringView({
   const heartbeatEscalation = getHeartbeatEscalation(run);
   const runSummary = run ? summarizeRun(run, branches.find((branch) => branch.id === run.branchId)) : undefined;
   const branchName = run ? selectedBranchName(branches, run.branchId) : undefined;
+  const branchBreakdowns = createBranchRunBreakdowns(branches, runs);
   const transcriptEvents = events.filter(
     (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
   );
@@ -1187,6 +1188,34 @@ function MonitoringView({
                   <span>{item.kind}</span>
                   <b>{summarizeRun(item).outcome}</b>
                   <small>{selectedBranchName(branches, item.branchId) ?? item.branchId ?? "No branch"} · {timeOnly(item.createdAt)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="monitoring-run-strip">
+          <div className="section-title">BRANCH BREAKDOWN <b>{branchBreakdowns.length}</b></div>
+          {branchBreakdowns.length === 0 ? (
+            <EmptyPanel
+              icon="account_tree"
+              message="Branch activity appears here once runs exist."
+              title="No Branch Activity"
+            />
+          ) : (
+            <div className="monitoring-run-list">
+              {branchBreakdowns.map((item) => (
+                <button
+                  className={`monitoring-run-item ${item.latestRun?.id === run?.id ? "active" : ""}`}
+                  disabled={!item.latestRun}
+                  key={item.branchId}
+                  onClick={() => {
+                    if (item.latestRun) onSelectRun(item.latestRun.id);
+                  }}
+                  type="button"
+                >
+                  <span>{item.branchLabel}</span>
+                  <b>{item.runningCount > 0 ? `${item.runningCount} running` : `${item.totalCount} run${item.totalCount === 1 ? "" : "s"}`}</b>
+                  <small>{item.heartbeatCount} heartbeat · {item.debateCount} debate</small>
                 </button>
               ))}
             </div>
@@ -3043,6 +3072,35 @@ function sortRunsByCreatedAt(runs: RunRecord[]): RunRecord[] {
       Date.parse(right.createdAt) - Date.parse(left.createdAt) ||
       right.id.localeCompare(left.id),
   );
+}
+
+function createBranchRunBreakdowns(branches: BranchRecord[], runs: RunRecord[]) {
+  const branchMap = new Map(branches.map((branch) => [branch.id, branch]));
+  const branchIds = new Set([
+    ...branches.map((branch) => branch.id),
+    ...runs.map((run) => run.branchId).filter((branchId): branchId is string => Boolean(branchId)),
+  ]);
+
+  return [...branchIds]
+    .map((branchId) => {
+      const branchRuns = sortRunsByCreatedAt(runs.filter((run) => run.branchId === branchId));
+      return {
+        branchId,
+        branchLabel: branchMap.get(branchId)?.name ?? branchId,
+        latestRun: branchRuns[0],
+        totalCount: branchRuns.length,
+        heartbeatCount: branchRuns.filter((run) => run.kind === "heartbeat").length,
+        debateCount: branchRuns.filter((run) => run.kind === "debate").length,
+        runningCount: branchRuns.filter((run) => run.status === "running").length,
+      };
+    })
+    .filter((item) => item.totalCount > 0)
+    .sort(
+      (left, right) =>
+        Date.parse(right.latestRun?.createdAt ?? "0") -
+          Date.parse(left.latestRun?.createdAt ?? "0") ||
+        left.branchLabel.localeCompare(right.branchLabel),
+    );
 }
 
 function defaultBranchConfig(): WebBranchConfig {

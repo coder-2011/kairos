@@ -734,7 +734,7 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   const humanInterjections = mergeHumanInterjections(
     readHumanInterjections(payload.humanInterjections),
     sourceRunId
-      ? await loadRunHumanInterjections(context, sourceRunId)
+      ? await loadRunAndAncestorHumanInterjections(context, sourceRunId)
       : [],
   );
   const runPayload = {
@@ -899,39 +899,80 @@ async function createRouterMessage(
       });
     }
 
-    const heartbeatRuns: RunRecord[] = [];
-    for (const branchId of selectedBranchIds) {
-      const branch = branches.find((item) => item.id === branchId);
-      if (!branch) continue;
-      const heartbeatRun = await runHeartbeatForBranch(context, branch, {
-        input: {
-          origin: "router",
-          messageText: userMessage.text,
-          sources,
-          promptModifier:
-            "This run was triggered by human-routed information. Evaluate only whether this information is relevant, novel, and potentially escalation-worthy for this branch's law. Do not trade. Do not assume the human is correct.",
-        },
-        metadataSource: "router",
+    const heartbeatResults = await Promise.all(
+      selectedBranchIds.map(async (branchId) => {
+        const branch = branches.find((item) => item.id === branchId);
+        if (!branch) {
+          return {
+            branchId,
+            error: "Branch was selected by the router but no longer exists.",
+          };
+        }
+
+        try {
+          const heartbeatRun = await runHeartbeatForBranch(context, branch, {
+            input: {
+              origin: "router",
+              sourceRunId: run.id,
+              messageText: userMessage.text,
+              sources,
+              promptModifier:
+                "This run was triggered by human-routed information. Evaluate only whether this information is relevant, novel, and potentially escalation-worthy for this branch's law. Do not trade. Do not assume the human is correct.",
+            },
+            metadataSource: "router",
+          });
+          return { branchId, heartbeatRun };
+        } catch (error) {
+          return {
+            branchId,
+            failedRun: getFailedRunFromError(error),
+            error: error instanceof Error ? error.message : "Unknown error.",
+          };
+        }
+      }),
+    );
+    const heartbeatRuns = heartbeatResults
+      .map((result) => result.heartbeatRun)
+      .filter((heartbeatRun): heartbeatRun is RunRecord => Boolean(heartbeatRun));
+    const heartbeatFailures = heartbeatResults
+      .filter((result) => result.error)
+      .map((result) => ({
+        branchId: result.branchId,
+        runId: result.failedRun?.id,
+        error: result.error,
+      }));
+
+    for (const result of heartbeatResults) {
+      const heartbeatToolCall = createRouterToolCall({
+        name: "heartbeat_wakeup",
+        status: result.error ? "failed" : "succeeded",
+        summary: result.error
+          ? `Failed to wake ${result.branchId}: ${result.error}`
+          : `Woke ${result.branchId} for heartbeat evaluation with router-origin context.`,
+        input: { branchId: result.branchId },
+        output: result.heartbeatRun
+          ? { runId: result.heartbeatRun.id, status: result.heartbeatRun.status }
+          : result.failedRun
+            ? { runId: result.failedRun.id, status: result.failedRun.status }
+            : undefined,
+        error: result.error,
       });
-      if (heartbeatRun) {
-        heartbeatRuns.push(heartbeatRun);
-        const heartbeatToolCall = createRouterToolCall({
-          name: "heartbeat_wakeup",
-          status: "succeeded",
-          summary: `Woke ${branchId} for heartbeat evaluation with router-origin context.`,
-          input: { branchId },
-          output: { runId: heartbeatRun.id, status: heartbeatRun.status },
-        });
-        toolCalls.push(heartbeatToolCall);
-        await context.store.appendRunEvent(run.id, {
-          type: "router.heartbeat_triggered",
-          payload: { branchId, runId: heartbeatRun.id, toolCall: heartbeatToolCall },
-        });
-      }
+      toolCalls.push(heartbeatToolCall);
+      await context.store.appendRunEvent(run.id, {
+        type: result.error ? "router.heartbeat_failed" : "router.heartbeat_triggered",
+        payload: {
+          branchId: result.branchId,
+          runId: result.heartbeatRun?.id ?? result.failedRun?.id,
+          error: result.error,
+          toolCall: heartbeatToolCall,
+        },
+      });
     }
 
     const output = {
       branchIds: selectedBranchIds,
+      heartbeatRunIds: heartbeatRuns.map((heartbeatRun) => heartbeatRun.id),
+      heartbeatFailures,
       response: routerResponse(selectedBranchIds, sources, {
         enabledBranches: branchInventory.filter((branch) => branch.enabled).length,
         totalBranches: branchInventory.length,
@@ -963,6 +1004,7 @@ async function createRouterMessage(
       assistantMessage,
       run: completed,
       heartbeatRuns,
+      heartbeatFailures,
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -2057,6 +2099,20 @@ async function loadRunHumanInterjections(
       summary,
     }];
   });
+}
+
+async function loadRunAndAncestorHumanInterjections(
+  context: LocalApiContext,
+  runId: string,
+): Promise<HumanInterjection[]> {
+  const sourceRun = await context.store.getRun(runId);
+  if (!sourceRun) return [];
+
+  const parentRunId = readString(sourceRun.input.sourceRunId);
+  return mergeHumanInterjections(
+    parentRunId ? await loadRunHumanInterjections(context, parentRunId) : [],
+    await loadRunHumanInterjections(context, runId),
+  );
 }
 
 function readHumanInterjections(value: unknown): HumanInterjection[] {

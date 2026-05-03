@@ -632,6 +632,151 @@ describe("local API handler", () => {
     ]);
   });
 
+  it("fans router-origin information out to multiple branches without cross-branch blocking", async () => {
+    const heartbeatPayloads: Array<{ branchId: string; payload: any }> = [];
+    const { requestJson } = makeClient({
+      runHeartbeat: async ({ branchId, payload }) => {
+        heartbeatPayloads.push({ branchId, payload });
+        if (branchId === "branch_pltr_fail") {
+          throw new Error("branch model unavailable");
+        }
+        return {
+          output: { branchId, decision: "monitor" },
+          events: [{ type: "heartbeat.seeded", payload }],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_contracts",
+      name: "PLTR contracts",
+      description: "Palantir government contracts",
+      config: { assets: ["PLTR"] },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_fail",
+      name: "PLTR budget risk",
+      description: "Palantir government budget risk",
+      config: { assets: ["PLTR"] },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+
+    const response = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR government contract and budget update.",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.run.status).toBe("succeeded");
+    expect(response.body.heartbeatRuns).toHaveLength(1);
+    expect(response.body.heartbeatFailures).toEqual([
+      expect.objectContaining({
+        branchId: "branch_pltr_fail",
+        error: "branch model unavailable",
+      }),
+    ]);
+    expect(response.body.run.output).toMatchObject({
+      branchIds: ["branch_pltr_contracts", "branch_pltr_fail"],
+      heartbeatRunIds: [response.body.heartbeatRuns[0].id],
+      heartbeatFailures: [
+        expect.objectContaining({
+          branchId: "branch_pltr_fail",
+          error: "branch model unavailable",
+        }),
+      ],
+    });
+    expect(heartbeatPayloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          branchId: "branch_pltr_contracts",
+          payload: expect.objectContaining({
+            origin: "router",
+            sourceRunId: response.body.run.id,
+          }),
+        }),
+        expect.objectContaining({
+          branchId: "branch_pltr_fail",
+          payload: expect.objectContaining({
+            origin: "router",
+            sourceRunId: response.body.run.id,
+          }),
+        }),
+      ]),
+    );
+    expect(response.body.assistantMessage.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "heartbeat_wakeup",
+          status: "succeeded",
+          input: { branchId: "branch_pltr_contracts" },
+        }),
+        expect.objectContaining({
+          name: "heartbeat_wakeup",
+          status: "failed",
+          input: { branchId: "branch_pltr_fail" },
+          error: "branch model unavailable",
+        }),
+      ]),
+    );
+  });
+
+  it("carries router-level human interjections into branch debates", async () => {
+    const debatePayloads: unknown[] = [];
+    const { requestJson } = makeClient({
+      runHeartbeat: async ({ branchId, payload }) => ({
+        output: {
+          branchId,
+          decision: "escalate",
+          escalationEvent: {
+            branchId,
+            summary: "Router-origin source needs debate.",
+          },
+        },
+        events: [{ type: "heartbeat.seeded", payload }],
+      }),
+      createDebate: async ({ payload }) => {
+        debatePayloads.push(payload);
+        return {
+          output: { decision: "watch" },
+          events: [{ type: "debate.created", payload }],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_contracts",
+      name: "PLTR contracts",
+      description: "Palantir government contracts",
+      config: { assets: ["PLTR"] },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+    const router = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR signed a new government contract.",
+    });
+    const interjection = await requestJson(
+      "POST",
+      `/runs/${router.body.run.id}/interjections`,
+      { message: "Treat the submitted note as unverified until sourced." },
+    );
+    const heartbeatRun = router.body.heartbeatRuns[0];
+
+    const debate = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_contracts",
+        sourceRunId: heartbeatRun.id,
+        summary: "Router-origin source needs debate.",
+      },
+    });
+
+    expect(debate.status).toBe(201);
+    expect(debatePayloads[0]).toMatchObject({
+      sourceRunId: heartbeatRun.id,
+      humanInterjections: [
+        {
+          timestamp: interjection.body.event.timestamp,
+          summary: "Treat the submitted note as unverified until sourced.",
+        },
+      ],
+    });
+  });
+
   it("streams historical run events as SSE", async () => {
     const { requestJson, request } = makeClient();
     const debate = await requestJson("POST", "/debates", {
