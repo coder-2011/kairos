@@ -1804,31 +1804,10 @@ function routerResponse(
   ].join("\n");
 }
 
-function deterministicDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
-  if (input.dryRun) {
-    return Promise.resolve({
-      output: {
-        decision: "needs_review",
-        summary: "Dry-run debate record created from escalation payload.",
-        dryRun: input.dryRun,
-      },
-      events: [
-        { type: "debate.created", payload: { deterministic: true, escalation: input.payload.escalation ?? null } },
-        { type: "debate.judge.summary", payload: { decision: "needs_review" } },
-      ],
-    });
-  }
-
-  return runConfiguredDebate(input);
-}
-
 async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
   if (!process.env.OPENROUTER_API_KEY) {
     throw new Error(
-      [
-        "OPENROUTER_API_KEY is required to run a non-dry-run debate.",
-        "Set OPENROUTER_API_KEY in the local API process environment, or call /debates with dryRun: true.",
-      ].join(" "),
+      "OPENROUTER_API_KEY is required to run the debate agent.",
     );
   }
 
@@ -1898,7 +1877,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
   });
 
   return {
-    output: debateResultOutput(result, input.dryRun),
+    output: debateResultOutput(result),
     events: debateResultEvents(result, input.payload),
   };
 }
@@ -1964,7 +1943,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
   };
 }
 
-function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecord {
+function debateResultOutput(result: DebateRunResult): JsonRecord {
   return {
     debateId: result.debateId,
     status: result.status,
@@ -1975,7 +1954,6 @@ function debateResultOutput(result: DebateRunResult, dryRun: boolean): JsonRecor
     toolEvents: result.toolEvents,
     humanInterjections: result.humanInterjections,
     currentPlan: result.currentPlan,
-    dryRun,
   };
 }
 
