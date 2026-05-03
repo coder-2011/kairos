@@ -1,0 +1,68 @@
+# UI/Runtime QA Issues
+
+Last audited: 2026-05-03
+
+Scope: cleared local branch/run/router runtime state, created one branch named `The monitoring`, then exercised branch configuration, heartbeat, human interjection, decision controls, manual debate, router routing across two temporary enabled branches, portfolio refresh, theme toggle, and desktop/mobile viewport checks.
+
+## Findings
+
+### 1. Heartbeat runs fail with the default configured model/tools
+
+- Severity: High
+- Evidence: `data/runtime/qa/03-heartbeat-result.png`
+- Observed: `RUN HEARTBEAT CHECK` creates a failed heartbeat run with: `OpenRouter model google/gemma-4-31b-it is not known to support tool calling`.
+- Impact: Heartbeat tracking cannot actually run with the current default branch configuration because heartbeat tools are enabled by default while the resolved model is not tool-capable.
+
+### 2. Router multi-branch wakeups hide failed heartbeat attempts in the Router sidebar
+
+- Severity: High
+- Evidence: `data/runtime/qa/07-router-multiple-branches.png`
+- Observed: Router successfully selected two branches and says it woke heartbeat agents for both, but the right `HEARTBEATS` panel still shows `0 RUNS` because failed heartbeat attempts are not included there.
+- Impact: Multi-branch routing looks successful while hiding the most important operational result: both heartbeat wakeups failed.
+
+### 3. Monitoring summarizes successful router runs as `No output recorded`
+
+- Severity: Medium
+- Evidence: `data/runtime/qa/08-monitoring-after-router.png`
+- Observed: After a successful router run, Monitoring shows a router run card and event stream, but the run detail panel says `No output recorded`.
+- Impact: The router result is harder to audit from Monitoring even though the run has meaningful routing output.
+
+### 4. Manual debate start can leave a run stuck in `running`
+
+- Severity: High
+- Evidence: observed during manual debate QA after clicking `START MANUAL DEBATE`.
+- Observed: A debate run was created and remained in `running` state instead of resolving to succeeded or failed during the QA window.
+- Impact: Monitoring can accumulate misleading in-progress debate runs, and the UI does not clearly tell the user whether the manual debate is waiting on model credentials, an external API, or a runtime failure.
+
+### 5. Supermemory mirror quota errors spam runtime logs during ordinary UI actions
+
+- Severity: Medium
+- Evidence: local API logs during branch creation, heartbeat, interjection, debate, and router actions.
+- Observed: Repeated `Supermemory mirror failed ... HTTP 429 ... API token limit reached` warnings appear for normal local actions.
+- Impact: The UI mostly continues, but runtime observability is noisy and it is unclear from the UI whether memory persistence succeeded.
+
+### 6. Mobile branch-list layout clips useful table context
+
+- Severity: Medium
+- Evidence: `data/runtime/qa/12-mobile-branches.png`
+- Observed: At `390x844`, the mobile branch list shows a very narrow icon-only nav and only the left portion of the branch table. Numeric page overflow checks report no horizontal scroll, but visually the table context is cut down to partial columns.
+- Impact: Mobile users cannot comfortably inspect the branch list state, even though the layout technically reports no page overflow.
+
+### 7. Branch configuration first viewport is visually dense
+
+- Severity: Low
+- Evidence: `data/runtime/qa/02-the-monitoring-config.png`
+- Observed: The first config viewport is dominated by long raw prompt textareas before the user reaches most operational controls.
+- Impact: The page is functional, but it does not feel as clean as the rest of the app and makes the most common branch setup fields compete with advanced prompt internals.
+
+## Passed Checks
+
+- Final cleaned local runtime state contains exactly one branch: `The monitoring`.
+- Final cleaned local runtime state contains zero runs and zero router chats.
+- Branch creation, rename, law editing, ticker editing, and save worked through the UI.
+- Human interjection worked on a selected run.
+- Decision controls `WRONG`, `STALE`, and `USEFUL` appended human feedback events.
+- Router selected multiple enabled branches when the submitted source matched both branch laws.
+- Portfolio refresh rendered a clean paper/empty state.
+- Theme toggle rendered a coherent light-mode branch list on desktop.
+- Desktop viewport checks showed no page-level horizontal or vertical overflow for the captured app states.
