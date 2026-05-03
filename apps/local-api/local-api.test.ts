@@ -61,6 +61,33 @@ describe("local API handler", () => {
     });
   });
 
+  it("falls back to the starter ticker universe when Alpaca symbols are unavailable", async () => {
+    const { requestJson } = makeClient({
+      marketSymbolProvider: {
+        async listMarketSymbols() {
+          throw new Error("Alpaca unavailable");
+        },
+      },
+    });
+
+    const response = await requestJson("GET", "/market/symbols?query=pltr&limit=25");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      count: 1,
+      source: "fallback",
+      cacheTags: ["market-symbols", "market-symbols:query:PLTR"],
+      symbols: [
+        {
+          symbol: "PLTR",
+          name: "Palantir Technologies Inc.",
+          tradable: true,
+          source: "fallback",
+        },
+      ],
+    });
+  });
+
   it("supports branch create, list, get, update, and delete", async () => {
     const { requestJson } = makeClient();
 
