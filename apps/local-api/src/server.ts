@@ -440,8 +440,9 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   let completed: RunRecord | undefined;
   try {
     completed = await runHeartbeatForBranch(context, branch, {
+      dryRun: input.dryRun,
       input: input.input,
-      metadataSource: "runtime",
+      metadataSource: input.dryRun ? "dry_run" : "runtime",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
