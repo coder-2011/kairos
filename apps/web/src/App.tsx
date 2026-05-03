@@ -178,14 +178,6 @@ const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit", "bracket"];
-const dataPacketTypeOptions = [
-  "ticker",
-  "sector",
-  "law",
-  "branch",
-  "source",
-  "catalyst",
-] as const;
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
@@ -213,7 +205,7 @@ export function App() {
   const [selectedRunId, setSelectedRunId] = useState(initialRoute.runId ?? "");
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
   const [modelDefaults, setModelDefaults] = useState<ModelRoleDefaults>({});
-  const [runMode, setRunMode] = useState<RunMode>("agent");
+  const [runMode, setRunMode] = useState<RunMode>("dry");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
   const [portfolioLoadState, setPortfolioLoadState] =
     useState<LoadState>("loading");
@@ -721,14 +713,7 @@ function ThemeSwitch({
 }
 
 function TopBar() {
-  return (
-    <header className="top-bar">
-      <div className="status-cluster">
-        <span className="top-status">STATUS: BRANCH_ACTIVE</span>
-        <span className="status-light" />
-      </div>
-    </header>
-  );
+  return <header className="top-bar" />;
 }
 
 function BranchList({
@@ -750,32 +735,6 @@ function BranchList({
   return (
     <main className="canvas branch-canvas">
       <section className="toolbar">
-        <div className="filters">
-          <FieldLabel label="Status">
-            <select>
-              <option>ALL ACTIVE</option>
-              <option>RUNNING</option>
-              <option>PAUSED</option>
-              <option>ESCALATED</option>
-            </select>
-          </FieldLabel>
-          <FieldLabel label="Asset Class">
-            <select>
-              <option>ALL ASSETS</option>
-              <option>EQUITIES</option>
-              <option>CRYPTO</option>
-              <option>MACRO</option>
-            </select>
-          </FieldLabel>
-          <FieldLabel label="Risk Level">
-            <select>
-              <option>ANY</option>
-              <option>HIGH</option>
-              <option>MEDIUM</option>
-              <option>LOW</option>
-            </select>
-          </FieldLabel>
-        </div>
         <div className="toolbar-metrics">
           <Metric label="RUNS" value={runs.length.toString()} />
           <Metric
@@ -799,7 +758,6 @@ function BranchList({
             <tr>
               <th>BRANCH ID</th>
               <th>LINKED LAW</th>
-              <th>STATUS</th>
               <th>HEARTBEAT</th>
               <th>LAST RUN</th>
               <th className="right">ESCALATIONS</th>
@@ -808,7 +766,7 @@ function BranchList({
           <tbody>
             {branches.length === 0 ? (
               <tr>
-                <td className="empty-table-cell" colSpan={6}>
+                <td className="empty-table-cell" colSpan={5}>
                   No branches yet. Create a branch to define the first law.
                 </td>
               </tr>
@@ -817,9 +775,6 @@ function BranchList({
                 <tr key={branch.id} onClick={() => onSelect(branch)}>
                   <td>{branch.id}</td>
                   <td className="muted truncate-cell">{branch.name}</td>
-                  <td>
-                    <StatusBadge status={getBranchStatus(branch)} />
-                  </td>
                   <td className="muted">{formatHeartbeat(branch)}</td>
                   <td>
                     {String(branch.metadata?.lastRun ?? timeOnly(branch.updatedAt))}
@@ -1167,9 +1122,6 @@ function PortfolioView({
   const account = portfolio?.account;
   const positions = portfolio?.positions ?? [];
   const orders = portfolio?.orders ?? [];
-  const storage = portfolio?.storage;
-  const storedOrderCount = readDisplay(storage?.brokerOrderCount);
-  const storedIntentCount = readDisplay(storage?.tradeIntentCount);
 
   return (
     <main className="portfolio-canvas">
@@ -1195,18 +1147,9 @@ function PortfolioView({
           <div className="portfolio-safety-strip">
             <Icon name="verified_user" />
             <div>
-              <b>Paper trading only</b>
+              <b>Paper Mode</b>
               <span>
-                Live orders unavailable. Paper intents and submitted orders are stored in Kairos.
-              </span>
-            </div>
-          </div>
-          <div className="portfolio-safety-strip storage">
-            <Icon name="inventory_2" />
-            <div>
-              <b>Paper audit storage</b>
-              <span>
-                Stored records: {storedIntentCount} intents, {storedOrderCount} orders.
+                Live orders are blocked. Paper intents and submitted paper orders are saved.
               </span>
             </div>
           </div>
@@ -1393,6 +1336,9 @@ function RunDeepDive({
   const selectedBranch = branches.find(
     (branch) => branch.id === selectedRun?.branchId,
   );
+  const selectedRunSummary = selectedRun
+    ? summarizeRun(selectedRun, selectedBranch)
+    : undefined;
 
   return (
     <main className="run-deep-dive">
@@ -1411,19 +1357,13 @@ function RunDeepDive({
             />
           ) : (
             runs.map((run) => (
-              <button
-                className={`run-list-item ${run.id === selectedRun?.id ? "active" : ""}`}
+              <RunListItem
+                branchName={selectedBranchName(branches, run.branchId)}
                 key={run.id}
-                onClick={() => onSelectRun(run.id)}
-                type="button"
-              >
-                <span>{run.kind.toUpperCase()}</span>
-                <b>{run.id}</b>
-                <em>{selectedBranchName(branches, run.branchId)}</em>
-                <small>
-                  {run.status} | {timeOnly(run.createdAt)}
-                </small>
-              </button>
+                onSelect={() => onSelectRun(run.id)}
+                run={run}
+                selected={run.id === selectedRun?.id}
+              />
             ))
           )}
         </div>
@@ -1431,15 +1371,15 @@ function RunDeepDive({
       <section className="run-trace-pane">
         <div className="detail-head">
           <div>
-            <h1>{selectedRun ? selectedRun.id : "Runs"}</h1>
+            <h1>{selectedRun ? selectedRunSummary?.title : "Runs"}</h1>
             <p>
               {selectedRun
-                ? `${selectedRun.kind.toUpperCase()} | ${selectedRun.status} | ${selectedBranch?.name ?? "No branch"}`
+                ? selectedRunSummary?.subtitle
                 : "Choose a run."}
             </p>
           </div>
         </div>
-        {!selectedRun ? (
+        {!selectedRun || !selectedRunSummary ? (
           <EmptyPanel
             icon="timeline"
             message="Choose a run."
@@ -1447,17 +1387,54 @@ function RunDeepDive({
           />
         ) : (
           <div className="run-deep-grid">
+            <section className="trace-section full">
+              <div className="section-title">RUN SUMMARY</div>
+              <div className="run-summary-grid">
+                <RunFact label="Status" tone={selectedRun.status === "failed" ? "danger" : "default"} value={selectedRun.status} />
+                <RunFact label="Kind" value={selectedRun.kind} />
+                <RunFact label="Mode" value={selectedRun.dryRun ? "dry run" : "agent run"} />
+                <RunFact label="Branch" value={selectedRunSummary.branchLabel} />
+                <RunFact label="Created" value={formatDateTime(selectedRun.createdAt)} />
+                <RunFact label="Updated" value={formatDateTime(selectedRun.updatedAt)} />
+              </div>
+              <div className={`run-outcome ${selectedRun.status === "failed" ? "danger" : ""}`}>
+                <b>{selectedRunSummary.outcomeTitle}</b>
+                <p>{selectedRunSummary.outcome}</p>
+              </div>
+            </section>
             <section className="trace-section">
-              <div className="section-title">INPUT</div>
-              <pre className="json-block">
-                {JSON.stringify(selectedRun.input, null, 2)}
-              </pre>
+              <div className="section-title">INPUT CONTEXT</div>
+              <div className="run-field-list">
+                {selectedRunSummary.inputFacts.map((fact) => (
+                  <div className="alignment-row" key={fact.label}>
+                    <span>{fact.label}</span>
+                    <b>{fact.value}</b>
+                  </div>
+                ))}
+              </div>
+              <details className="raw-details">
+                <summary>Raw Input</summary>
+                <pre className="json-block">
+                  {JSON.stringify(selectedRun.input, null, 2)}
+                </pre>
+              </details>
             </section>
             <section className="trace-section">
               <div className="section-title">OUTPUT</div>
-              <pre className="json-block">
-                {JSON.stringify(selectedRun.output ?? {}, null, 2)}
-              </pre>
+              <div className="run-field-list">
+                {selectedRunSummary.outputFacts.map((fact) => (
+                  <div className="alignment-row" key={fact.label}>
+                    <span>{fact.label}</span>
+                    <b>{fact.value}</b>
+                  </div>
+                ))}
+              </div>
+              <details className="raw-details">
+                <summary>Raw Output</summary>
+                <pre className="json-block">
+                  {JSON.stringify(selectedRun.output ?? {}, null, 2)}
+                </pre>
+              </details>
             </section>
             <section className="trace-section full">
               <div className="section-title">EVENTS</div>
@@ -1481,6 +1458,96 @@ function RunDeepDive({
       <EvidencePane events={events} run={selectedRun} />
     </main>
   );
+}
+
+function RunListItem({
+  branchName,
+  onSelect,
+  run,
+  selected,
+}: {
+  branchName: string | undefined;
+  onSelect: () => void;
+  run: RunRecord;
+  selected: boolean;
+}) {
+  const summary = summarizeRun(run);
+
+  return (
+    <button
+      className={`run-list-item ${selected ? "active" : ""} ${run.status}`}
+      onClick={onSelect}
+      type="button"
+    >
+      <span>{run.kind.toUpperCase()} · {run.dryRun ? "DRY" : "AGENT"}</span>
+      <b>{summary.shortId}</b>
+      <em>{branchName ?? summary.branchLabel}</em>
+      <small>{run.status} · {timeOnly(run.createdAt)}</small>
+      <p>{summary.outcome}</p>
+    </button>
+  );
+}
+
+function RunFact({
+  label,
+  tone = "default",
+  value,
+}: {
+  label: string;
+  tone?: "default" | "danger";
+  value: string;
+}) {
+  return (
+    <div className={`run-fact ${tone}`}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}
+
+function summarizeRun(run: RunRecord, branch?: BranchRecord) {
+  const output = run.output ?? {};
+  const inputBranch = isJsonRecord(run.input.branch) ? run.input.branch : undefined;
+  const inputBranchName = readDisplay(inputBranch?.name, undefined);
+  const branchLabel =
+    branch?.name ??
+    inputBranchName ??
+    readDisplay(run.branchId, "No branch");
+  const error = readDisplay(output.error, "");
+  const summary = readDisplay(output.summary, "");
+  const decision = readDisplay(output.decision, "");
+  const finalDecision = isJsonRecord(output.finalDecision)
+    ? output.finalDecision
+    : undefined;
+  const action = readDisplay(finalDecision?.action ?? output.action, "");
+  const confidence = formatConfidenceValue(finalDecision?.confidence ?? output.confidence);
+  const outcome = error || summary || decision || action || "No output recorded.";
+
+  return {
+    branchLabel,
+    shortId: run.id.slice(0, 8),
+    subtitle: `${run.kind.toUpperCase()} · ${run.status} · ${branchLabel}`,
+    title: `${titleize(run.kind)} ${run.id.slice(0, 8)}`,
+    outcomeTitle: error ? "Failure" : "Result",
+    outcome,
+    inputFacts: [
+      { label: "Run ID", value: run.id },
+      { label: "Branch ID", value: readDisplay(run.branchId, "-") },
+      { label: "Requested Mode", value: run.dryRun ? "Dry run" : "Agent run" },
+      { label: "Input Source", value: compactValue(run.metadata?.source ?? run.input.source) },
+      { label: "Escalation", value: compactValue(run.input.escalation, "None") },
+    ],
+    outputFacts: [
+      { label: "Decision", value: decision || action || "-" },
+      { label: "Confidence", value: confidence },
+      { label: "Summary", value: summary || "-" },
+      { label: "Error", value: error || "-" },
+    ],
+  };
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function RunModeSwitch({
@@ -1571,7 +1638,6 @@ function BranchConfig({
   const maxOpenPositionNotionalPerSymbol =
     tradingConfig.maxOpenPositionNotionalPerSymbol ?? 1_500;
   const allowedOrderType = tradingConfig.allowedOrderType ?? "market";
-  const dataPacketType = config.research?.dataPacketType ?? "ticker";
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
@@ -2534,15 +2600,6 @@ function EmptyPanel({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={`status-badge ${status}`}>
-      <span />
-      {status}
-    </span>
-  );
-}
-
 function IconButton({ icon, label }: { icon: string; label: string }) {
   return (
     <button className="icon-button" title={label} type="button">
@@ -2603,7 +2660,6 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
-      symbol: "",
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
       maxNotionalPerOrder: 500,
@@ -2675,7 +2731,7 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
     },
     trading: {
       mode: "disabled",
-      symbol: config.trading?.symbol ?? config.assets?.[0] ?? readAssets(branch)[0],
+      symbol: config.trading?.symbol || config.assets?.[0] || readAssets(branch)[0],
       symbols: config.trading?.symbols ?? [],
       paperAutoBuyEnabled: false,
       notifyOnBuySignal: true,
@@ -2765,12 +2821,6 @@ function readStoredThemeMode(): ThemeMode {
 function selectedBranchName(branches: BranchRecord[], branchId: string | undefined) {
   if (!branchId) return "No branch";
   return branches.find((branch) => branch.id === branchId)?.name ?? branchId;
-}
-
-function getBranchStatus(branch: BranchRecord) {
-  if (!branch.enabled) return "paused";
-  const status = String(branch.metadata?.status ?? "running").toLowerCase();
-  return status === "escalated" ? "escalated" : "running";
 }
 
 function getEscalations(branch: BranchRecord, runs: RunRecord[]) {
