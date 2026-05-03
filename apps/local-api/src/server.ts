@@ -219,11 +219,18 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         case "health":
           return json({ ok: true, service: "kairos-local-api", mode: "local" });
 
-        case "listOpenRouterModels":
+        case "listOpenRouterModels": {
+          let models: Awaited<ReturnType<typeof listOpenRouterModels>> = [];
+          try {
+            models = await listOpenRouterModels({ requireTools: true });
+          } catch {
+            models = [];
+          }
           return json({
-            models: await listOpenRouterModels({ requireTools: true }),
+            models,
             defaults: openRouterModelDefaults(),
           });
+        }
 
         case "listBranches":
           return json({ branches: await context.store.listBranches() });
@@ -1738,9 +1745,15 @@ function normalizeTradingDecisionAction(
 }
 
 function firstConfiguredSymbol(branch: BranchRecord | undefined): string | undefined {
-  return branch?.config?.trading?.symbols?.[0] ??
-    branch?.config?.trading?.symbol ??
-    branch?.config?.assets?.[0];
+  return firstNonEmptyString(
+    branch?.config?.trading?.symbols?.[0],
+    branch?.config?.trading?.symbol,
+    branch?.config?.assets?.[0],
+  );
+}
+
+function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value !== undefined && value.trim().length > 0);
 }
 
 function openRouterModelDefaults(): JsonRecord {

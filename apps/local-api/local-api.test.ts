@@ -293,6 +293,112 @@ describe("local API handler", () => {
     expect(messages.body.messages[1].toolCalls).toEqual(response.body.assistantMessage.toolCalls);
   });
 
+  it("injects saved branch config into heartbeat, debate, and router wakeup payloads", async () => {
+    const heartbeatInputs: unknown[] = [];
+    const debateInputs: unknown[] = [];
+    const branchConfig = {
+      assets: ["PLTR"],
+      heartbeat: { intervalMinutes: 7, seedWindowDays: 14, maxToolSteps: 2 },
+      prompts: {
+        heartbeatSystemPrompt: "Heartbeat config injection prompt",
+        debateJudgeSystemPrompt: "Judge config injection prompt",
+        debateBullSystemPrompt: "Bull config injection prompt",
+        debateBearSystemPrompt: "Bear config injection prompt",
+      },
+      tools: {
+        heartbeat: {
+          exa_news_search: { enabled: false, required: true },
+        },
+        debate: {
+          information: { enabled: true, required: true },
+        },
+        information: {
+          exa_search: { enabled: true, required: true },
+          supermemory_search: { enabled: true, required: true },
+        },
+        finnhubPremiumAccess: true,
+      },
+      budgets: {
+        debateMaxTurns: 4,
+        debateMaxToolCalls: 2,
+        informationMaxToolCalls: 3,
+      },
+      thresholds: {
+        notifyConfidence: 0.66,
+        paperTradeDraftConfidence: 0.88,
+      },
+      trading: {
+        mode: "paper",
+        symbol: "PLTR",
+        symbols: ["PLTR"],
+        paperAutoBuyEnabled: false,
+        notifyOnBuySignal: true,
+        maxNotionalPerOrder: 123,
+        maxOpenPositionNotionalPerSymbol: 456,
+        allowedOrderType: "market",
+      },
+      research: {
+        exaInstruction: "Use the saved branch research instruction.",
+        dataPacket: "PLTR",
+      },
+    };
+    const { requestJson } = makeClient({
+      runHeartbeat: async ({ branchId, dryRun, payload, branch }) => {
+        heartbeatInputs.push({ branchId, dryRun, payload, branch });
+        return {
+          output: { branchId, decision: "monitor", dryRun },
+          events: [{ type: "heartbeat.seeded", payload }],
+        };
+      },
+      createDebate: async ({ dryRun, payload, branch }) => {
+        debateInputs.push({ dryRun, payload, branch });
+        return {
+          output: { decision: "needs_review", dryRun },
+          events: [{ type: "debate.created", payload }],
+        };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_config_injection",
+      name: "PLTR config injection",
+      description: "Palantir government contracts",
+      config: branchConfig,
+      law: { thesis: "Watch for new Palantir government deals." },
+    });
+
+    const heartbeat = await requestJson("POST", "/branches/branch_config_injection/heartbeat-runs", {
+      input: { source: "direct" },
+    });
+    const debate = await requestJson("POST", "/debates", {
+      input: {
+        branchId: "branch_config_injection",
+        escalation: { branchId: "branch_config_injection", summary: "Needs review." },
+      },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+    await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR signed a new government contract.",
+    });
+
+    expect(heartbeat.body.run.input.branch.config).toMatchObject(branchConfig);
+    expect(debate.body.run.input.branch.config).toMatchObject(branchConfig);
+    expect(heartbeatInputs[0]).toMatchObject({
+      payload: { branch: { config: branchConfig } },
+      branch: { config: branchConfig },
+    });
+    expect(debateInputs[0]).toMatchObject({
+      payload: { branch: { config: branchConfig } },
+      branch: { config: branchConfig },
+    });
+    expect(heartbeatInputs[1]).toMatchObject({
+      payload: {
+        origin: "router",
+        branch: { config: branchConfig },
+      },
+      branch: { config: branchConfig },
+    });
+  });
+
   it("records router messages without waking heartbeats when no branches exist", async () => {
     const { requestJson } = makeClient({
       runHeartbeat: async () => {
