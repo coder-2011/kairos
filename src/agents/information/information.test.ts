@@ -328,7 +328,7 @@ describe("information agent", () => {
     expect("toolResults" in result).toBe(false);
     expect(deps.exa?.contents).toHaveBeenCalledWith({
       urls: ["https://example.com/source"],
-      maxCharacters: 8_000,
+      maxCharacters: 10_000,
     });
   });
 
@@ -379,7 +379,7 @@ describe("information agent", () => {
 
     const result = await runInformationAgent("PLTR latest news", deps);
 
-    expect(result.summary).toContain("exa_search: search unavailable");
+    expect(result.summary).toContain("Tool exa_search failed");
     expect("toolResults" in result).toBe(false);
   });
 
