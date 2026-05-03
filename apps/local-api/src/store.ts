@@ -14,7 +14,7 @@ export type BranchRecord = {
 };
 
 export type RunKind = "heartbeat" | "debate";
-export type RunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "canceled";
 
 export type RunRecord = {
   id: string;

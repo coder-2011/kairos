@@ -211,8 +211,8 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
-  const completed = await context.store.updateRun(run.id, { status: "completed", output: result.output });
-  await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "completed" } });
+  const completed = await context.store.updateRun(run.id, { status: "succeeded", output: result.output });
+  await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "succeeded" } });
 
   return json({ run: completed }, 201);
 }
@@ -235,8 +235,8 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
-  const completed = await context.store.updateRun(run.id, { status: "completed", output: result.output });
-  await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "completed" } });
+  const completed = await context.store.updateRun(run.id, { status: "succeeded", output: result.output });
+  await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "succeeded" } });
 
   return json({ run: completed }, 201);
 }

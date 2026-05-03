@@ -1,5 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
-import { createLocalApiHandler, MemoryKairosStore, type LocalApiContext } from "./src/server.js";
+import {
+  createLocalApi,
+  createLocalApiHandler,
+  MemoryKairosStore,
+  type LocalApiContext,
+} from "./src/server.js";
 
 const baseUrl = "http://kairos.local";
 
@@ -52,7 +61,7 @@ describe("local API handler", () => {
     expect(created.status).toBe(201);
     expect(created.body.run).toMatchObject({
       kind: "heartbeat",
-      status: "completed",
+      status: "succeeded",
       branchId: "branch_1",
       dryRun: true,
     });
@@ -86,7 +95,7 @@ describe("local API handler", () => {
     expect(response.status).toBe(201);
     expect(response.body.run).toMatchObject({
       kind: "debate",
-      status: "completed",
+      status: "succeeded",
       branchId: "branch_pltr_deals",
       dryRun: true,
     });
@@ -132,6 +141,36 @@ describe("local API handler", () => {
     const text = new TextDecoder().decode(chunk.value);
     expect(text).toContain("event: run.started");
     expect(text).toContain("data:");
+  });
+
+  it("uses the real local runtime store in default API mode", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "kairos-local-api-"));
+
+    try {
+      const { handler } = await createLocalApi({ dataDir });
+      const response = await handler(
+        new Request(`${baseUrl}/branches`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "branch_runtime",
+            name: "Runtime branch",
+            config: { assets: ["PLTR"] },
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.branch).toMatchObject({
+        id: "branch_runtime",
+        name: "Runtime branch",
+        enabled: true,
+        config: { assets: ["PLTR"] },
+      });
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects invalid payloads with 400", async () => {
