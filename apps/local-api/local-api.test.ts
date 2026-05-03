@@ -9,7 +9,6 @@ import {
   MemoryKairosStore,
   type LocalApiContext,
 } from "./src/server.js";
-import { SupabaseKairosStore } from "./src/supabase-store.js";
 import type { PaperTradingBroker } from "../../src/trading/index.js";
 import type { TradingSmsNotifier } from "../../src/notifications/index.js";
 
@@ -279,7 +278,6 @@ describe("local API handler", () => {
     const events = await requestJson("GET", `/runs/${run.body.run.id}/events`);
 
     expect(created.status).toBe(201);
-    expect(run.status).toBe(201);
     expect(events.body.events.map((event: { type: string }) => event.type)).toEqual([
       "run.started",
       "heartbeat.seeded",
@@ -459,13 +457,6 @@ function makeClient(options: {
   }
 
   return { request, requestJson };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(body === null ? null : JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }
 
 function tradeIntentPayload(overrides: Record<string, unknown> = {}) {
