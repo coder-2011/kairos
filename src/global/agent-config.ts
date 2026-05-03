@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  finnhubEndpointCatalogForAccess,
+  type FinnhubRestEndpointMetadata,
+} from "./finnhub-catalog.js";
+
 export const kairosModelRoleSchema = z.enum([
   "heartbeat",
   "informationPlanner",
@@ -235,6 +240,13 @@ export type InformationAgentConfigSelection = {
   finnhubPremiumAccess?: boolean;
 };
 
+export type FrontendToolConfigurationCatalog = {
+  finnhubPremiumAccess: boolean;
+  configurableByFrontend: string[];
+  notConfiguredByFrontend: string[];
+  finnhubApiRequestEndpoints: FinnhubRestEndpointMetadata[];
+};
+
 export function resolveHeartbeatAgentConfig(
   config: KairosBranchAgentConfig | undefined,
 ): HeartbeatAgentConfigSelection {
@@ -272,6 +284,32 @@ export function resolveInformationAgentConfig(
     enabledTools: toolPoliciesToEnabledMap(config?.tools?.information),
     maxToolCalls: config?.budgets?.informationMaxToolCalls,
     finnhubPremiumAccess: config?.tools?.finnhubPremiumAccess,
+  };
+}
+
+export function buildFrontendToolConfigurationCatalog(input: {
+  finnhubPremiumAccess?: boolean;
+} = {}): FrontendToolConfigurationCatalog {
+  const finnhubPremiumAccess = input.finnhubPremiumAccess ?? false;
+
+  return {
+    finnhubPremiumAccess,
+    configurableByFrontend: [
+      "named information tool enablement",
+      "named heartbeat/debate tool enablement",
+      "Finnhub premium access",
+      "max tool-call budgets",
+      "branch-specific research and seeding instructions",
+    ],
+    notConfiguredByFrontend: [
+      "Finnhub REST parameter shapes",
+      "secret API keys",
+      "tool implementation internals",
+      "agent retry/error recovery internals",
+    ],
+    finnhubApiRequestEndpoints: finnhubEndpointCatalogForAccess({
+      premiumAccess: finnhubPremiumAccess,
+    }),
   };
 }
 

@@ -10,6 +10,12 @@ export {
   informationToolInputSchema,
 } from "./tool.js";
 export {
+  INFORMATION_TOOL_CATALOG,
+  informationToolCatalogForAccess,
+  type InformationToolAccess,
+  type InformationToolMetadata,
+} from "./tool-catalog.js";
+export {
   informationPlanSchema,
   informationRequestSchema,
   informationResultSchema,
