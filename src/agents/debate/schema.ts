@@ -9,11 +9,20 @@ export const citationSchema = z
   .strict();
 
 export const basicFinancialsSchema = z.record(z.string(), z.unknown());
+export const debatePortfolioContextSchema = z.record(z.string(), z.unknown());
+export const debateDecisionActionSchema = z.enum([
+  "buy",
+  "sell",
+  "watch",
+  "research",
+  "no_action",
+]);
 
 export const debateStartInputSchema = z
   .object({
     summary: z.string().min(1),
     basicFinancials: basicFinancialsSchema,
+    portfolioContext: debatePortfolioContextSchema.optional(),
   })
   .strict();
 
@@ -36,6 +45,7 @@ export const humanInterjectionSchema = z
 export const debateDecisionSchema = z
   .object({
     summary: z.string().min(1),
+    action: debateDecisionActionSchema,
     confidence: z.number().min(0).max(1),
     citations: z.array(citationSchema),
   })
@@ -43,7 +53,7 @@ export const debateDecisionSchema = z
 
 export const debateToolRequestSchema = z
   .object({
-    toolName: z.enum(["exa_search", "exa_research", "information"]),
+    toolName: z.enum(["exa_search", "exa_research", "information", "portfolio"]),
     input: z.string().min(1),
   })
   .strict();
@@ -75,7 +85,7 @@ export const debateToolEventSchema = z
   .object({
     toolEventId: z.string(),
     debateId: z.string(),
-    toolName: z.enum(["exa_search", "exa_research", "information"]),
+    toolName: z.enum(["exa_search", "exa_research", "information", "portfolio"]),
     requestedBy: z.enum(["judge", "bull", "bear"]),
     input: z.string(),
     summary: z.string(),

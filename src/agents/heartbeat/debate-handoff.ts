@@ -16,6 +16,7 @@ export type HeartbeatDebateOptions = {
   debateId?: string;
   budgets?: DebateRunConfig["budgets"];
   humanInterjections?: DebateRunConfig["humanInterjections"];
+  portfolioContext?: DebateStartInput["portfolioContext"];
 };
 
 export type HeartbeatDebateRunResult = {
@@ -29,7 +30,7 @@ export function createDebateConfigFromEscalation(
 ): DebateRunConfig {
   const config: DebateRunConfig = {
     debateId: options.debateId ?? createDebateId(event),
-    startInput: createDebateStartInputFromEscalation(event),
+    startInput: createDebateStartInputFromEscalation(event, options),
   };
 
   if (options.humanInterjections) {
@@ -43,7 +44,10 @@ export function createDebateConfigFromEscalation(
   return config;
 }
 
-export function createDebateStartInputFromEscalation(event: EscalationEvent): DebateStartInput {
+export function createDebateStartInputFromEscalation(
+  event: EscalationEvent,
+  options: Pick<HeartbeatDebateOptions, "portfolioContext"> = {},
+): DebateStartInput {
   return {
     summary: [
       `Heartbeat escalated branch ${event.branchId}.`,
@@ -62,6 +66,9 @@ export function createDebateStartInputFromEscalation(event: EscalationEvent): De
       heartbeatDecision: event.heartbeatOutput.decision,
       heartbeatSummary: event.heartbeatOutput.summary,
     },
+    ...(options.portfolioContext
+      ? { portfolioContext: options.portfolioContext }
+      : {}),
   };
 }
 

@@ -132,6 +132,7 @@ describe("debate agent", () => {
     ]);
     expect(result.finalDecision).toEqual({
       summary: "Final synthesis based on 7 messages and 2 tool result(s).",
+      action: "watch",
       confidence: 0.5,
       citations: [
         {
@@ -154,6 +155,7 @@ describe("debate agent", () => {
     });
     const final = fakeStructuredModel<DebateDecision>({
       summary: "Final: watch only.",
+      action: "watch",
       confidence: 0.61,
       citations: [],
     });
@@ -202,6 +204,7 @@ describe("debate agent", () => {
     ]);
     expect(result.finalDecision).toEqual({
       summary: "Final: watch only.",
+      action: "watch",
       confidence: 0.61,
       citations: [],
     });
@@ -230,6 +233,7 @@ describe("debate agent", () => {
     const final = queuedStructuredModel<DebateDecision>([
       {
         summary: "Final from custom prompt.",
+        action: "research",
         confidence: 0.63,
         citations: [],
       },

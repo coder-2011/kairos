@@ -8,7 +8,11 @@ export type DebateMessageType = "argument" | "plan" | "tool_result" | "final";
 
 export type DebateStatus = "running" | "completed" | "failed";
 
-export type DebateToolName = "exa_search" | "exa_research" | "information";
+export type DebateToolName =
+  | "exa_search"
+  | "exa_research"
+  | "information"
+  | "portfolio";
 
 export type Citation = {
   title?: string;
@@ -18,9 +22,12 @@ export type Citation = {
 
 export type BasicFinancials = Record<string, unknown>;
 
+export type DebatePortfolioContext = Record<string, unknown>;
+
 export type DebateStartInput = {
   summary: string;
   basicFinancials: BasicFinancials;
+  portfolioContext?: DebatePortfolioContext;
 };
 
 export type DebateMessage = {
@@ -37,6 +44,7 @@ export type HumanInterjection = {
 
 export type DebateDecision = {
   summary: string;
+  action: "buy" | "sell" | "watch" | "research" | "no_action";
   confidence: number;
   citations: Citation[];
 };

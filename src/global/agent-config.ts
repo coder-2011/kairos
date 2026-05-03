@@ -35,6 +35,7 @@ export const debateToolNameSchema = z.enum([
   "exa_search",
   "exa_research",
   "information",
+  "portfolio",
 ]);
 
 export const informationToolNameSchema = z.enum([
@@ -91,6 +92,7 @@ export const debateToolConfigSchema = z
     exa_search: kairosToolPolicySchema.optional(),
     exa_research: kairosToolPolicySchema.optional(),
     information: kairosToolPolicySchema.optional(),
+    portfolio: kairosToolPolicySchema.optional(),
   })
   .strict();
 
@@ -159,6 +161,7 @@ export const kairosBranchAgentConfigSchema = z
         debateJudgeSystemPrompt: z.string().optional(),
         debateBullSystemPrompt: z.string().optional(),
         debateBearSystemPrompt: z.string().optional(),
+        debateFinalSystemPrompt: z.string().optional(),
       })
       .strict()
       .optional(),
@@ -224,11 +227,12 @@ export type HeartbeatAgentConfigSelection = {
 };
 
 export type DebateAgentConfigSelection = {
-  prompts?: {
-    judgeSystemPrompt?: string;
-    bullSystemPrompt?: string;
-    bearSystemPrompt?: string;
-  };
+    prompts?: {
+      judgeSystemPrompt?: string;
+      bullSystemPrompt?: string;
+      bearSystemPrompt?: string;
+      finalSystemPrompt?: string;
+    };
   enabledTools?: Partial<Record<DebateConfigToolName, boolean>>;
   requiredTools?: Partial<Record<DebateConfigToolName, boolean>>;
   budgets?: {
@@ -272,6 +276,7 @@ export function resolveDebateAgentConfig(
       judgeSystemPrompt: config?.prompts?.debateJudgeSystemPrompt,
       bullSystemPrompt: config?.prompts?.debateBullSystemPrompt,
       bearSystemPrompt: config?.prompts?.debateBearSystemPrompt,
+      finalSystemPrompt: config?.prompts?.debateFinalSystemPrompt,
     },
     enabledTools: toolPoliciesToEnabledMap(config?.tools?.debate),
     requiredTools: toolPoliciesToRequiredMap(config?.tools?.debate),

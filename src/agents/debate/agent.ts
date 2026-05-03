@@ -172,6 +172,10 @@ function hasToolImplementation(
     return false;
   }
 
+  if (toolName === "portfolio" && state.startInput.portfolioContext) {
+    return true;
+  }
+
   return Boolean(
     deps.tools?.[toolName] ??
       deps.globalTools?.[toolName as GlobalToolName],
@@ -200,9 +204,67 @@ function deterministicFinalDecision(state: DebateState): DebateDecision {
   );
   return {
     summary: `Final synthesis based on ${state.messages.length} messages and ${state.toolEvents.length} tool result(s).`,
+    action: "watch",
     confidence: 0.5,
     citations,
   };
+}
+
+function summarizePortfolioContext(
+  portfolioContext: DebateState["startInput"]["portfolioContext"],
+): string {
+  if (!portfolioContext) {
+    return "No portfolio context was provided for this debate.";
+  }
+
+  const account = readRecord(portfolioContext.account);
+  const positions = Array.isArray(portfolioContext.positions)
+    ? portfolioContext.positions
+    : [];
+  const accountParts = [
+    formatNumberField("cash", account?.cash),
+    formatNumberField("buyingPower", account?.buyingPower),
+    formatNumberField("portfolioValue", account?.portfolioValue),
+    formatNumberField("equity", account?.equity),
+    formatNumberField("unrealizedPl", account?.unrealizedPl),
+  ].filter(Boolean);
+  const positionLines = positions.slice(0, 8).map((position) => {
+    const record = readRecord(position);
+    return [
+      record?.symbol,
+      formatNumberField("qty", record?.qty),
+      formatNumberField("marketValue", record?.marketValue),
+      formatNumberField("currentPrice", record?.currentPrice),
+      formatNumberField("unrealizedPl", record?.unrealizedPl),
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
+  const capturedAt =
+    typeof portfolioContext.capturedAt === "string"
+      ? `capturedAt=${portfolioContext.capturedAt}`
+      : undefined;
+
+  return [
+    "Portfolio context:",
+    capturedAt,
+    accountParts.length > 0 ? `account ${accountParts.join(" ")}` : undefined,
+    positionLines.length > 0
+      ? `positions\n${positionLines.join("\n")}`
+      : "positions none reported",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function formatNumberField(label: string, value: unknown): string | undefined {
+  return typeof value === "number" ? `${label}=${value}` : undefined;
 }
 
 function requireDeterministicFallback(
@@ -398,6 +460,8 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     const debateTool = deps.tools?.[state.pendingToolRequest.toolName];
     const globalTool =
       deps.globalTools?.[state.pendingToolRequest.toolName as GlobalToolName];
+    const builtInPortfolioTool =
+      state.pendingToolRequest.toolName === "portfolio";
     await observe(deps.observer, {
       agent: "debate",
       type: "tool_start",
@@ -419,19 +483,24 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         );
       }
 
-      if (!debateTool && !globalTool) {
+      if (!debateTool && !globalTool && !builtInPortfolioTool) {
         throw new Error(
           `No implementation registered for tool ${state.pendingToolRequest.toolName}.`,
         );
       }
 
-      const result = debateTool
-        ? await debateTool(state.pendingToolRequest.input, {
+      const result = builtInPortfolioTool
+        ? {
+            summary: summarizePortfolioContext(state.startInput.portfolioContext),
+            citations: [],
+          }
+        : debateTool
+          ? await debateTool(state.pendingToolRequest.input, {
             debateId: state.debateId,
             requestedBy: state.pendingToolRequest.requestedBy,
             startInput: state.startInput,
           })
-        : await executeGlobalTool({
+          : await executeGlobalTool({
             registry: deps.globalTools ?? {},
             toolName: state.pendingToolRequest.toolName as GlobalToolName,
             toolInput: state.pendingToolRequest.input,
