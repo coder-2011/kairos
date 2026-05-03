@@ -11,6 +11,7 @@ import {
 } from "./memory.js";
 import { resolveHeartbeatPrompts } from "./prompt.js";
 import { buildHeartbeatSeedBundle } from "./seed.js";
+import { createHeartbeatSeedProviders } from "./providers.js";
 import { runHeartbeatAgent } from "./agent.js";
 import { runHeartbeatOnce, startHeartbeatScheduler } from "./heartbeat.js";
 import type {
@@ -802,6 +803,54 @@ describe("API clients", () => {
         summary: "PLTR summary",
         source: "Wire",
       },
+    ]);
+  });
+
+  it("prefers Alpaca for heartbeat ticker seeds while retaining Finnhub news", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/company-news")) {
+        return jsonResponse([
+          {
+            datetime: 1777771200,
+            headline: "PLTR headline",
+            summary: "PLTR summary",
+            source: "Wire",
+            url: "https://example.com",
+          },
+        ]);
+      }
+      return jsonResponse({ c: 1, d: 0, dp: 0, pc: 1 });
+    });
+    const finnhub = new FinnhubApi({
+      apiKey: "fh_key",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const alpaca = {
+      getStockSnapshots: vi.fn(async () => ({
+        PLTR: {
+          latestTrade: { p: 102, t: "2026-05-03T16:00:00Z" },
+          dailyBar: { c: 101, v: 5000 },
+          prevDailyBar: { c: 100 },
+        },
+      })),
+    };
+    const providers = createHeartbeatSeedProviders({ alpaca, finnhub });
+    const branch = branchConfig({ id: "pltr", assets: ["PLTR"] });
+
+    const seed = await buildHeartbeatSeedBundle(branch, providers, fixedNow);
+
+    expect(seed.defaultSources.currentPrice).toMatchObject({
+      PLTR: { current: 102, previousClose: 100, source: "alpaca" },
+    });
+    expect(seed.defaultSources.recentVolume).toMatchObject({
+      PLTR: { latest: 5000, source: "alpaca" },
+    });
+    expect(seed.defaultSources.tickerMovement).toMatchObject({
+      PLTR: { current: 102, percentChange: 2, source: "alpaca" },
+    });
+    expect(seed.defaultSources.newsHeadlinesAndSummaries).toMatchObject([
+      { title: "PLTR headline", source: "Wire" },
     ]);
   });
 

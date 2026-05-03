@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { AlpacaTradingClient } from "./alpaca.js";
+import {
+  AlpacaTradingClient,
+  createAlpacaHeartbeatSeedProviders,
+} from "./alpaca.js";
 
 describe("AlpacaTradingClient", () => {
   it("uses paper REST auth headers and normalizes portfolio snapshots", async () => {
@@ -190,6 +193,61 @@ describe("AlpacaTradingClient", () => {
     ]);
     expect(requests[1].url).toContain("symbols=PLTR");
     expect(requests[1].url).toContain("feed=iex");
+  });
+
+  it("provides heartbeat price, volume, and movement seeds from Alpaca snapshots", async () => {
+    const client = {
+      getStockSnapshots: async (symbols: string[]) => ({
+        [symbols[0] ?? "PLTR"]: {
+          latestTrade: { p: 102, t: "2026-05-03T16:00:00Z" },
+          dailyBar: { c: 101, h: 103, l: 99, o: 100, v: 5000, t: "2026-05-03T00:00:00Z" },
+          prevDailyBar: { c: 100 },
+        },
+      }),
+    };
+    const providers = createAlpacaHeartbeatSeedProviders(client);
+    const request = {
+      branch: {
+        id: "pltr",
+        law: "Watch PLTR.",
+        assets: ["PLTR"],
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 5,
+          seedWindowDays: 30,
+          model: "openrouter/qwen-9b",
+        },
+      },
+      timestamp: "2026-05-03T12:00:00.000Z",
+      seedWindowDays: 30,
+      supermemoryContainerTag: "branch_pltr",
+      supermemoryProfileContainerTag: "branch_profile_pltr",
+    };
+
+    await expect(providers.getCurrentPrice?.(request)).resolves.toMatchObject({
+      PLTR: {
+        current: 102,
+        previousClose: 100,
+        change: 2,
+        percentChange: 2,
+        dailyVolume: 5000,
+        source: "alpaca",
+      },
+    });
+    await expect(providers.getRecentVolume?.(request)).resolves.toMatchObject({
+      PLTR: {
+        latest: 5000,
+        source: "alpaca",
+      },
+    });
+    await expect(providers.getTickerMovement?.(request)).resolves.toMatchObject({
+      PLTR: {
+        current: 102,
+        previousClose: 100,
+        percentChange: 2,
+        source: "alpaca",
+      },
+    });
   });
 });
 

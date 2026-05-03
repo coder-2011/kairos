@@ -1,4 +1,5 @@
 import { retryFetch } from "../global/retry.js";
+import type { HeartbeatSeedDataProviders } from "../agents/heartbeat/types.js";
 import {
   createPortfolioSnapshotRecord,
   type BrokerOrder,
@@ -375,6 +376,43 @@ export function createAlpacaTradingClient(
   return new AlpacaTradingClient(options);
 }
 
+export function createAlpacaHeartbeatSeedProviders(
+  alpaca: Pick<AlpacaTradingClient, "getStockSnapshots">,
+): HeartbeatSeedDataProviders {
+  return {
+    getCurrentPrice: async ({ branch }) =>
+      mapAssets(branch.assets, async (symbol) => {
+        const snapshot = await getSingleStockSnapshot(alpaca, symbol);
+        return toHeartbeatQuote(snapshot);
+      }),
+    getRecentVolume: async ({ branch }) =>
+      mapAssets(branch.assets, async (symbol) => {
+        const snapshot = await getSingleStockSnapshot(alpaca, symbol);
+        return {
+          latest: numberValue(snapshot?.dailyBar?.v) ?? null,
+          average: null,
+          relativeVolume: null,
+          source: "alpaca",
+          note: "Alpaca snapshot provides current daily volume; no multi-day average is computed here yet.",
+        };
+      }),
+    getTickerMovement: async ({ branch }) =>
+      mapAssets(branch.assets, async (symbol) => {
+        const snapshot = await getSingleStockSnapshot(alpaca, symbol);
+        const quote = toHeartbeatQuote(snapshot);
+        return {
+          current: quote.current,
+          change: quote.change,
+          percentChange: quote.percentChange,
+          previousClose: quote.previousClose,
+          dailyVolume: quote.dailyVolume,
+          updatedAt: quote.updatedAt,
+          source: "alpaca",
+        };
+      }),
+  };
+}
+
 function removeTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -508,6 +546,67 @@ function readSnapshotMap(
 ): Record<string, AlpacaStockSnapshot> {
   const wrapped = response as { snapshots?: Record<string, AlpacaStockSnapshot> };
   return wrapped.snapshots ?? (response as Record<string, AlpacaStockSnapshot>);
+}
+
+async function mapAssets<T>(
+  assets: string[],
+  mapper: (symbol: string) => Promise<T>,
+): Promise<Record<string, T>> {
+  return Object.fromEntries(
+    await Promise.all(assets.map(async (symbol) => [symbol, await mapper(symbol)])),
+  );
+}
+
+async function getSingleStockSnapshot(
+  alpaca: Pick<AlpacaTradingClient, "getStockSnapshots">,
+  symbol: string,
+): Promise<AlpacaStockSnapshot | undefined> {
+  const normalized = symbol.trim().toUpperCase();
+  const snapshots = await alpaca.getStockSnapshots([normalized]);
+  return snapshots[normalized] ?? snapshots[symbol];
+}
+
+function toHeartbeatQuote(snapshot: AlpacaStockSnapshot | undefined): {
+  current: number | null;
+  change: number | null;
+  percentChange: number | null;
+  previousClose: number | null;
+  high: number | null;
+  low: number | null;
+  open: number | null;
+  dailyVolume: number | null;
+  updatedAt: string | null;
+  source: "alpaca";
+} {
+  const current =
+    numberValue(snapshot?.latestTrade?.p) ??
+    numberValue(snapshot?.dailyBar?.c) ??
+    numberValue(snapshot?.latestQuote?.ap) ??
+    numberValue(snapshot?.latestQuote?.bp) ??
+    null;
+  const previousClose = numberValue(snapshot?.prevDailyBar?.c) ?? null;
+  const change =
+    current !== null && previousClose !== null ? current - previousClose : null;
+
+  return {
+    current,
+    change,
+    percentChange:
+      change !== null && previousClose !== null && previousClose !== 0
+        ? (change / previousClose) * 100
+        : null,
+    previousClose,
+    high: numberValue(snapshot?.dailyBar?.h) ?? null,
+    low: numberValue(snapshot?.dailyBar?.l) ?? null,
+    open: numberValue(snapshot?.dailyBar?.o) ?? null,
+    dailyVolume: numberValue(snapshot?.dailyBar?.v) ?? null,
+    updatedAt:
+      stringValue(snapshot?.latestTrade?.t) ??
+      stringValue(snapshot?.latestQuote?.t) ??
+      stringValue(snapshot?.dailyBar?.t) ??
+      null,
+    source: "alpaca",
+  };
 }
 
 function toBrokerOrder(

@@ -1,3 +1,5 @@
+import type { AlpacaTradingClient } from "../../api/alpaca.js";
+import { createAlpacaHeartbeatSeedProviders } from "../../api/alpaca.js";
 import type { FinnhubApi } from "../../api/finnhub.js";
 import { createFinnhubHeartbeatSeedProviders } from "../../api/finnhub.js";
 import type { GlobalMemoryApi } from "../../global/memory.js";
@@ -6,18 +8,23 @@ import type { HeartbeatSeedDataProviders } from "./types.js";
 type HeartbeatMemorySeedApi = Pick<GlobalMemoryApi, "getHeartbeatContext" | "search">;
 
 export function createHeartbeatSeedProviders(input: {
+  alpaca?: Pick<AlpacaTradingClient, "getStockSnapshots">;
   finnhub?: FinnhubApi;
   memory?: HeartbeatMemorySeedApi;
   supermemory?: HeartbeatMemorySeedApi;
 }): HeartbeatSeedDataProviders {
-  const { finnhub } = input;
+  const { alpaca, finnhub } = input;
   const memory = input.memory ?? input.supermemory;
   const finnhubProviders = finnhub
     ? createFinnhubHeartbeatSeedProviders(finnhub)
     : {};
+  const alpacaProviders = alpaca
+    ? createAlpacaHeartbeatSeedProviders(alpaca)
+    : {};
 
   return {
     ...finnhubProviders,
+    ...alpacaProviders,
     getSupermemoryContext: memory
       ? ({ branch, supermemoryProfileContainerTag }) =>
           memory.getHeartbeatContext({
