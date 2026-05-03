@@ -79,7 +79,7 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - `prd/`: product requirement docs and behavior specs for agent components before full implementation.
 - `src/api/`: thin API wrappers for external providers. Keep provider-specific auth, URL construction, and response normalization here.
 - `src/api/openrouter.ts`: OpenRouter LangChain chat model factory.
-- `src/api/supermemory.ts`: Supermemory profile/search client used as the memory backbone.
+- `src/api/supermemory.ts`: Supermemory profile/search plus write APIs for direct memories, raw context documents, heartbeat outputs, escalation events, and conversations.
 - `src/api/finnhub.ts`: Finnhub quote, candle, and company-news client plus default heartbeat seed providers.
 - `src/api/exa.ts`: Exa news search client for cheap current web/news search.
 - `src/agents/heartbeat/`: the small-model heartbeat agent implemented as a constrained LangGraph/LangChain workflow.
@@ -87,10 +87,10 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - `src/agents/heartbeat/schema.ts`: Zod schemas for model output and runtime validation.
 - `src/agents/heartbeat/seed.ts`: deterministic seed bundle construction.
 - `src/agents/heartbeat/agent.ts`: LangGraph heartbeat workflow and LangChain structured output call.
-- `src/agents/heartbeat/heartbeat.ts`: simple single-run heartbeat method that applies escalation de-dupe before handoff.
+- `src/agents/heartbeat/heartbeat.ts`: simple single-run heartbeat method plus a setInterval-based scheduler that applies escalation de-dupe before handoff.
 - `src/agents/heartbeat/tools.ts`: LangChain tools for Supermemory profile/search and Exa news search.
 - `src/agents/heartbeat/providers.ts`: composition helper for default Finnhub and Supermemory seed providers.
-- `src/agents/heartbeat/dedupe.ts`: three-call-frame duplicate escalation suppression.
+- `src/agents/heartbeat/dedupe.ts`: three-call-frame duplicate escalation suppression, optionally persisted to a local JSON file.
 - `src/agents/heartbeat/escalation.ts`: helper that creates a pending big-model escalation event when the heartbeat output says to escalate.
 
 ## Heartbeat Agent Configuration
@@ -103,6 +103,7 @@ The product is intentionally human-maintained. The goal is not a fully autonomou
 - Supermemory context should use branch-scoped `profile` plus `search` where possible.
 - The heartbeat agent can run a bounded one-pass tool step before final structured output. Keep tool access cheap and limited to Supermemory and Exa until there is a clear reason to broaden it.
 - Duplicate escalations are suppressed per branch if the same normalized summary appeared in the previous three heartbeat calls.
+- Persistent duplicate suppression should use a local JSON file, not a database, unless the persistence strategy changes explicitly.
 - If the heartbeat output decision is `escalate`, preserve the full seed bundle with the escalation event for the big model.
 
 ## Top-Level Directory Map

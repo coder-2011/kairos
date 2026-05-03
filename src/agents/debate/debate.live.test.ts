@@ -4,6 +4,7 @@ import { ExaApi } from "../../api/exa.js";
 import { FinnhubApi } from "../../api/finnhub.js";
 import { createOpenRouterChatModel } from "../../api/openrouter.js";
 import { SupermemoryApi } from "../../api/supermemory.js";
+import { createInformationDebateTool } from "../information/tool.js";
 import { runDebateAgent } from "./agent.js";
 import type {
   DebateAgentOutput,
@@ -175,51 +176,13 @@ describe("debate live integrations", () => {
         };
       };
 
-      const informationTool: DebateTool = async (input) => {
-        const to = new Date().toISOString().slice(0, 10);
-        const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
-        const [quote, news, memory] = await Promise.all([
-          finnhub.quote("PLTR"),
-          finnhub.companyNews({ symbol: "PLTR", from, to }),
-          supermemory.search({
-            q: input,
-            containerTag: "system_global",
-            limit: 3,
-            searchMode: "memories",
-            rerank: true,
-          }),
-        ]);
-        const topNews = news.slice(0, 3);
-
-        return {
-          summary: JSON.stringify(
-            {
-              quote,
-              recentNews: topNews.map((item) => ({
-                headline: item.headline,
-                source: item.source,
-                summary: item.summary,
-                url: item.url,
-              })),
-              memoryResults: memory.results.slice(0, 3).map((item) => ({
-                memory: item.memory,
-                similarity: item.similarity,
-              })),
-            },
-            null,
-            2,
-          ),
-          citations: topNews
-            .filter((item) => item.url)
-            .map((item) => ({
-              title: item.headline,
-              url: item.url as string,
-              source: item.source,
-            })),
-        };
-      };
+      const informationTool: DebateTool = createInformationDebateTool({
+          model,
+          exa,
+          finnhub,
+          supermemory,
+          supermemoryContainerTag: "system_global",
+        });
 
       const result = await runDebateAgent(
         {

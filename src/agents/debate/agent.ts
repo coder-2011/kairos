@@ -1,6 +1,7 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
+import { executeGlobalTool, type GlobalToolName } from "../../global/tools.js";
 import {
   BEAR_SYSTEM_PROMPT,
   BULL_SYSTEM_PROMPT,
@@ -255,19 +256,33 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
 
     const startedAt = isoNow(deps);
     const id = deps.id?.() ?? defaultId();
-    const tool = deps.tools?.[state.pendingToolRequest.toolName];
+    const debateTool = deps.tools?.[state.pendingToolRequest.toolName];
+    const globalTool =
+      deps.globalTools?.[state.pendingToolRequest.toolName as GlobalToolName];
 
     try {
-      const result = tool
-        ? await tool(state.pendingToolRequest.input, {
+      if (!debateTool && !globalTool) {
+        throw new Error(
+          `No implementation registered for tool ${state.pendingToolRequest.toolName}.`,
+        );
+      }
+
+      const result = debateTool
+        ? await debateTool(state.pendingToolRequest.input, {
             debateId: state.debateId,
             requestedBy: state.pendingToolRequest.requestedBy,
             startInput: state.startInput,
           })
-        : {
-            summary: `Stub ${state.pendingToolRequest.toolName} result for: ${state.pendingToolRequest.input}`,
-            citations: [],
-          };
+        : await executeGlobalTool({
+            registry: deps.globalTools ?? {},
+            toolName: state.pendingToolRequest.toolName as GlobalToolName,
+            toolInput: state.pendingToolRequest.input,
+            context: {
+              debateId: state.debateId,
+              requestedBy: state.pendingToolRequest.requestedBy,
+              startInput: state.startInput,
+            },
+          });
 
       const event = debateToolEventSchema.parse({
         toolEventId: id,
