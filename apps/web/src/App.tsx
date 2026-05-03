@@ -194,11 +194,7 @@ export function App() {
 
   async function runDryHeartbeat(branchId: string) {
     try {
-      const run = await triggerHeartbeat(
-        branchId,
-        { source: "web_command", runMode: "dry" },
-        { dryRun: true },
-      );
+      const run = await triggerHeartbeat(branchId, { source: "web_command" }, { dryRun: true });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
       setView("monitoring");
@@ -214,10 +210,6 @@ export function App() {
       const run = await createDebate({
         branchId,
         dryRun: true,
-        escalation: {
-          branchId,
-          summary: "Manual dry-run escalation opened from the web command center.",
-        },
       });
       setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setSelectedRunId(run.id);
