@@ -341,6 +341,32 @@ a {
   color: var(--primary);
 }
 
+.run-mode-switch {
+  align-items: center;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: 2px;
+  display: inline-flex;
+  min-height: 28px;
+  overflow: hidden;
+}
+
+.run-mode-switch button {
+  background: transparent;
+  border: 0;
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  min-height: 26px;
+  padding: 6px 9px;
+}
+
+.run-mode-switch button.active {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
 .icon-button {
   color: #64748b;
   min-width: 28px;
