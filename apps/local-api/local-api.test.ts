@@ -262,6 +262,18 @@ describe("local API handler", () => {
       status: "succeeded",
     });
     expect(response.body.run.output.branchIds).toEqual(["branch_pltr_contracts"]);
+    expect(response.body.assistantMessage.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "branch_inventory",
+          status: "succeeded",
+        }),
+        expect.objectContaining({
+          name: "heartbeat_wakeup",
+          status: "succeeded",
+        }),
+      ]),
+    );
     expect(response.body.heartbeatRuns).toHaveLength(1);
     expect(heartbeatPayloads).toHaveLength(1);
     expect(heartbeatPayloads[0]).toMatchObject({
@@ -277,6 +289,7 @@ describe("local API handler", () => {
       "user",
       "assistant",
     ]);
+    expect(messages.body.messages[1].toolCalls).toEqual(response.body.assistantMessage.toolCalls);
   });
 
   it("mirrors router uploaded documents into Supermemory", async () => {

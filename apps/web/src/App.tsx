@@ -1694,16 +1694,11 @@ function BranchConfig({
         </section>
         <div>
           <div className="field-label">MODEL ROLE CONFIGURATION</div>
-          <p className="config-note">
-            Use OpenRouter model IDs. The effort selector is saved per role and
-            maps directly to that role's OpenRouter reasoning effort.
-          </p>
           <div className="model-grid">
             {modelRoleFields.map((field) => (
               <div className="model-row" key={field.key}>
                 <span>
                   <b>{field.label}</b>
-                  <small>{field.description}</small>
                 </span>
                 <input
                   list="openrouter-models"
@@ -1758,8 +1753,7 @@ function BranchConfig({
           </datalist>
           {openRouterModels.length === 0 && (
             <p className="config-note">
-              Model list unavailable. You can still enter a known OpenRouter
-              model ID manually.
+              Model list unavailable.
             </p>
           )}
         </div>
@@ -1780,7 +1774,7 @@ function BranchConfig({
                   }
                   type="checkbox"
                 />
-                <span>Premium endpoints enabled for this branch</span>
+                <span>Premium data</span>
               </label>
             </div>
           </FieldLabel>
@@ -1956,7 +1950,7 @@ function BranchConfig({
                   },
                 }))
               }
-              placeholder="ticker, sector, law, or custom packet id"
+              placeholder="Ticker or sector"
               value={config.research?.dataPacket ?? ""}
             />
           </FieldLabel>
@@ -1972,7 +1966,7 @@ function BranchConfig({
                 },
               }))
             }
-            placeholder="Applied to both Exa search and Exa research calls for this branch."
+            placeholder="Research notes for this branch."
             value={config.research?.exaInstruction ?? ""}
           />
         </FieldLabel>
@@ -2134,21 +2128,21 @@ function EvidencePane({
           <EmptyPanel
             icon="database"
             title="No Evidence Payload"
-            message="Tool, source, and evidence event payloads from the selected run will appear here."
+            message="No evidence yet."
           />
         ) : (
           <>
             <div className="source-card">
-              <div className="field-label">RECORD IDENTIFIER</div>
+              <div className="field-label">SOURCE</div>
               <h1>{selectedEvidence?.id ?? run?.id ?? "RUN PAYLOAD"}</h1>
               <div className="source-tags">
                 <span>{selectedEvidence?.type ?? run?.kind ?? "record"}</span>
                 <span>{run?.status ?? "loaded"}</span>
               </div>
             </div>
-            <div className="field-label">RAW DATA SNAPSHOT</div>
+            <div className="field-label">DETAILS</div>
             <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
-            <div className="field-label">TIMELINE ALIGNMENT</div>
+            <div className="field-label">TIMELINE</div>
             <div className="alignment-row">
               <span>Run Created</span>
               <b>{run ? timeOnly(run.createdAt) : "-"}</b>
@@ -2201,7 +2195,7 @@ function EscalationCard({ runs }: { runs: RunRecord[] }) {
         <EmptyPanel
           icon="warning"
           title="No Active Escalations"
-          message="Debate runs and failed runs for this branch will appear here."
+          message="No escalations yet."
         />
       ) : (
         escalatedRuns.map((run) => (

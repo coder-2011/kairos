@@ -16,6 +16,10 @@ import {
   resolveHeartbeatAgentConfig,
   resolveInformationAgentConfig,
 } from "../global/agent-config.js";
+import {
+  branchConfigToModelOverrides,
+  resolveKairosModelConfig,
+} from "../global/model-config.js";
 
 const fixedNow = new Date("2026-05-03T12:00:00.000Z");
 let tempDirs: string[] = [];
@@ -204,6 +208,16 @@ describe("runtime schemas", () => {
         prompts: {
           debateBullSystemPrompt: "Argue the bull case.",
         },
+        models: {
+          heartbeat: {
+            model: "openai/gpt-5.4-mini",
+            reasoningEffort: "low",
+          },
+          debateFinal: {
+            model: "anthropic/claude-opus-4.7",
+            reasoningEffort: "high",
+          },
+        },
         tools: {
           finnhubPremiumAccess: true,
           information: {
@@ -258,6 +272,23 @@ describe("runtime schemas", () => {
       },
       maxToolCalls: 5,
       finnhubPremiumAccess: true,
+    });
+    const modelOverrides = branchConfigToModelOverrides(config);
+    expect(resolveKairosModelConfig(
+      "heartbeat",
+      {} as NodeJS.ProcessEnv,
+      modelOverrides,
+    )).toMatchObject({
+      model: "openai/gpt-5.4-mini",
+      reasoning: { effort: "low" },
+    });
+    expect(resolveKairosModelConfig(
+      "debateFinal",
+      {} as NodeJS.ProcessEnv,
+      modelOverrides,
+    )).toMatchObject({
+      model: "anthropic/claude-opus-4.7",
+      reasoning: { effort: "high" },
     });
     expect(buildFrontendToolConfigurationCatalog({
       finnhubPremiumAccess: false,
