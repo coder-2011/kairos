@@ -1,4 +1,18 @@
 import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+import {
+  createBrokerOrderRecord,
+  createPortfolioSnapshotRecord,
+  createTradeIntentRecord,
+  createTradingMessageRecord,
+  type BrokerOrder,
+  type CreateBrokerOrderInput,
+  type CreateTradeIntentInput,
+  type CreateTradingMessageInput,
+  type PortfolioSnapshot,
+  type TradeIntent,
+  type TradingMessage,
+  type UpdateTradeIntentInput,
+} from "../../../src/trading/index.js";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -85,12 +99,27 @@ export type KairosLocalStore = {
   listRunEvents(runId: string): Promise<RunEventRecord[]>;
   appendRunEvent(runId: string, input: AppendRunEventInput): Promise<RunEventRecord>;
   subscribeToRunEvents?(runId: string, subscriber: RunEventSubscriber): () => void;
+  listMessages(): Promise<TradingMessage[]>;
+  createMessage(input: CreateTradingMessageInput): Promise<TradingMessage>;
+  listTradeIntents(): Promise<TradeIntent[]>;
+  getTradeIntent(id: string): Promise<TradeIntent | undefined>;
+  createTradeIntent(input: CreateTradeIntentInput): Promise<TradeIntent>;
+  updateTradeIntent(id: string, input: UpdateTradeIntentInput): Promise<TradeIntent | undefined>;
+  listBrokerOrders(): Promise<BrokerOrder[]>;
+  createBrokerOrder(input: CreateBrokerOrderInput | BrokerOrder): Promise<BrokerOrder>;
+  listPortfolioSnapshots(): Promise<PortfolioSnapshot[]>;
+  latestPortfolioSnapshot(): Promise<PortfolioSnapshot | undefined>;
+  createPortfolioSnapshot(input: Omit<PortfolioSnapshot, "id" | "capturedAt"> & { id?: string; capturedAt?: string }): Promise<PortfolioSnapshot>;
 };
 
 export class MemoryKairosStore implements KairosLocalStore {
   private branches = new Map<string, BranchRecord>();
   private runs = new Map<string, RunRecord>();
   private events = new Map<string, RunEventRecord[]>();
+  private messages = new Map<string, TradingMessage>();
+  private tradeIntents = new Map<string, TradeIntent>();
+  private brokerOrders = new Map<string, BrokerOrder>();
+  private portfolioSnapshots = new Map<string, PortfolioSnapshot>();
   private subscribers = new Map<string, Set<RunEventSubscriber>>();
   private sequence = 0;
 
@@ -211,6 +240,81 @@ export class MemoryKairosStore implements KairosLocalStore {
         this.subscribers.delete(runId);
       }
     };
+  }
+
+  async listMessages(): Promise<TradingMessage[]> {
+    return sortByCreatedAt([...this.messages.values()]);
+  }
+
+  async createMessage(input: CreateTradingMessageInput): Promise<TradingMessage> {
+    const message = createTradingMessageRecord(input, {
+      id: () => this.nextId("message"),
+    });
+    this.messages.set(message.id, message);
+    return message;
+  }
+
+  async listTradeIntents(): Promise<TradeIntent[]> {
+    return sortByCreatedAt([...this.tradeIntents.values()]);
+  }
+
+  async getTradeIntent(id: string): Promise<TradeIntent | undefined> {
+    return this.tradeIntents.get(id);
+  }
+
+  async createTradeIntent(input: CreateTradeIntentInput): Promise<TradeIntent> {
+    const intent = createTradeIntentRecord(input, {
+      id: () => this.nextId("trade_intent"),
+    });
+    this.tradeIntents.set(intent.id, intent);
+    return intent;
+  }
+
+  async updateTradeIntent(id: string, input: UpdateTradeIntentInput): Promise<TradeIntent | undefined> {
+    const current = this.tradeIntents.get(id);
+    if (!current) return undefined;
+
+    const intent: TradeIntent = {
+      ...current,
+      ...definedFields(input),
+      id: current.id,
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    this.tradeIntents.set(id, intent);
+    return intent;
+  }
+
+  async listBrokerOrders(): Promise<BrokerOrder[]> {
+    return sortByCreatedAt([...this.brokerOrders.values()]);
+  }
+
+  async createBrokerOrder(input: CreateBrokerOrderInput | BrokerOrder): Promise<BrokerOrder> {
+    const order = "id" in input && "createdAt" in input
+      ? input
+      : createBrokerOrderRecord(input, { id: () => this.nextId("broker_order") });
+    this.brokerOrders.set(order.id, order);
+    return order;
+  }
+
+  async listPortfolioSnapshots(): Promise<PortfolioSnapshot[]> {
+    return [...this.portfolioSnapshots.values()].sort((left, right) =>
+      left.capturedAt.localeCompare(right.capturedAt),
+    );
+  }
+
+  async latestPortfolioSnapshot(): Promise<PortfolioSnapshot | undefined> {
+    return (await this.listPortfolioSnapshots()).at(-1);
+  }
+
+  async createPortfolioSnapshot(
+    input: Omit<PortfolioSnapshot, "id" | "capturedAt"> & { id?: string; capturedAt?: string },
+  ): Promise<PortfolioSnapshot> {
+    const snapshot = createPortfolioSnapshotRecord(input, {
+      id: () => this.nextId("portfolio"),
+    });
+    this.portfolioSnapshots.set(snapshot.id, snapshot);
+    return snapshot;
   }
 
   private nextId(prefix: string): string {

@@ -5,6 +5,17 @@ import {
   type KairosRun,
 } from "../../../src/runtime/index.js";
 import {
+  LocalTradingStore,
+  type BrokerOrder,
+  type CreateBrokerOrderInput,
+  type CreateTradeIntentInput,
+  type CreateTradingMessageInput,
+  type PortfolioSnapshot,
+  type TradeIntent,
+  type TradingMessage,
+  type UpdateTradeIntentInput,
+} from "../../../src/trading/index.js";
+import {
   kairosBranchAgentConfigSchema,
   type KairosBranchAgentConfig,
 } from "../../../src/global/agent-config.js";
@@ -24,11 +35,17 @@ export async function createRuntimeStore(
 ): Promise<KairosLocalStore> {
   return new RuntimeStoreAdapter(
     new LocalKairosStore({ rootDir: options.dataDir }),
+    new LocalTradingStore({
+      rootDir: options.dataDir ? `${options.dataDir}/trading` : undefined,
+    }),
   );
 }
 
 class RuntimeStoreAdapter implements KairosLocalStore {
-  constructor(private readonly store: LocalKairosStore) {}
+  constructor(
+    private readonly store: LocalKairosStore,
+    private readonly tradingStore: LocalTradingStore,
+  ) {}
 
   async listBranches(): Promise<BranchRecord[]> {
     return (await this.store.listBranches()).map(toBranchRecord);
@@ -154,6 +171,58 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       ...(input.timestamp ? { timestamp: input.timestamp } : {}),
     });
     return toRunEventRecord(event);
+  }
+
+  listMessages(): Promise<TradingMessage[]> {
+    return this.tradingStore.listMessages();
+  }
+
+  createMessage(input: CreateTradingMessageInput): Promise<TradingMessage> {
+    return this.tradingStore.createMessage(input);
+  }
+
+  listTradeIntents(): Promise<TradeIntent[]> {
+    return this.tradingStore.listTradeIntents();
+  }
+
+  getTradeIntent(id: string): Promise<TradeIntent | undefined> {
+    return this.tradingStore.getTradeIntent(id);
+  }
+
+  createTradeIntent(input: CreateTradeIntentInput): Promise<TradeIntent> {
+    return this.tradingStore.createTradeIntent(input);
+  }
+
+  updateTradeIntent(
+    id: string,
+    input: UpdateTradeIntentInput,
+  ): Promise<TradeIntent | undefined> {
+    return this.tradingStore.updateTradeIntent(id, input);
+  }
+
+  listBrokerOrders(): Promise<BrokerOrder[]> {
+    return this.tradingStore.listBrokerOrders();
+  }
+
+  createBrokerOrder(input: CreateBrokerOrderInput | BrokerOrder): Promise<BrokerOrder> {
+    return this.tradingStore.createBrokerOrder(input);
+  }
+
+  listPortfolioSnapshots(): Promise<PortfolioSnapshot[]> {
+    return this.tradingStore.listPortfolioSnapshots();
+  }
+
+  latestPortfolioSnapshot(): Promise<PortfolioSnapshot | undefined> {
+    return this.tradingStore.latestPortfolioSnapshot();
+  }
+
+  createPortfolioSnapshot(
+    input: Omit<PortfolioSnapshot, "id" | "capturedAt"> & {
+      id?: string;
+      capturedAt?: string;
+    },
+  ): Promise<PortfolioSnapshot> {
+    return this.tradingStore.createPortfolioSnapshot(input);
   }
 }
 

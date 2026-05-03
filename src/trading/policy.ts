@@ -45,15 +45,35 @@ export function evaluateTradingThresholdPolicy(
   const paperThreshold =
     input.tradingConfig?.paperTradeConfidenceThreshold ??
     branchConfig?.trading?.paperTradeConfidenceThreshold ??
-    input.branchConfig?.thresholds?.buyConfidence ??
     input.branchConfig?.thresholds?.paperTradeDraftConfidence ??
+    input.branchConfig?.thresholds?.buyConfidence ??
     DEFAULT_PAPER_THRESHOLD;
+  const tradingMode =
+    input.tradingConfig?.mode ??
+    branchConfig?.trading?.mode ??
+    "disabled";
   const paperAutoBuyEnabled =
     input.tradingConfig?.paperAutoBuyEnabled ??
     branchConfig?.trading?.paperAutoBuyEnabled ??
     false;
+  const notifyOnBuySignal =
+    input.tradingConfig?.notifyOnBuySignal ??
+    branchConfig?.trading?.notifyOnBuySignal ??
+    true;
 
   if (input.confidence >= paperThreshold) {
+    if (tradingMode !== "paper") {
+      return {
+        confidenceScore: input.confidence,
+        notifyThreshold,
+        paperThreshold,
+        thresholdResult: "paper_trade_candidate",
+        permittedAction: notifyOnBuySignal ? "message_human" : "record_only",
+        paperAutoBuyEnabled: false,
+        rationale: "Confidence crossed the paper threshold, but paper trading is disabled.",
+      };
+    }
+
     return {
       confidenceScore: input.confidence,
       notifyThreshold,
@@ -73,9 +93,11 @@ export function evaluateTradingThresholdPolicy(
       notifyThreshold,
       paperThreshold,
       thresholdResult: "message_human",
-      permittedAction: "message_human",
+      permittedAction: notifyOnBuySignal ? "message_human" : "record_only",
       paperAutoBuyEnabled,
-      rationale: "Confidence crossed the notify threshold but stayed below the paper threshold.",
+      rationale: notifyOnBuySignal
+        ? "Confidence crossed the notify threshold but stayed below the paper threshold."
+        : "Confidence crossed the notify threshold, but branch notifications are disabled.",
     };
   }
 
