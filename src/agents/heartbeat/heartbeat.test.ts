@@ -384,11 +384,13 @@ describe("heartbeat scheduler", () => {
       await scheduler.runNow();
       expect(onResult).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
     } finally {
       scheduler.stop();
