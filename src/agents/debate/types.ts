@@ -49,6 +49,8 @@ export type DebateDecision = {
   sizing?: {
     qty?: number;
     notional?: number;
+    orderType?: "market" | "limit";
+    limitPrice?: number;
     rationale: string;
   };
   citations: Citation[];

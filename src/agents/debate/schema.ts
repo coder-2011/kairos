@@ -22,12 +22,18 @@ export const debateDecisionSizingSchema = z
   .object({
     qty: z.number().positive().optional(),
     notional: z.number().positive().optional(),
+    orderType: z.enum(["market", "limit"]).optional(),
+    limitPrice: z.number().positive().optional(),
     rationale: z.string().min(1),
   })
   .strict()
   .refine((sizing) => sizing.qty !== undefined || sizing.notional !== undefined, {
     message: "Sizing requires qty or notional.",
     path: ["qty"],
+  })
+  .refine((sizing) => sizing.orderType !== "limit" || sizing.limitPrice !== undefined, {
+    message: "Limit sizing requires limitPrice.",
+    path: ["limitPrice"],
   });
 
 export const debateStartInputSchema = z

@@ -8,6 +8,7 @@ import {
   createToolEvent,
 } from "./events.js";
 import { resolveDebatePrompts } from "./prompt.js";
+import { debateDecisionSchema } from "./schema.js";
 import type {
   DebateAgentOutput,
   DebateDecision,
@@ -86,6 +87,64 @@ function firstHumanPrompt(invoke: ReturnType<typeof vi.fn>): string {
 }
 
 describe("debate agent", () => {
+  it("allows final buy and sell decisions to propose limit order prices", () => {
+    expect(
+      debateDecisionSchema.parse({
+        summary: "Buy only at a controlled entry price.",
+        action: "buy",
+        confidence: 0.9,
+        sizing: {
+          notional: 500,
+          orderType: "limit",
+          limitPrice: 24.5,
+          rationale: "Limit entry controls slippage.",
+        },
+        citations: [],
+      }),
+    ).toMatchObject({
+      sizing: {
+        orderType: "limit",
+        limitPrice: 24.5,
+      },
+    });
+
+    expect(
+      debateDecisionSchema.parse({
+        summary: "Trim exposure above a minimum acceptable exit price.",
+        action: "sell",
+        confidence: 0.88,
+        sizing: {
+          qty: 5,
+          orderType: "limit",
+          limitPrice: 26,
+          rationale: "Limit exit avoids selling below the desired price.",
+        },
+        citations: [],
+      }),
+    ).toMatchObject({
+      sizing: {
+        orderType: "limit",
+        limitPrice: 26,
+      },
+    });
+  });
+
+  it("rejects final limit sizing without a limit price", () => {
+    expect(() =>
+      debateDecisionSchema.parse({
+        summary: "Limit order without a price is not broker-ready.",
+        action: "buy",
+        confidence: 0.9,
+        sizing: {
+          notional: 500,
+          orderType: "limit",
+          rationale: "Missing price.",
+        },
+        citations: [],
+      }),
+    ).toThrow(/Limit sizing requires limitPrice/);
+  });
+
   it("runs the deterministic LangGraph debate with a tool call and final decision", async () => {
     const information = vi.fn(async () => ({
       summary: "Information tool checked the reported contract context.",

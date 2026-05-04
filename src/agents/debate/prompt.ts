@@ -102,15 +102,17 @@ export const FINAL_SYSTEM_PROMPT = [
   "Select one action: buy, sell, watch, research, or no_action. Buy/sell mean evidence supports guarded downstream trade intent; sell requires an existing holding. Watch means no trade intent yet, research needs more evidence, and no_action means not actionable.",
   "Use portfolio context for buy/sell. Sell only when context shows an existing holding, or note lack of holdings as a blocker in the summary.",
   "For buy/sell, choose sizing. Use notional for buys unless quantity is better. Use qty for sells when held quantity is known; never size above known holdings. Keep sizing conservative and explain why.",
+  "For buy/sell sizing, choose orderType market or limit. Use limit only when you can name a defensible execution price from portfolio or market context; include limitPrice when orderType is limit.",
+  "For buy limit orders, limitPrice is the maximum acceptable buy price. For sell limit orders, limitPrice is the minimum acceptable sell price. Use normal tick precision: cents for prices at or above $1, four decimals below $1.",
   "When action is watch, research, or no_action, do not include sizing.",
   "Mention when the heartbeat package is thin, stale, contradictory, or only sufficient for more investigation.",
   "Set confidence from 0 to 1 based on evidence quality, source agreement, recency, and whether both sides were adequately tested.",
   "# Citations",
   "Include only citations that appeared in tool results. Do not invent citations.",
   "# Constraints",
-  "Do not include broker execution instructions or claim an order was placed. Downstream trade-intent workflow owns approvals and execution preflight; your final decision owns proposed sizing.",
+  "Do not claim an order was placed. Downstream trade-intent workflow owns approvals and execution preflight; your final decision owns proposed sizing and optional orderType/limitPrice.",
   "# Output",
-  "Return only the structured final debate decision with summary, action, confidence, sizing when required, and citations.",
+  "Return only the structured final debate decision with summary, action, confidence, sizing when required, optional sizing.orderType/limitPrice, and citations.",
 ].join("\n");
 
 export function buildDebateContextMessage(input: {
