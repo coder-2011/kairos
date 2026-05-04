@@ -429,8 +429,13 @@ export async function serveLocalApi(options: LocalApiOptions & { port?: number; 
   const hostname = options.hostname ?? process.env.KAIROS_LOCAL_API_HOST ?? "127.0.0.1";
 
   if ("Bun" in globalThis) {
-    const bun = (globalThis as typeof globalThis & { Bun: { serve: (options: { port: number; hostname: string; fetch: (request: Request) => Promise<Response> }) => unknown } }).Bun;
-    return bun.serve({ port, hostname, fetch: handler });
+    const bun = (globalThis as typeof globalThis & { Bun: { serve: (options: {
+      port: number;
+      hostname: string;
+      fetch: (request: Request) => Promise<Response>;
+      idleTimeout?: number;
+    }) => unknown } }).Bun;
+    return bun.serve({ port, hostname, fetch: handler, idleTimeout: 255 });
   }
 
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
@@ -737,14 +742,24 @@ async function applyTradingPolicyToDebate(
       tradingConfig.maxNotionalPerOrder ??
       tradingConfig.maxNotionalUsd ??
       500;
+    const requestedQty = decision.sizing?.qty;
+    const requestedNotional = decision.sizing?.notional;
+    const intentQty =
+      requestedQty ??
+      (tradeSide === "sell" && requestedNotional === undefined
+        ? currentPosition?.qty
+        : undefined);
+    const intentNotional =
+      requestedNotional ??
+      (tradeSide === "buy" && requestedQty === undefined ? defaultNotional : undefined);
     intent = await context.store.createTradeIntent({
       branchId: branch?.id,
       lawId: branch?.lawId,
       sourceRunId: run.id,
       symbol,
       side: tradeSide,
-      qty: tradeSide === "sell" ? currentPosition?.qty : undefined,
-      notional: tradeSide === "buy" ? defaultNotional : undefined,
+      qty: intentQty,
+      notional: intentNotional,
       orderType:
         tradingConfig.allowedOrderType === "limit" ||
         tradingConfig.defaultOrderType === "limit"
@@ -758,9 +773,10 @@ async function applyTradingPolicyToDebate(
       risk: "Generated from a debate threshold crossing; review source quality, volatility, and position exposure.",
       timeHorizon: "Branch-defined event horizon.",
       positionSizingRationale:
-        tradeSide === "buy"
-          ? `Uses configured max order notional ${defaultNotional}.`
-          : `Uses cached ${symbol} position quantity ${currentPosition?.qty}.`,
+        decision.sizing?.rationale ??
+        (tradeSide === "buy"
+          ? `Judge omitted sizing; uses configured max order notional ${defaultNotional}.`
+          : `Judge omitted sizing; uses cached ${symbol} position quantity ${currentPosition?.qty}.`),
       invalidationCondition: "Evidence is stale, contradicted, immaterial, or already priced in.",
       exitCondition: "Manual review or future branch-specific exit law.",
       approvalsRequired:
@@ -768,11 +784,12 @@ async function applyTradingPolicyToDebate(
       status: policy.permittedAction === "paper_order" ? "paper_ready" : "draft",
       tradingConfig,
       metadata: {
-        thresholdPolicy: policy,
-        action: decision.action,
-        autoTradeEnabled: policy.autoTradeEnabled,
-        portfolioContext: compactPortfolioContext(portfolioSnapshot),
-      },
+          thresholdPolicy: policy,
+          action: decision.action,
+          judgeSizing: decision.sizing,
+          autoTradeEnabled: policy.autoTradeEnabled,
+          portfolioContext: compactPortfolioContext(portfolioSnapshot),
+        },
     });
 
     await context.store.appendRunEvent(run.id, {
@@ -2776,6 +2793,11 @@ function extractTradingDecision(output: JsonRecord | undefined): {
   confidence: number;
   summary: string;
   action: "buy" | "sell" | "watch" | "research" | "no_action";
+  sizing?: {
+    qty?: number;
+    notional?: number;
+    rationale?: string;
+  };
   citations: unknown[];
 } | undefined {
   if (!isJsonRecord(output)) return undefined;
@@ -2800,8 +2822,28 @@ function extractTradingDecision(output: JsonRecord | undefined): {
     confidence,
     summary,
     action,
+    sizing: extractDecisionSizing(decisionObject.sizing),
     citations: Array.isArray(decisionObject.citations) ? decisionObject.citations : [],
   };
+}
+
+function extractDecisionSizing(value: unknown): {
+  qty?: number;
+  notional?: number;
+  rationale?: string;
+} | undefined {
+  if (!isJsonRecord(value)) return undefined;
+  const qty = typeof value.qty === "number" && value.qty > 0 ? value.qty : undefined;
+  const notional =
+    typeof value.notional === "number" && value.notional > 0
+      ? value.notional
+      : undefined;
+  const rationale =
+    typeof value.rationale === "string" && value.rationale.trim().length > 0
+      ? value.rationale.trim()
+      : undefined;
+  if (qty === undefined && notional === undefined) return undefined;
+  return { qty, notional, rationale };
 }
 
 function normalizeTradingDecisionAction(
