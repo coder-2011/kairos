@@ -906,7 +906,7 @@ async function executeDebateRun(
   cancelState?: DebateCancelState,
 ): Promise<RunRecord> {
   const onProgress = async (event: AppendRunEventInput): Promise<void> => {
-    if (await isDebateCanceled(context, run.id, cancelState)) {
+    if (!await isDebateActive(context, run.id, cancelState)) {
       return;
     }
     await context.store.appendRunEvent(run.id, event);
@@ -1792,6 +1792,19 @@ async function isDebateCanceled(
 
   const run = await context.store.getRun(runId);
   return run?.status === "canceled";
+}
+
+async function isDebateActive(
+  context: LocalApiContext,
+  runId: string,
+  cancelState?: DebateCancelState,
+): Promise<boolean> {
+  if (cancelState?.canceled) {
+    return false;
+  }
+
+  const run = await context.store.getRun(runId);
+  return run?.status === "running";
 }
 
 function debateTimeoutMs(): number {
