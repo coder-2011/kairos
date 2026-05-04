@@ -94,6 +94,36 @@ describe("market symbol directory provider", () => {
       expect.arrayContaining(["SPY", "YSPY", "GSPY"]),
     );
   });
+
+  it("returns the full directory without quote fetches when quote enrichment is disabled", async () => {
+    const requests: string[] = [];
+    const provider = createMarketSymbolDirectoryProvider({
+      fetchImpl: async (input) => {
+        const url = String(input);
+        requests.push(url);
+        if (url === NASDAQ_LISTED_URL) {
+          return textResponse([
+            "Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares",
+            "AAPL|Apple Inc. - Common Stock|Q|N|N|100|N|N",
+            "MSFT|Microsoft Corporation - Common Stock|Q|N|N|100|N|N",
+            "File Creation Time: 0503202600:00|||||||",
+          ].join("\n"));
+        }
+        if (url === OTHER_LISTED_URL) {
+          return textResponse([
+            "ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol",
+            "SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY",
+          ].join("\n"));
+        }
+        throw new Error(`Unexpected URL ${url}`);
+      },
+    });
+
+    const symbols = await provider.listMarketSymbols({ includeQuotes: false });
+
+    expect(symbols.map((symbol) => symbol.symbol)).toEqual(["AAPL", "MSFT", "SPY"]);
+    expect(requests).toEqual([NASDAQ_LISTED_URL, OTHER_LISTED_URL]);
+  });
 });
 
 function textResponse(text: string): Response {
