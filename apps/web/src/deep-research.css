@@ -235,6 +235,21 @@
   white-space: pre-wrap;
 }
 
+.deep-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.deep-message-images img {
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  height: 120px;
+  object-fit: cover;
+  width: 120px;
+}
+
 .deep-tool-list {
   border-top: 1px solid var(--outline-variant);
   display: flex;
@@ -287,8 +302,65 @@
   border-top: 1px solid var(--outline-variant);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   padding: 12px;
+}
+
+.deep-research-composer.drag-active {
+  background: color-mix(in srgb, var(--secondary-fixed) 38%, var(--surface));
+  box-shadow: inset 0 0 0 2px var(--secondary);
+}
+
+.deep-file-input {
+  display: none;
+}
+
+.deep-attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.deep-attachment {
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  height: 72px;
+  overflow: hidden;
+  position: relative;
+  width: 72px;
+}
+
+.deep-attachment img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.deep-attachment button {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid var(--outline-variant);
+  border-radius: 999px;
+  color: var(--on-surface);
+  display: flex;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 22px;
+}
+
+.deep-attachment button .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.deep-attach-button {
+  align-self: stretch;
+  height: auto;
+  width: 44px;
 }
 
 .deep-research-composer textarea {
@@ -325,5 +397,15 @@
 
   .deep-research-message {
     max-width: 92%;
+  }
+
+  .deep-research-composer {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .deep-attach-button {
+    grid-column: 1;
+    height: 40px;
+    width: 100%;
   }
 }

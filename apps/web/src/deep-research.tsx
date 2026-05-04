@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RouterToolCallRecord } from "./api";
 import {
@@ -8,6 +8,7 @@ import {
   getDeepResearchModels,
   sendDeepResearchMessage,
   type DeepResearchChatRecord,
+  type DeepResearchImageAttachment,
   type DeepResearchMessageRecord,
   type DeepResearchModelOption,
 } from "./deep-research-api";
@@ -24,8 +25,11 @@ export function DeepResearchView() {
   const [models, setModels] = useState<DeepResearchModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<DeepResearchImageAttachment[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeModel = useMemo(
     () => models.find((model) => model.id === selectedModel) ?? models[0],
@@ -105,9 +109,11 @@ export function DeepResearchView() {
   }
 
   async function submit() {
-    if (!draft.trim() || running) return;
+    if ((!draft.trim() && attachments.length === 0) || running) return;
 
     let chatId = selectedChatId;
+    const submittedText = draft.trim();
+    const submittedAttachments = attachments;
     setRunning(true);
     setError("");
     try {
@@ -120,10 +126,12 @@ export function DeepResearchView() {
 
       const result = await sendDeepResearchMessage({
         chatId,
-        text: draft.trim(),
+        text: submittedText,
         model: selectedModel,
+        attachments: submittedAttachments,
       });
       setDraft("");
+      setAttachments([]);
       setMessages((current) => [
         ...current,
         result.userMessage,
@@ -147,6 +155,20 @@ export function DeepResearchView() {
     } finally {
       setRunning(false);
     }
+  }
+
+  async function addImageFiles(files: FileList | File[]) {
+    const imageFiles = [...files].filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+    setError("");
+    const nextAttachments = await Promise.all(
+      imageFiles.slice(0, Math.max(0, 6 - attachments.length)).map(fileToAttachment),
+    );
+    setAttachments((current) => [...current, ...nextAttachments].slice(0, 6));
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }
 
   return (
@@ -239,7 +261,54 @@ export function DeepResearchView() {
           </div>
         )}
 
-        <footer className="deep-research-composer">
+        <footer
+          className={`deep-research-composer ${dragActive ? "drag-active" : ""}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setDragActive(false);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragActive(false);
+            void addImageFiles(event.dataTransfer.files);
+          }}
+        >
+          {attachments.length > 0 && (
+            <div className="deep-attachment-strip">
+              {attachments.map((attachment) => (
+                <div className="deep-attachment" key={attachment.id}>
+                  <img alt={attachment.name} src={attachment.dataUrl} />
+                  <button
+                    aria-label={`Remove ${attachment.name}`}
+                    onClick={() => removeAttachment(attachment.id)}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="deep-file-input"
+            multiple
+            onChange={(event) => {
+              if (event.target.files) void addImageFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
+            ref={fileInputRef}
+            type="file"
+          />
           <textarea
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -252,8 +321,16 @@ export function DeepResearchView() {
             value={draft}
           />
           <button
+            className="icon-button deep-attach-button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach images"
+            type="button"
+          >
+            <span className="material-symbols-outlined">add_photo_alternate</span>
+          </button>
+          <button
             className="command-button primary"
-            disabled={!draft.trim() || running || !selectedModel}
+            disabled={(!draft.trim() && attachments.length === 0) || running || !selectedModel}
             onClick={() => void submit()}
             type="button"
           >
@@ -304,6 +381,13 @@ function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }
         <span>{message.model ?? formatChatTimestamp(message.createdAt)}</span>
       </div>
       <p>{message.text}</p>
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="deep-message-images">
+          {message.attachments.map((attachment) => (
+            <img alt={attachment.name} key={attachment.id} src={attachment.dataUrl} />
+          ))}
+        </div>
+      )}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <div className="deep-tool-list">
           {message.toolCalls.map((call) => (
@@ -351,4 +435,22 @@ function formatChatTimestamp(value: string): string {
 
 function humanize(value: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+async function fileToAttachment(file: File): Promise<DeepResearchImageAttachment> {
+  return {
+    id: crypto.randomUUID(),
+    name: file.name,
+    mimeType: file.type,
+    dataUrl: await readFileAsDataUrl(file),
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result)));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
 }

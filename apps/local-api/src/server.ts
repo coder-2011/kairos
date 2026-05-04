@@ -24,6 +24,7 @@ import {
 } from "../../../src/agents/heartbeat/index.js";
 import {
   runDebateAgent,
+  type DebateMessage,
   type HumanInterjection,
   type DebateRunConfig,
   type DebateRunResult,
@@ -122,6 +123,7 @@ type HeartbeatRunResult = {
 type DebateCreateInput = {
   payload: JsonRecord;
   branch?: BranchRecord;
+  onProgress?: (event: AppendRunEventInput) => Promise<void> | void;
 };
 
 type DebateCreateResult = {
@@ -349,6 +351,9 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
 
         case "appendInterjection":
           return await appendInterjection(context, route.params.runId, await readJson(request));
+
+        case "cancelRun":
+          return await cancelRun(context, route.params.runId);
 
         case "streamRunEvents":
           return streamRunEvents(context, route.params.runId);
