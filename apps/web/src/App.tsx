@@ -833,6 +833,7 @@ export function App() {
   ) {
     try {
       const currentBranch = branches.find((branch) => branch.id === branchId);
+      const config = withInferredAssets(input.config, input.lawText, tradeSymbols);
       const branchInput = {
         name: input.branchName.trim() || currentBranch?.name || "Untitled Branch",
         enabled: input.enabled,
@@ -841,7 +842,7 @@ export function App() {
           ...currentBranch?.law,
           thesis: input.lawText,
         },
-        config: input.config,
+        config,
       };
       const branch = isLocalDraftBranch(currentBranch)
         ? await createBranch({
@@ -2739,7 +2740,8 @@ function BranchConfig({
   const seedWindowDays = config.heartbeat?.seedWindowDays ?? 30;
   const heartbeatMaxToolSteps = config.heartbeat?.maxToolSteps ?? 3;
   const debateMaxTurns = config.budgets?.debateMaxTurns ?? 6;
-  const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 3;
+  const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 5;
+  const debateTimeoutMinutes = config.budgets?.debateTimeoutMinutes ?? 5;
   const informationMaxToolCalls = config.budgets?.informationMaxToolCalls ?? 5;
   const branchAssets = config.assets ?? [];
   const tradingConfig = config.trading ?? {};
@@ -3310,6 +3312,22 @@ function BranchConfig({
               }
               type="number"
               value={debateMaxToolCalls}
+            />
+          </FieldLabel>
+          <FieldLabel label="Debate Timeout Minutes">
+            <input
+              min="1"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  budgets: {
+                    ...current.budgets,
+                    debateTimeoutMinutes: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={debateTimeoutMinutes}
             />
           </FieldLabel>
           <FieldLabel label="Information Max Tool Calls">
@@ -3988,7 +4006,8 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     budgets: {
       debateMaxTurns: 6,
-      debateMaxToolCalls: 3,
+      debateMaxToolCalls: 5,
+      debateTimeoutMinutes: 5,
       informationMaxToolCalls: 5,
     },
     thresholds: {
@@ -4057,7 +4076,8 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
     },
     budgets: {
       debateMaxTurns: 6,
-      debateMaxToolCalls: 3,
+      debateMaxToolCalls: 5,
+      debateTimeoutMinutes: 5,
       informationMaxToolCalls: 5,
       ...config.budgets,
     },
@@ -4337,6 +4357,49 @@ function readAssets(branch: BranchRecord): string[] {
   return Array.isArray(assets)
     ? assets.filter((asset): asset is string => typeof asset === "string")
     : [];
+}
+
+function withInferredAssets(
+  config: WebBranchConfig,
+  lawText: string,
+  tradeSymbols: TradeSymbolRecord[],
+): WebBranchConfig {
+  const assets = mergeSymbolSelection(config.assets ?? []);
+  if (assets.length > 0) return { ...config, assets };
+
+  const inferredAssets = inferAssetsFromLawText(lawText, tradeSymbols);
+  return inferredAssets.length > 0
+    ? { ...config, assets: inferredAssets }
+    : { ...config, assets };
+}
+
+function inferAssetsFromLawText(
+  lawText: string,
+  tradeSymbols: TradeSymbolRecord[],
+): string[] {
+  const catalog = new Set(tradeSymbols.map((symbol) => normalizeTickerInput(symbol.symbol)));
+  const commonWords = new Set([
+    "AIP",
+    "AI",
+    "API",
+    "CEO",
+    "CFO",
+    "ETF",
+    "IPO",
+    "LLM",
+    "SEC",
+    "THE",
+    "USA",
+  ]);
+  const candidates = Array.from(
+    lawText.matchAll(/(?:^|[^A-Za-z0-9.$])\$?([A-Z][A-Z0-9.-]{1,5})(?=$|[^A-Za-z0-9.-])/g),
+    (match) => normalizeTickerInput(match[1] ?? ""),
+  );
+
+  return [...new Set(candidates)].filter((symbol) => {
+    if (!symbol || commonWords.has(symbol)) return false;
+    return catalog.size === 0 || catalog.has(symbol);
+  });
 }
 
 function parseAssetList(value: string): string[] {
