@@ -756,10 +756,10 @@ function createDeepResearchTools(
   return {
     supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
       description:
-        "Search saved Kairos/Supermemory context for prior conversations, preferences, private notes, remembered companies, laws, branches, past decisions, and user-specific research context. Use it early when context could personalize or steer the investigation, but corroborate public factual claims with public-source tools.",
+        "Search saved Kairos/Supermemory context across prior conversations, preferences, private notes, remembered companies, laws, branches, and past decisions. Use early when user-specific context could steer the investigation or prevent repeated work. Do not use for fresh public facts, citations, or market data; corroborate public claims with Exa/Finnhub/source tools. Returns memory snippets that should be treated as private context, not public evidence.",
       inputSchema: z.object({
-        query: z.string().min(1),
-        limit: z.number().int().min(1).max(12).optional(),
+        query: z.string().min(1).describe("Memory query with entity, topic, and context need. Example: user's prior thesis on PLTR government contracts."),
+        limit: z.number().int().min(1).max(12).optional().describe("Maximum memory results. Use 4-8 unless the query is broad."),
       }),
       execute: async ({ query, limit }) => {
         if (!supermemory) throw new Error("SUPERMEMORY_API_KEY is not configured.");
@@ -774,10 +774,10 @@ function createDeepResearchTools(
     }),
     supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
       description:
-        "Load useful Kairos branch/law profiles when saved monitoring context could shape the investigation. Empty branch-created-only profiles are filtered out. Use alongside public-source tools for public-market research.",
+        "Load Kairos branch/law profiles when saved monitoring context could shape a deep-research answer. Use to identify relevant laws, watched assets, branch-specific false positives, or durable user preferences. Do not use for fresh market facts or citations; pair with public-source tools for public claims. Empty branch-created-only profiles are filtered out.",
       inputSchema: z.object({
-        query: z.string().min(1),
-        limitBranches: z.number().int().min(1).max(20).optional(),
+        query: z.string().min(1).describe("Branch-profile query with law, asset, or catalyst terms. Example: AI infrastructure supply-chain laws."),
+        limitBranches: z.number().int().min(1).max(20).optional().describe("Maximum branches to scan. Use 8-12 for focused research."),
       }),
       execute: async ({ query, limitBranches }) => {
         if (!supermemory) throw new Error("SUPERMEMORY_API_KEY is not configured.");
@@ -812,15 +812,16 @@ function createDeepResearchTools(
       },
     }),
     exa_search: tracedTool(traces, "exa_search", {
-      description: "Search current public web and news sources. Use this for public companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent facts. When the user gives a date window, include startPublishedDate and endPublishedDate in YYYY-MM-DD format.",
+      description: "Search current public web/news sources for concrete public facts. Use for companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent claims. Do not use for private Kairos memory, specific URL extraction, or broad multi-source synthesis; use the matching tool instead. When the user gives a date window, pass startPublishedDate and endPublishedDate in YYYY-MM-DD format. Returns capped source summaries and URLs; verify dates and source quality.",
       inputSchema: z.object({
-        query: z.string().min(1),
+        query: z.string().min(1).describe("Focused search query with entity, claim, and timeframe when relevant. Example: NVDA Blackwell supply constraint April 2026."),
         category: z
           .enum(["news", "company", "research paper", "personal site", "financial report", "people"])
+          .describe("Optional Exa category. Use news for fresh catalysts, financial report for filings/reports, company for official/company pages.")
           .optional(),
-        numResults: z.number().int().min(1).max(10).optional(),
-        startPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        endPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        numResults: z.number().int().min(1).max(10).optional().describe("Number of results. Use 3-6 for focused checks."),
+        startPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive publication start date in YYYY-MM-DD when freshness matters."),
+        endPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive publication end date in YYYY-MM-DD when freshness matters."),
       }),
       execute: async ({ query, category, numResults, startPublishedDate, endPublishedDate }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
@@ -834,15 +835,17 @@ function createDeepResearchTools(
       },
     }),
     exa_research: tracedTool(traces, "exa_research", {
-      description: "Run a deeper public web research pass for source-backed answers. Prefer this for broad market maps, overlooked public companies, supply-chain questions, technical ecosystems, and cited synthesis.",
-      inputSchema: z.object({ query: z.string().min(1) }),
+      description: "Run deeper public web research for source-backed synthesis across multiple sources. Prefer for broad market maps, overlooked public companies, supply-chain questions, technical ecosystems, materiality checks, and cited synthesis. Do not use when a focused search or source read is enough. Returns synthesized public evidence with citations where available, not a trade recommendation.",
+      inputSchema: z.object({
+        query: z.string().min(1).describe("Research question with scope and desired comparison/materiality angle. Example: Which public companies benefit if US grid interconnect demand accelerates?"),
+      }),
       execute: async ({ query }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
         const result = await exa.deepResearch({
           query,
           outputSchema: {
             type: "text",
-            description: "market-relevant synthesis",
+            description: "Market-relevant synthesis with material facts, dates, uncertainty, and source-backed claims.",
           },
           contents: {
             highlights: {
@@ -869,10 +872,10 @@ function createDeepResearchTools(
       },
     }),
     exa_contents: tracedTool(traces, "exa_contents", {
-      description: "Read and summarize specific URLs.",
+      description: "Read and summarize specific URLs. Use when the exact source text matters, such as filings, press releases, articles, or user-supplied links. Do not use for source discovery or broad synthesis without URLs. Returns extracted text/summaries and URL metadata; prefer it over headline-only evidence when facts conflict.",
       inputSchema: z.object({
-        urls: z.array(z.string().url()).min(1).max(5),
-        maxCharacters: z.number().int().min(500).max(20000).optional(),
+        urls: z.array(z.string().url()).min(1).max(5).describe("Specific URLs to read. Use no more than five at once."),
+        maxCharacters: z.number().int().min(500).max(20000).optional().describe("Maximum extracted characters per request. Use 4000-10000 unless long filings are required."),
       }),
       execute: async ({ urls, maxCharacters }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
@@ -880,8 +883,10 @@ function createDeepResearchTools(
       },
     }),
     information_agent: tracedTool(traces, "information_agent", {
-      description: "Run a broader investigation pass using available system context.",
-      inputSchema: z.object({ query: z.string().min(1) }),
+      description: "Delegate a focused market-context lookup to the Kairos information workflow. Use when the deep-research answer needs a compact cited pass across Exa, Finnhub, and Supermemory context. Do not use for final conclusions, trade execution, or questions already answered by gathered sources. Returns concise evidence synthesis with citations and uncertainty notes.",
+      inputSchema: z.object({
+        query: z.string().min(1).describe("Focused market-context request with ticker/entity, catalyst, and what to verify. Example: Verify whether PLTR has a new material federal contract this week."),
+      }),
       execute: async ({ query }) => {
         const modelOverrides = options.reasoningEffort
           ? {
@@ -1428,8 +1433,12 @@ function empty(status: number): Response {
 }
 
 function corsHeaders(): HeadersInit {
+  const allowedOrigin =
+    process.env.KAIROS_CORS_ORIGIN ??
+    process.env.VITE_KAIROS_APP_ORIGIN ??
+    "http://127.0.0.1:5173";
   return {
-    "access-control-allow-origin": "*",
+    "access-control-allow-origin": allowedOrigin,
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "authorization,content-type",
   };

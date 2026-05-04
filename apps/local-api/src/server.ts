@@ -155,6 +155,7 @@ type RouterUrlRetrieveInput = {
 
 type MarketSymbolProvider = {
   listMarketSymbols: (input: AlpacaMarketSymbolQuery) => Promise<AlpacaMarketSymbol[]>;
+  getMarketSymbols?: (symbols: string[]) => Promise<AlpacaMarketSymbol[]>;
 };
 
 type RouterSourceExtractionResult = {
@@ -213,6 +214,11 @@ const routerMessageCreateSchema = z.object({
 
 const paperSubmitSchema = z.object({
   tradingConfig: tradingConfigSchema.optional(),
+});
+
+const semanticSymbolSearchSchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().positive().max(200).optional().default(50),
 });
 
 type CapabilityCheck = {
@@ -314,6 +320,9 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
 
         case "listMarketSymbols":
           return await listMarketSymbols(context, url.searchParams);
+
+        case "semanticMarketSymbols":
+          return await semanticMarketSymbols(context, await readJson(request));
 
         case "listBranches":
           return json({ branches: await context.store.listBranches() });
@@ -533,6 +542,7 @@ export async function serveLocalApi(options: LocalApiOptions & { port?: number; 
   const { handler } = await createLocalApi(options);
   const port = options.port ?? Number(process.env.KAIROS_LOCAL_API_PORT ?? 4321);
   const hostname = options.hostname ?? process.env.KAIROS_LOCAL_API_HOST ?? "127.0.0.1";
+  assertLocalApiBindingIsSafe(hostname);
 
   if ("Bun" in globalThis) {
     const bun = (globalThis as typeof globalThis & { Bun: { serve: (options: {
@@ -564,6 +574,27 @@ export async function serveLocalApi(options: LocalApiOptions & { port?: number; 
 
   server.listen(port, hostname);
   return server;
+}
+
+function assertLocalApiBindingIsSafe(hostname: string): void {
+  if (isLocalApiAuthEnabled() || isLoopbackHostname(hostname)) {
+    return;
+  }
+
+  throw new Error(
+    [
+      `Refusing to bind unauthenticated Kairos API to ${hostname}.`,
+      "Enable KAIROS_AUTH_ENABLED=true before exposing the API off localhost.",
+    ].join(" "),
+  );
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "[::1]";
 }
 
 async function triggerHeartbeat(context: LocalApiContext, branchId: string, body: unknown): Promise<Response> {
@@ -1918,6 +1949,203 @@ async function listMarketSymbols(
   }
 }
 
+async function semanticMarketSymbols(
+  context: LocalApiContext,
+  body: unknown,
+): Promise<Response> {
+  const input = semanticSymbolSearchSchema.parse(body);
+  const provider = getMarketSymbolProvider(context);
+
+  try {
+    const symbols = await withTimeout(
+      semanticSymbolSearch(provider, input.query, input.limit),
+      15000,
+      "Semantic market symbol lookup timed out.",
+    );
+
+    return json({
+      symbols,
+      count: symbols.length,
+      source: "semantic_symbol_search",
+      cacheTags: [
+        "market-symbols",
+        `market-symbols:semantic:${input.query.trim().toUpperCase()}`,
+      ],
+    });
+  } catch (error) {
+    return json({
+      symbols: [],
+      count: 0,
+      source: "unavailable",
+      cacheTags: ["market-symbols"],
+      error: error instanceof Error ? error.message : "Unable to search market symbols semantically.",
+    });
+  }
+}
+
+async function semanticSymbolSearch(
+  provider: MarketSymbolProvider,
+  query: string,
+  limit: number,
+): Promise<AlpacaMarketSymbol[]> {
+  const terms = semanticSymbolTerms(query);
+  const curatedSymbols = semanticCuratedSymbols(terms);
+  const candidateGroups = await Promise.all([
+    provider.getMarketSymbols && curatedSymbols.length > 0
+      ? provider.getMarketSymbols(curatedSymbols).catch(() => [])
+      : Promise.resolve([]),
+    ...terms.slice(0, 8).map((term) =>
+      provider.listMarketSymbols({ query: term, limit: 80 }).catch(() => []),
+    ),
+  ]);
+  const candidates = mergeMarketSymbols(candidateGroups.flat());
+
+  return candidates
+    .map((symbol) => ({
+      symbol,
+      score: semanticSymbolScore(symbol, terms, curatedSymbols),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) =>
+      right.score - left.score || left.symbol.symbol.localeCompare(right.symbol.symbol),
+    )
+    .slice(0, limit)
+    .map((item) => item.symbol);
+}
+
+function semanticSymbolTerms(query: string): string[] {
+  const rawTokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9.\-\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !semanticStopWords.has(token));
+  const terms = new Set(rawTokens);
+
+  for (const token of rawTokens) {
+    for (const term of semanticExpansions[token] ?? []) terms.add(term);
+    if (token.startsWith("infra") || token.startsWith("infer")) {
+      ["infrastructure", "data center", "server", "networking"].forEach((term) =>
+        terms.add(term),
+      );
+    }
+  }
+
+  if (terms.has("tech") || terms.has("technology")) {
+    ["software", "cloud", "semiconductor", "chip", "data center"].forEach((term) =>
+      terms.add(term),
+    );
+  }
+
+  return [...terms].slice(0, 24);
+}
+
+function semanticCuratedSymbols(terms: string[]): string[] {
+  const termSet = new Set(terms);
+  return Object.entries(symbolSemanticTags)
+    .filter(([, tags]) => tags.some((tag) => termSet.has(tag)))
+    .map(([symbol]) => symbol);
+}
+
+function semanticSymbolScore(
+  symbol: AlpacaMarketSymbol,
+  terms: string[],
+  curatedSymbols: string[],
+): number {
+  const text = [
+    symbol.symbol,
+    symbol.name,
+    symbol.exchange,
+    symbol.assetClass,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const tags = symbolSemanticTags[symbol.symbol.toUpperCase()] ?? [];
+  const curated = new Set(curatedSymbols);
+
+  let score = curated.has(symbol.symbol.toUpperCase()) ? 25 : 0;
+  for (const term of terms) {
+    if (symbol.symbol.toLowerCase() === term && !broadSemanticTerms.has(term)) {
+      score += 100;
+    }
+    if (text.includes(term)) score += term.length <= 3 ? 3 : 8;
+    if (tags.includes(term)) score += 16;
+  }
+
+  return score;
+}
+
+function mergeMarketSymbols(symbols: AlpacaMarketSymbol[]): AlpacaMarketSymbol[] {
+  const records = new Map<string, AlpacaMarketSymbol>();
+  for (const symbol of symbols) {
+    const key = symbol.symbol.trim().toUpperCase();
+    if (key && !records.has(key)) records.set(key, { ...symbol, symbol: key });
+  }
+  return [...records.values()];
+}
+
+const semanticStopWords = new Set([
+  "all",
+  "and",
+  "are",
+  "for",
+  "give",
+  "me",
+  "of",
+  "obvious",
+  "ones",
+  "related",
+  "the",
+  "to",
+]);
+
+const semanticExpansions: Record<string, string[]> = {
+  ai: ["artificial intelligence", "semiconductor", "chip", "data center", "cloud"],
+  chip: ["semiconductor", "gpu", "processor"],
+  chips: ["semiconductor", "gpu", "processor"],
+  cloud: ["data center", "software", "infrastructure"],
+  defense: ["aerospace", "government", "security"],
+  fintech: ["payments", "bank", "financial"],
+  gpu: ["semiconductor", "chip", "data center"],
+  infra: ["infrastructure", "data center", "server", "networking"],
+  infrastructure: ["data center", "server", "networking"],
+  tech: ["technology", "software", "semiconductor", "cloud"],
+};
+
+const broadSemanticTerms = new Set([
+  "ai",
+  "chip",
+  "chips",
+  "cloud",
+  "defense",
+  "fintech",
+  "gpu",
+  "infra",
+  "infrastructure",
+  "tech",
+  "technology",
+]);
+
+const symbolSemanticTags: Record<string, string[]> = {
+  AAPL: ["tech", "technology", "consumer", "hardware"],
+  AMD: ["tech", "technology", "semiconductor", "chip", "gpu", "ai"],
+  AMZN: ["tech", "technology", "cloud", "ai", "infrastructure"],
+  ANET: ["tech", "technology", "networking", "data center", "infrastructure"],
+  ASML: ["tech", "technology", "semiconductor", "chip"],
+  AVGO: ["tech", "technology", "semiconductor", "chip", "networking", "ai"],
+  DELL: ["tech", "technology", "server", "data center", "infrastructure"],
+  GOOGL: ["tech", "technology", "cloud", "ai"],
+  HPE: ["tech", "technology", "server", "networking", "infrastructure"],
+  META: ["tech", "technology", "ai", "data center"],
+  MSFT: ["tech", "technology", "cloud", "ai", "software"],
+  MU: ["tech", "technology", "semiconductor", "memory", "ai"],
+  NVDA: ["tech", "technology", "semiconductor", "chip", "gpu", "ai", "data center"],
+  ORCL: ["tech", "technology", "cloud", "software", "database"],
+  PLTR: ["tech", "technology", "ai", "software", "defense", "government"],
+  SMCI: ["tech", "technology", "server", "data center", "infrastructure", "ai"],
+  TSM: ["tech", "technology", "semiconductor", "chip"],
+};
+
 function marketSymbolCacheTags(query: string | undefined): string[] {
   return [
     "market-symbols",
@@ -3095,6 +3323,7 @@ type Route =
   | { name: "listOpenRouterModels"; params: Record<string, never> }
   | { name: "capabilityPreflight"; params: Record<string, never> }
   | { name: "listMarketSymbols"; params: Record<string, never> }
+  | { name: "semanticMarketSymbols"; params: Record<string, never> }
   | { name: "listBranches"; params: Record<string, never> }
   | { name: "createBranch"; params: Record<string, never> }
   | { name: "getBranch"; params: { branchId: string } }
@@ -3128,6 +3357,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
   if (method === "GET" && pathname === "/capabilities/preflight") return { name: "capabilityPreflight", params: {} };
   if (method === "GET" && pathname === "/market/symbols") return { name: "listMarketSymbols", params: {} };
+  if (method === "POST" && pathname === "/market/symbols/semantic") return { name: "semanticMarketSymbols", params: {} };
   if (method === "GET" && pathname === "/portfolio") return { name: "getPortfolio", params: {} };
   if (method === "POST" && pathname === "/portfolio/refresh") return { name: "refreshPortfolio", params: {} };
   if (segments.length === 2 && segments[0] === "router" && segments[1] === "chats") {
@@ -3202,8 +3432,12 @@ function empty(status: number): Response {
 }
 
 function corsHeaders(): HeadersInit {
+  const allowedOrigin =
+    process.env.KAIROS_CORS_ORIGIN ??
+    process.env.VITE_KAIROS_APP_ORIGIN ??
+    "http://127.0.0.1:5173";
   return {
-    "access-control-allow-origin": "*",
+    "access-control-allow-origin": allowedOrigin,
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "authorization,content-type",
   };

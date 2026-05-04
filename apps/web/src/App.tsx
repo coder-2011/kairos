@@ -43,6 +43,7 @@ import {
   getRouterChats,
   getRouterMessages,
   deleteRouterChat as deleteRouterChatApi,
+  getSemanticTradeSymbols,
   getTradeSymbols,
   getTradeIntents,
   KairosApiError,
@@ -68,6 +69,7 @@ import {
   type WebBranchConfig,
 } from "./api";
 import { DeepResearchView } from "./deep-research";
+import { MarkdownText } from "./MarkdownText";
 
 type View = "branches" | "router" | "deepResearch" | "monitoring" | "portfolio" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
@@ -109,7 +111,7 @@ function routeHash(route: AppRoute): string {
 function scrollActiveViewToTop() {
   window.requestAnimationFrame(() => {
     const activeView = document.querySelector<HTMLElement>(
-      ".config-canvas, .canvas, .router-canvas, .portfolio-canvas, .run-deep-dive, .split-canvas",
+      ".config-canvas, .canvas, .router-canvas, .portfolio-canvas, .run-deep-dive, .split-canvas, .monitoring-command-center",
     );
     activeView?.scrollTo({ top: 0, left: 0 });
   });
@@ -135,25 +137,25 @@ const promptFields: Array<{
   {
     role: "Heartbeat",
     key: "heartbeatSystemPrompt",
-    description: "Frequent branch monitor instructions.",
+    description: "Defines the branch triage role, escalation criteria, allowed memory/search context, and no-trade boundary.",
     defaultText: HEARTBEAT_SYSTEM_PROMPT,
   },
   {
     role: "Debate Judge",
     key: "debateJudgeSystemPrompt",
-    description: "Debate orchestration and speaker-selection instructions.",
+    description: "Routes bull, bear, tool, and final turns without arguing the case or selecting a final action.",
     defaultText: JUDGE_SYSTEM_PROMPT,
   },
   {
     role: "Debate Bull",
     key: "debateBullSystemPrompt",
-    description: "Materiality and opportunity-side argument instructions.",
+    description: "Tests the constructive case, source support, market expectations, and why exposure may be warranted.",
     defaultText: BULL_SYSTEM_PROMPT,
   },
   {
     role: "Debate Bear",
     key: "debateBearSystemPrompt",
-    description: "Noise, stale-evidence, source risk, and priced-in argument instructions.",
+    description: "Tests noise, stale evidence, source risk, valuation, priced-in risk, and downside or sell-side arguments.",
     defaultText: BEAR_SYSTEM_PROMPT,
   },
 ];
@@ -195,16 +197,16 @@ const informationToolFields: Array<{
 }));
 
 const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName; purpose: string }> = [
-  { label: "Recent News Search", key: "exa_news_search", purpose: "Lets the heartbeat check fresh web/news evidence before deciding whether to escalate." },
-  { label: "Memory Search", key: "supermemory_search", purpose: "Searches prior branch observations, human corrections, and false-positive history." },
-  { label: "Memory Profile", key: "supermemory_profile", purpose: "Reads durable branch/user preferences, recurring thesis context, and watchlist notes." },
+  { label: "Recent News Search", key: "exa_news_search", purpose: "Checks fresh public sources for one catalyst or claim before escalation; not for broad research or trade decisions." },
+  { label: "Memory Search", key: "supermemory_search", purpose: "Checks prior branch events, corrections, preferences, and false positives for novelty or duplicate risk." },
+  { label: "Memory Profile", key: "supermemory_profile", purpose: "Reads stable branch thesis context and durable preferences; not a public-source citation tool." },
 ];
 
 const debateToolFields: Array<{ label: string; key: DebateConfigToolName; purpose: string }> = [
-  { label: "Exa Search", key: "exa_search", purpose: "Lets debate agents search current web evidence." },
-  { label: "Deep Research", key: "exa_research", purpose: "Runs deeper Exa research for higher-effort evidence gathering." },
-  { label: "Information Agent", key: "information", purpose: "Delegates targeted source and market-data lookup to the information workflow." },
-  { label: "Portfolio Context", key: "portfolio", purpose: "Gives debate agents current paper account, cash, buying power, positions, and cached trade context when available." },
+  { label: "Exa Search", key: "exa_search", purpose: "Finds fresh public sources for one concrete debate claim; not for broad synthesis." },
+  { label: "Deep Research", key: "exa_research", purpose: "Synthesizes broader public-source catalyst or risk context when a focused search is not enough." },
+  { label: "Information Agent", key: "information", purpose: "Delegates focused cited context across search, source reads, Finnhub data, and Kairos memory." },
+  { label: "Portfolio Context", key: "portfolio", purpose: "Adds paper account, cash, buying power, holdings, and recent trade context when exposure matters." },
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit"];
@@ -973,14 +975,14 @@ export function App() {
   }
 
   return (
-    <div className="shell" data-theme={themeMode}>
+    <div className={`shell ${view === "monitoring" ? "monitoring-shell" : ""}`} data-theme={themeMode}>
       <SideNav
         setView={(nextView) => navigate(nextView)}
         themeMode={themeMode}
         view={view}
         onThemeModeChange={setThemeMode}
       />
-      <div className="workspace">
+      <div className={`workspace ${view === "monitoring" ? "monitoring-workspace" : ""}`}>
         {authEnabled ? (
           <TopBar onSignOut={handleSignOut} signedInUser={userLabel} />
         ) : null}
@@ -1518,7 +1520,7 @@ function RouterMessageBubble({ message }: { message: RouterMessageRecord }) {
         <b>{message.role === "user" ? "YOU" : "ROUTER"}</b>
         <span>{formatChatTimestamp(message.createdAt)}</span>
       </div>
-      <p>{message.text}</p>
+      <MarkdownText text={message.text ?? ""} />
     </article>
   );
 }
@@ -1533,7 +1535,7 @@ function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
         </span>
         <b>{call.status}</b>
       </summary>
-      <p>{call.summary}</p>
+      <MarkdownText text={call.summary} />
       {(call.input || call.output || call.error) && (
         <pre>
           {JSON.stringify(
@@ -1578,7 +1580,6 @@ function MonitoringView({
   const [showEvidence, setShowEvidence] = useState(true);
   const heartbeatEscalation = getHeartbeatEscalation(run);
   const runSummary = run ? summarizeRun(run, branches.find((branch) => branch.id === run.branchId)) : undefined;
-  const branchName = run ? selectedBranchName(branches, run.branchId) : undefined;
   const branchBreakdowns = createBranchRunBreakdowns(branches, runs);
   const monitoringStats = createMonitoringStats(runs, branchBreakdowns);
   const transcriptEvents = events.filter(
@@ -1587,14 +1588,23 @@ function MonitoringView({
       || event.type.startsWith("participant.")
       || event.type.startsWith("model.")
       || event.type.startsWith("tool.call.")
-      || event.type.startsWith("tool.")
-      || event.type.startsWith("run."),
+      || event.type.startsWith("tool."),
   );
   const monitoringPayload = {
     run,
     events,
     exportedAt: new Date().toISOString(),
   };
+  const commandStatus = run
+    ? run.status === "running"
+      ? "BRANCH_ACTIVE"
+      : `${run.kind}_${run.status}`.toUpperCase()
+    : "NO_RUN_SELECTED";
+  const runIdentifier = run ? `ID: ${run.id.slice(0, 13).toUpperCase()}` : "ID: SELECT-RUN";
+  const protocolLabel = run
+    ? `PROTOCOL: ${run.kind === "debate" ? "DELPHI-3" : run.kind.toUpperCase()}`
+    : "PROTOCOL: MONITORING";
+  const canPauseRun = Boolean(run?.lifecycle?.cancelable);
 
   async function injectFeedback(label: "wrong" | "stale" | "useful") {
     if (!run || feedbackPending) return;
@@ -1622,15 +1632,44 @@ function MonitoringView({
   }
 
   return (
-    <main className={`split-canvas ${showEvidence ? "" : "evidence-closed"}`}>
+    <main className={`monitoring-command-center ${showEvidence ? "" : "evidence-closed"}`}>
+      <header className="monitoring-command-bar">
+        <div className="monitoring-command-status">
+          STATUS: <b>{commandStatus}</b>
+        </div>
+        <div className="monitoring-command-actions">
+          <button
+            className="command-button primary compact"
+            disabled={!canPauseRun}
+            onClick={() => {
+              if (run) onCancelRun(run.id);
+            }}
+            type="button"
+          >
+            PAUSE
+          </button>
+          <button
+            className="command-button compact"
+            disabled
+            title="Disable branch from branch configuration."
+            type="button"
+          >
+            DISABLE
+          </button>
+          <span className="monitoring-action-divider" />
+          <Icon name="sensors" />
+          <Icon name="history" />
+          <Icon name="emergency" />
+        </div>
+      </header>
       <section className="event-stream pane narrow">
         <PaneHeader
-          icon="receipt_long"
-          meta={`${runs.length} TOTAL`}
-          title="RUNS"
+          icon="stream"
+          meta={runIdentifier}
+          title="RUN EVENT STREAM"
         />
         <div className="monitoring-run-strip">
-          <div className="section-title">RECENT ACTIVITY</div>
+          <div className="section-title">RECENT RUNS</div>
           {loadState === "loading" ? (
             <EmptyPanel
               icon="hourglass_top"
@@ -1696,15 +1735,17 @@ function MonitoringView({
           onActionIconClick={() => setShowEvidence(true)}
           onActionClick={() => void exportRun()}
           icon="forum"
-          meta={branchName ?? runSummary?.branchLabel ?? ""}
-          title={run ? "RUN DETAIL" : "MONITORING"}
+          meta={protocolLabel}
+          title={run?.kind === "debate" ? "DEBATE TRANSCRIPT" : "RUN DETAIL"}
         />
         <div className="transcript-scroll">
-          <MonitoringSummaryBar
-            branchBreakdowns={branchBreakdowns}
-            stats={monitoringStats}
-            onSelectRun={onSelectRun}
-          />
+          {!run && (
+            <MonitoringSummaryBar
+              branchBreakdowns={branchBreakdowns}
+              stats={monitoringStats}
+              onSelectRun={onSelectRun}
+            />
+          )}
           {run && runSummary ? (
             <MonitoringRunDetail
               escalation={heartbeatEscalation}
@@ -1860,7 +1901,7 @@ function MonitoringRunDetail({
             {run.kind.toUpperCase()} / {run.status.toUpperCase()}
           </span>
           <h3>{summary.outcomeTitle}</h3>
-          <p>{summary.outcome}</p>
+          <MarkdownText text={summary.outcome} />
         </div>
         <div className="monitoring-status-stack">
           <RunFact label="Decision" tone={statusTone} value={decision || action || "-"} />
@@ -1868,7 +1909,6 @@ function MonitoringRunDetail({
         </div>
       </div>
 
-      <RunLifecyclePanel run={run} />
       {run.lifecycle?.cancelable && (
         <button
           className="command-button danger-outline"
@@ -1878,32 +1918,40 @@ function MonitoringRunDetail({
           <Icon name="cancel" /> CANCEL RUN
         </button>
       )}
-      <TruthLedgerPanel events={events} run={run} runs={runs} summary={summary} />
 
-      <div className="monitoring-detail-grid">
-        <section className="monitoring-detail-section">
-          <div className="section-title">RUN</div>
-          <div className="monitoring-detail-list">
-            <DetailRow label="Branch" value={summary.branchLabel} />
-            <DetailRow label="Run ID" value={run.id} />
-            <DetailRow label="Created" value={formatDateTime(run.createdAt)} />
-            <DetailRow label="Updated" value={formatDateTime(run.updatedAt)} />
-            <DetailRow label="Events" value={String(eventCount)} />
+      {run.status === "failed" ? (
+        <TruthLedgerPanel events={events} run={run} runs={runs} summary={summary} />
+      ) : (
+        <details className="monitoring-support-details">
+          <summary>Run Support</summary>
+          <RunLifecyclePanel run={run} />
+          <TruthLedgerPanel events={events} run={run} runs={runs} summary={summary} />
+          <div className="monitoring-detail-grid">
+            <section className="monitoring-detail-section">
+              <div className="section-title">RUN</div>
+              <div className="monitoring-detail-list">
+                <DetailRow label="Branch" value={summary.branchLabel} />
+                <DetailRow label="Run ID" value={run.id} />
+                <DetailRow label="Created" value={formatDateTime(run.createdAt)} />
+                <DetailRow label="Updated" value={formatDateTime(run.updatedAt)} />
+                <DetailRow label="Events" value={String(eventCount)} />
+              </div>
+            </section>
+
+            <section className="monitoring-detail-section">
+              <div className="section-title">CONTEXT</div>
+              <div className="monitoring-detail-list">
+                <DetailRow label="Input Source" value={compactValue(run.metadata?.source ?? input.source)} />
+                <DetailRow label="Branch ID" value={readDisplay(run.branchId, "-")} />
+                <DetailRow label="Escalation" value={escalationSummary} />
+                {error && <DetailRow label="Error" tone="danger" value={error} />}
+              </div>
+            </section>
           </div>
-        </section>
+        </details>
+      )}
 
-        <section className="monitoring-detail-section">
-          <div className="section-title">CONTEXT</div>
-          <div className="monitoring-detail-list">
-            <DetailRow label="Input Source" value={compactValue(run.metadata?.source ?? input.source)} />
-            <DetailRow label="Branch ID" value={readDisplay(run.branchId, "-")} />
-            <DetailRow label="Escalation" value={escalationSummary} />
-            {error && <DetailRow label="Error" tone="danger" value={error} />}
-          </div>
-        </section>
-      </div>
-
-      {run.kind === "heartbeat" && (
+      {run.kind === "heartbeat" && escalation && (
         <HeartbeatHandoffPanel
           escalation={escalation}
           run={run}
@@ -2085,7 +2133,7 @@ function HeartbeatHandoffPanel({
         </span>
         <b>{decision}</b>
       </div>
-      <p>{readDisplay(run.output?.summary, "Heartbeat completed without a summary.")}</p>
+      <MarkdownText text={readDisplay(run.output?.summary, "Heartbeat completed without a summary.")} />
       {escalation && branchId ? (
         <button
           className="command-button primary"
@@ -2124,7 +2172,7 @@ function RunOverviewPanel({
         </span>
         <b>{run.status}</b>
       </div>
-      <p>{summary.outcome}</p>
+      <MarkdownText text={summary.outcome} />
       <div className="monitoring-facts">
         <RunFact label="Branch" value={summary.branchLabel} />
         <RunFact label="Events" value={String(eventCount)} />
@@ -2316,7 +2364,7 @@ function TradeIntentCard({ intent }: { intent: TradeIntentRecord }) {
         <b>{readDisplay(intent.symbol, "UNKNOWN")}</b>
         <span>{readDisplay(intent.status, "pending")}</span>
       </div>
-      <p>{readDisplay(intent.summary ?? intent.rationale ?? intent.reasoning, "No rationale supplied.")}</p>
+      <MarkdownText text={readDisplay(intent.summary ?? intent.rationale ?? intent.reasoning, "No rationale supplied.")} />
       <div className="portfolio-card-grid">
         <span>{readDisplay(intent.side, "side")}</span>
         <span>{readDisplay(intent.orderType, "order")}</span>
@@ -2334,7 +2382,7 @@ function MessageCard({ message }: { message: MessageRecord }) {
         <b>{readDisplay(message.title ?? message.type ?? message.level, "MESSAGE")}</b>
         <span>{formatTimestamp(message.timestamp ?? message.createdAt)}</span>
       </div>
-      <p>{readDisplay(message.summary ?? message.message ?? message.body, "No message body supplied.")}</p>
+      <MarkdownText text={readDisplay(message.summary ?? message.message ?? message.body, "No message body supplied.")} />
     </article>
   );
 }
@@ -2442,7 +2490,7 @@ function RunDeepDive({
               )}
               <div className={`run-outcome ${selectedRun.status === "failed" ? "danger" : ""}`}>
                 <b>{selectedRunSummary.outcomeTitle}</b>
-                <p>{selectedRunSummary.outcome}</p>
+                <MarkdownText text={selectedRunSummary.outcome} />
               </div>
             </section>
             <section className="trace-section">
@@ -2829,7 +2877,7 @@ function BranchConfig({
           <div className="field-label">AGENT SYSTEM PROMPTS</div>
           <div className="prompt-grid">
             {promptFields.map((field) => (
-              <FieldLabel label={field.role} key={field.key}>
+              <FieldLabel hint={field.description} label={field.role} key={field.key}>
                 <textarea
                   className="prompt-area"
                   rows={5}
@@ -3323,12 +3371,20 @@ function TradeSymbolDropdown({
   const [query, setQuery] = useState("");
   const [searchCatalog, setSearchCatalog] = useState<TradeSymbolRecord[]>([]);
   const [searchLoadState, setSearchLoadState] = useState<LoadState>("api");
+  const [semanticQuery, setSemanticQuery] = useState("");
+  const [semanticCatalog, setSemanticCatalog] = useState<TradeSymbolRecord[]>([]);
+  const [semanticLoadState, setSemanticLoadState] = useState<LoadState>("api");
+  const [semanticError, setSemanticError] = useState("");
   const normalizedQuery = normalizeTickerInput(query);
   const activeCatalog = normalizedQuery
-    ? mergeTradeSymbolRecords(catalog, searchCatalog)
+    ? mergeTradeSymbolRecords(catalog, searchCatalog, semanticCatalog)
     : catalog;
   const activeLoadState = normalizedQuery ? searchLoadState : loadState;
-  const options = mergeTradeSymbolOptions(activeCatalog, assets, selected);
+  const options = mergeTradeSymbolOptions(
+    mergeTradeSymbolRecords(semanticCatalog, activeCatalog),
+    assets,
+    selected,
+  );
   const optionSymbols = options.map((option) => option.symbol);
   const visibleOptions = options.filter((option) => {
     if (!normalizedQuery) return true;
@@ -3374,16 +3430,68 @@ function TradeSymbolDropdown({
   }, [normalizedQuery]);
 
   function toggle(symbol: string, checked: boolean) {
+    const scrollContainer = document.querySelector(".config-canvas");
+    const scrollTop = scrollContainer?.scrollTop ?? 0;
     const next = checked
       ? [...selectedSet, symbol]
       : selected.filter((item) => item !== symbol);
     onChange(normalizeSymbolSelection(next, mergeSymbolSelection(optionSymbols, [symbol])));
+    requestAnimationFrame(() => {
+      if (scrollContainer) scrollContainer.scrollTop = scrollTop;
+    });
+  }
+
+  function runSemanticSearch() {
+    const text = semanticQuery.trim();
+    if (!text) return;
+
+    setSemanticLoadState("loading");
+    setSemanticError("");
+    getSemanticTradeSymbols({ query: text, limit: 60 })
+      .then((symbols) => {
+        setSemanticCatalog(symbols);
+        setSemanticLoadState("api");
+      })
+      .catch((error) => {
+        setSemanticCatalog([]);
+        setSemanticLoadState("offline");
+        setSemanticError(
+          error instanceof Error ? error.message : "Semantic symbol lookup unavailable.",
+        );
+      });
   }
 
   return (
     <details className="multi-select">
       <summary>{summary}</summary>
       <div className="multi-select-menu">
+        <div className="semantic-symbol-tool">
+          <input
+            className="multi-select-search"
+            onChange={(event) => setSemanticQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                runSemanticSearch();
+              }
+            }}
+            placeholder="Ask for a theme: obvious AI infrastructure, fintech, defense"
+            value={semanticQuery}
+          />
+          <button
+            disabled={semanticLoadState === "loading" || semanticQuery.trim().length === 0}
+            onClick={runSemanticSearch}
+            type="button"
+          >
+            Find
+          </button>
+        </div>
+        {semanticLoadState === "loading" && (
+          <span className="empty-option">Finding related symbols.</span>
+        )}
+        {semanticError && (
+          <span className="empty-option">{semanticError}</span>
+        )}
         <input
           className="multi-select-search"
           onChange={(event) => setQuery(event.target.value)}
@@ -3464,7 +3572,7 @@ function EvidencePane({
         icon="database"
         meta=""
         onActionIconClick={onClose}
-        title="EVIDENCE"
+        title="EVIDENCE & SOURCE"
       />
       <div className="evidence-scroll">
         {!snapshot ? (
@@ -3476,14 +3584,18 @@ function EvidencePane({
         ) : (
           <>
             <div className="source-card">
-              <div className="field-label">SOURCE</div>
+              <div className="field-label">SOURCE IDENTIFIER</div>
               <h1>{sourceTitle}</h1>
               <div className="source-tags">
                 <span>{sourceType}</span>
                 <span>{run?.status ?? "loaded"}</span>
               </div>
             </div>
-            <div className="field-label">TIMELINE</div>
+            <details className="raw-details evidence-raw" open>
+              <summary>Raw Data Snapshot</summary>
+              <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
+            </details>
+            <div className="field-label raw-snapshot-label">TIMELINE ALIGNMENT</div>
             <div className="alignment-row">
               <span>Run Created</span>
               <b>{run ? formatDateTime(run.createdAt) : "-"}</b>
@@ -3492,10 +3604,6 @@ function EvidencePane({
               <span>Last Event</span>
               <b>{events.at(-1) ? formatDateTime(events.at(-1)!.timestamp) : "-"}</b>
             </div>
-            <details className="raw-details evidence-raw" open>
-              <summary>Details</summary>
-              <pre className="json-block">{JSON.stringify(snapshot, null, 2)}</pre>
-            </details>
           </>
         )}
       </div>
@@ -3540,7 +3648,7 @@ function EventRecordCard({ event }: { event: RunEventRecord }) {
         </span>
         <b>{timeOnly(event.timestamp)}</b>
       </div>
-      <p>{summary}</p>
+      <MarkdownText text={summary} />
       <details className="raw-details compact">
         <summary>Payload</summary>
         <pre className="event-json">{JSON.stringify(event.payload, null, 2)}</pre>
@@ -3646,7 +3754,7 @@ function TimelineEvent({
       <span className="timeline-dot" />
       <div className="mono-label">{timeOnly(event.timestamp)}</div>
       <h3>{title}</h3>
-      <p>{summary}</p>
+      <MarkdownText text={summary} />
       {typeof event.payload.severity === "string" && (
         <b className="severity">{event.payload.severity}</b>
       )}

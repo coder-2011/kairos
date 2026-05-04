@@ -392,6 +392,14 @@
   white-space: pre-wrap;
 }
 
+.deep-research-message .markdown-text {
+  margin: 0;
+}
+
+.deep-research-message .markdown-text p {
+  white-space: normal;
+}
+
 .deep-research-processing {
   align-items: center;
   color: var(--on-variant);
@@ -541,6 +549,19 @@
   color: var(--on-variant);
   margin: 0;
   padding: 8px;
+}
+
+.deep-tool-call .markdown-text {
+  border-top: 1px solid var(--outline-variant);
+  color: var(--on-variant);
+  margin: 0;
+  padding: 8px;
+}
+
+.deep-tool-call .markdown-text p {
+  border-top: 0;
+  padding: 0;
+  white-space: normal;
 }
 
 .deep-research-error {

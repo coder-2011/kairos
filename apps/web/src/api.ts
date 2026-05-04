@@ -290,6 +290,22 @@ export async function getTradeSymbols(input: {
   }>(`/market/symbols?${params.toString()}`).then((response) => response.symbols);
 }
 
+export async function getSemanticTradeSymbols(input: {
+  query: string;
+  limit?: number;
+}): Promise<TradeSymbolRecord[]> {
+  return request<{
+    symbols: TradeSymbolRecord[];
+    error?: string;
+  }>("/market/symbols/semantic", {
+    method: "POST",
+    body: JSON.stringify({
+      query: input.query,
+      limit: input.limit ?? 50,
+    }),
+  }).then((response) => response.symbols);
+}
+
 export async function getPortfolio(): Promise<PortfolioSnapshot> {
   return request<JsonRecord>("/portfolio?refresh=true").then(normalizePortfolioResponse);
 }

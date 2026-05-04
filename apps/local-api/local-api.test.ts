@@ -16,6 +16,16 @@ import type { SupermemoryMirror, SupermemoryMirrorRecord } from "../../src/globa
 
 const baseUrl = "http://kairos.local";
 
+function marketSymbol(symbol: string, name: string) {
+  return {
+    symbol,
+    name,
+    exchange: "NASDAQ",
+    tradable: true,
+    source: "alpaca" as const,
+  };
+}
+
 describe("local API handler", () => {
   it("responds to health checks", async () => {
     const { requestJson } = makeClient();
@@ -60,6 +70,40 @@ describe("local API handler", () => {
         },
       ],
     });
+  });
+
+  it("finds semantically related market symbols for branch creation", async () => {
+    const { requestJson } = makeClient({
+      marketSymbolProvider: {
+        async listMarketSymbols() {
+          return [
+            marketSymbol("SNOW", "Snowflake Inc."),
+            marketSymbol("SHOP", "Shopify Inc."),
+          ];
+        },
+        async getMarketSymbols(symbols) {
+          return symbols
+            .filter((symbol) => ["NVDA", "SMCI", "ANET"].includes(symbol))
+            .map((symbol) => marketSymbol(symbol, `${symbol} Corp.`));
+        },
+      },
+    });
+
+    const response = await requestJson("POST", "/market/symbols/semantic", {
+      query: "obvious tech infra related ones",
+      limit: 5,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      source: "semantic_symbol_search",
+      count: 3,
+    });
+    expect(response.body.symbols.map((item: { symbol: string }) => item.symbol).sort()).toEqual([
+      "ANET",
+      "NVDA",
+      "SMCI",
+    ]);
   });
 
   it("does not synthesize starter tickers when the symbol directory is unavailable", async () => {

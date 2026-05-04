@@ -18,6 +18,7 @@ import {
   type DeepResearchModelOption,
   type DeepResearchStreamEvent,
 } from "./deep-research-api";
+import { MarkdownText } from "./MarkdownText";
 import "./deep-research.css";
 
 type LoadState = "loading" | "api" | "offline";
@@ -764,7 +765,7 @@ function DeepResearchMessage({
         <b>{message.role === "user" ? "YOU" : "DEEP RESEARCH"}</b>
         <span>{assistantMeta}</span>
       </div>
-      {isProcessing ? <DeepResearchProcessing /> : <p>{displayText}</p>}
+      {isProcessing ? <DeepResearchProcessing /> : <MarkdownText text={displayText} />}
       {message.attachments && message.attachments.length > 0 && (
         <div className="deep-message-images">
           {message.attachments.map((attachment) => (
@@ -839,7 +840,7 @@ function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
         </span>
         <b>{call.status}</b>
       </summary>
-      <p>{summary}</p>
+      <MarkdownText text={summary} />
       {hasPayload && (
         <pre>
           {JSON.stringify(
