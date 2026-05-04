@@ -44,6 +44,7 @@ import {
   resolveKairosModelConfig,
   isProbablyOpenRouterToolCapableModel,
   type KairosModelRole,
+  type KairosBranchAgentConfig,
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
 import {
@@ -1862,7 +1863,7 @@ async function isDebateActive(
   return run?.status === "running";
 }
 
-function debateTimeoutMs(config?: HeartbeatBranchConfig): number {
+function debateTimeoutMs(config?: KairosBranchAgentConfig): number {
   const configuredMinutes = config?.budgets?.debateTimeoutMinutes;
   if (
     typeof configuredMinutes === "number" &&
