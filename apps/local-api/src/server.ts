@@ -1180,14 +1180,14 @@ async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
 
 async function syncPaperBrokerOrders(
   context: LocalApiContext,
-  broker: PaperTradingBroker,
+  broker: TradingBroker,
 ): Promise<void> {
   if (!broker.listPaperOrders) {
     return;
   }
 
   const orders = await broker.listPaperOrders({ status: "all", limit: 100 });
-  await Promise.all(orders.map((order) => context.store.createBrokerOrder(order)));
+  await Promise.all(orders.map((order: Parameters<KairosLocalStore["createBrokerOrder"]>[0]) => context.store.createBrokerOrder(order)));
 }
 
 function portfolioStorageStatus(input: {
