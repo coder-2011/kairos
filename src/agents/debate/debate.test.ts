@@ -100,7 +100,6 @@ describe("debate agent", () => {
       "tool_agent",
       "judge",
       "bear",
-      "tool_agent",
       "judge",
       "judge",
     ]);
@@ -121,17 +120,9 @@ describe("debate agent", () => {
         status: "completed",
         summary: "Information tool checked the reported contract context.",
       }),
-      expect.objectContaining({
-        toolEventId: "tool-event-1",
-        debateId: "debate-pltr-1",
-        toolName: "information",
-        requestedBy: "bear",
-        status: "completed",
-        summary: "Information tool checked the reported contract context.",
-      }),
     ]);
     expect(result.finalDecision).toEqual({
-      summary: "Final synthesis based on 7 messages and 2 tool result(s).",
+      summary: "Final synthesis based on 6 messages and 1 tool result(s).",
       action: "watch",
       confidence: 0.5,
       citations: [
@@ -144,6 +135,10 @@ describe("debate agent", () => {
   });
 
   it("uses injected structured models for judge, participants, and final synthesis", async () => {
+    const information = vi.fn(async () => ({
+      summary: "Should not be called unless the model requests it.",
+      citations: [],
+    }));
     const judge = fakeStructuredModel<JudgePlan>({
       plan: "Send bear directly to final after one response.",
       nextNode: "bear",
@@ -175,9 +170,13 @@ describe("debate agent", () => {
           final,
         },
         now: () => fixedNow,
+        tools: {
+          information,
+        },
       },
     );
 
+    expect(information).not.toHaveBeenCalled();
     expect(result.messages).toEqual([
       {
         agentName: "judge",
