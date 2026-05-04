@@ -8,6 +8,10 @@ import { z } from "zod";
 import { ExaApi } from "../../../src/api/exa.js";
 import { SupermemoryApi } from "../../../src/api/supermemory.js";
 import {
+  kairosReasoningEffortSchema,
+  type KairosReasoningEffort,
+} from "../../../src/global/agent-config.js";
+import {
   createOpenRouterChatModelForRole,
   createSupermemoryMemoryApi,
   getMemoryContainerTag,
@@ -21,7 +25,7 @@ export type DeepResearchModelOption = {
   label: string;
   provider: string;
   logo: string;
-  reasoningEffort?: "xhigh" | "high" | "medium" | "low";
+  reasoningEffort?: KairosReasoningEffort;
   note?: string;
 };
 
@@ -39,6 +43,7 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  reasoningEffort?: KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
 };
@@ -124,6 +129,7 @@ export const DEEP_RESEARCH_MODELS: DeepResearchModelOption[] = [
 const messageCreateSchema = z.object({
   text: z.string().optional().default(""),
   model: z.string().min(1).optional(),
+  reasoningEffort: kairosReasoningEffortSchema.optional(),
   attachments: z
     .array(
       z.object({
@@ -201,6 +207,7 @@ async function runDeepResearchMessage(
   input: z.infer<typeof messageCreateSchema>,
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
+  const reasoningEffort = input.reasoningEffort;
   const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
   const userMessage = await store.createMessage({
     chatId: chat.id,
@@ -227,7 +234,7 @@ async function runDeepResearchMessage(
 
   try {
     const result = await generateText({
-      model: createDeepResearchOpenRouterModel(model),
+      model: createDeepResearchOpenRouterModel(model, reasoningEffort),
       system: deepResearchSystemPrompt(),
       messages: modelMessages as never,
       tools: createDeepResearchTools(context, toolCalls),
@@ -239,6 +246,7 @@ async function runDeepResearchMessage(
       role: "assistant",
       text: result.text,
       model,
+      reasoningEffort,
       toolCalls,
     });
 
@@ -256,23 +264,28 @@ async function runDeepResearchMessage(
       role: "assistant",
       text: `Deep Research failed: ${message}`,
       model,
+      reasoningEffort,
       toolCalls,
     });
     return json({ userMessage, assistantMessage, error: "run_failed", message }, 500);
   }
 }
 
-function createDeepResearchOpenRouterModel(model: string) {
+function createDeepResearchOpenRouterModel(
+  model: string,
+  reasoningEffort?: KairosReasoningEffort,
+) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is required for Deep Research.");
   const option = DEEP_RESEARCH_MODELS.find((item) => item.id === model);
+  const effectiveReasoningEffort = reasoningEffort ?? option?.reasoningEffort;
   const openrouter = createOpenRouter({
     apiKey,
     appName: process.env.OPENROUTER_APP_TITLE,
     appUrl: process.env.OPENROUTER_HTTP_REFERER,
   });
   return openrouter.chat(model, {
-    reasoning: option?.reasoningEffort ? { effort: option.reasoningEffort } : undefined,
+    reasoning: effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : undefined,
   });
 }
 
@@ -573,6 +586,7 @@ class DeepResearchFileStore {
     text?: string;
     chatTitle?: string;
     model?: string;
+    reasoningEffort?: KairosReasoningEffort;
     attachments?: DeepResearchImageAttachment[];
     toolCalls?: RouterToolCallRecord[];
   }): Promise<DeepResearchMessageRecord> {
@@ -582,6 +596,7 @@ class DeepResearchFileStore {
       role: input.role,
       text: input.text,
       model: input.model,
+      reasoningEffort: input.reasoningEffort,
       attachments: input.attachments,
       toolCalls: input.toolCalls,
       createdAt: new Date().toISOString(),

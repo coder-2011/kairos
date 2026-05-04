@@ -1,3 +1,5 @@
+import type { KairosReasoningEffort } from "../../../src/global/agent-config.js";
+
 import { KairosApiError, type RouterToolCallRecord } from "./api";
 
 export type DeepResearchModelOption = {
@@ -5,7 +7,7 @@ export type DeepResearchModelOption = {
   label: string;
   provider: string;
   logo: string;
-  reasoningEffort?: string;
+  reasoningEffort?: KairosReasoningEffort;
   note?: string;
 };
 
@@ -23,6 +25,7 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  reasoningEffort?: KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
 };
@@ -70,6 +73,7 @@ export async function sendDeepResearchMessage(input: {
   chatId: string;
   text: string;
   model: string;
+  reasoningEffort?: "auto" | KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
 }): Promise<{
   chat?: DeepResearchChatRecord;
@@ -82,6 +86,7 @@ export async function sendDeepResearchMessage(input: {
     body: JSON.stringify({
       text: input.text,
       model: input.model,
+      reasoningEffort: input.reasoningEffort,
       attachments: input.attachments ?? [],
     }),
   });

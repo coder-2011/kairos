@@ -1,4 +1,7 @@
+import type { KairosReasoningEffort } from "../../../src/global/agent-config.js";
+
 import { useEffect, useMemo, useRef, useState } from "react";
+import Select, { components, type StylesConfig } from "react-select";
 
 import type { RouterToolCallRecord } from "./api";
 import {
@@ -15,6 +18,10 @@ import {
 import "./deep-research.css";
 
 type LoadState = "loading" | "api" | "offline";
+type DeepResearchReasoningEffort = "auto" | KairosReasoningEffort;
+type DeepResearchModelSelectOption = DeepResearchModelOption & {
+  value: string;
+};
 
 export function DeepResearchView() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -24,6 +31,7 @@ export function DeepResearchView() {
   const [messages, setMessages] = useState<DeepResearchMessageRecord[]>([]);
   const [models, setModels] = useState<DeepResearchModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<DeepResearchReasoningEffort>("auto");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<DeepResearchImageAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -128,6 +136,7 @@ export function DeepResearchView() {
         chatId,
         text: submittedText,
         model: selectedModel,
+        reasoningEffort: reasoningEffort === "auto" ? undefined : reasoningEffort,
         attachments: submittedAttachments,
       });
       setDraft("");
@@ -233,6 +242,10 @@ export function DeepResearchView() {
               models={models}
               value={selectedModel}
               onChange={setSelectedModel}
+            />
+            <ReasoningSelect
+              value={reasoningEffort}
+              onChange={setReasoningEffort}
             />
           </div>
         </header>
@@ -356,22 +369,155 @@ function ModelSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const options = useMemo<DeepResearchModelSelectOption[]>(
+    () => models.map((option) => ({ ...option, value: option.id })),
+    [models],
+  );
+  const selected = useMemo(
+    () => options.find((option) => option.value === value) ?? options[0],
+    [options, value],
+  );
+
   return (
-    <label className="deep-model-select">
-      <span className="deep-model-current-logo">{model?.logo ?? "AI"}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {models.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
+    <Select<DeepResearchModelSelectOption, false>
+      className="deep-model-select"
+      classNamePrefix="deep-model"
+      value={selected}
+      options={options}
+      isSearchable={false}
+      isDisabled={models.length === 0}
+      onChange={(next) => onChange((next as DeepResearchModelSelectOption | null)?.value ?? "")}
+      getOptionLabel={(option) => option.label}
+      getOptionValue={(option) => option.value}
+      formatOptionLabel={(option, { context }) =>
+        context === "menu" ? (
+          <span className="deep-model-option">
+            <span className="deep-model-logo" aria-hidden="true">
+              {option.logo}
+            </span>
+            <span className="deep-model-option-text">
+              <span className="deep-model-option-title">{option.label}</span>
+              <span className="deep-model-option-meta">
+                {option.reasoningEffort ? `${option.reasoningEffort} effort` : "Model"}
+              </span>
+            </span>
+          </span>
+        ) : (
+          <span className="deep-model-value">
+            <span className="deep-model-logo" aria-hidden="true">
+              {option.logo}
+            </span>
+            <span className="deep-model-option-text">
+              <span className="deep-model-option-title">{option.label}</span>
+              <span className="deep-model-option-meta">
+                {option.reasoningEffort ? `${option.reasoningEffort} effort` : "Model"}
+              </span>
+            </span>
+          </span>
+        )
+      }
+      components={{
+        IndicatorSeparator: () => null,
+        DropdownIndicator: (props) => (
+          <components.DropdownIndicator {...props}>
+            <span className="material-symbols-outlined">keyboard_arrow_down</span>
+          </components.DropdownIndicator>
+        ),
+      }}
+      styles={deepModelSelectStyles}
+      placeholder={model?.label ?? "Choose model"}
+    />
+  );
+}
+
+function ReasoningSelect({
+  value,
+  onChange,
+}: {
+  value: DeepResearchReasoningEffort;
+  onChange: (value: DeepResearchReasoningEffort) => void;
+}) {
+  return (
+    <label className="deep-research-reasoning-select-wrap">
+      <span className="deep-research-reasoning-label">Reasoning</span>
+      <select
+        className="deep-research-reasoning-select"
+        onChange={(event) => onChange(event.target.value as DeepResearchReasoningEffort)}
+        value={value}
+      >
+        <option value="auto">Auto</option>
+        <option value="none">None</option>
+        <option value="minimal">Minimal</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+        <option value="xhigh">X-High</option>
       </select>
-      <span className="deep-model-meta">
-        {model ? `${model.label}${model.reasoningEffort ? ` / ${model.reasoningEffort}` : ""}` : "Models"}
-      </span>
     </label>
   );
 }
+
+const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> = {
+  control: (base: Record<string, unknown>) => ({
+    ...base,
+    backgroundColor: "var(--surface-lowest)",
+    borderColor: "var(--outline-variant)",
+    borderRadius: "var(--radius-md)",
+    boxShadow: "none",
+    cursor: "pointer",
+    minHeight: "54px",
+    paddingLeft: "6px",
+    "&:hover": {
+      borderColor: "var(--outline)",
+    },
+  }),
+  menu: (base: Record<string, unknown>) => ({
+    ...base,
+    backgroundColor: "var(--surface-lowest)",
+    border: "1px solid var(--outline-variant)",
+    borderRadius: "var(--radius-md)",
+    marginTop: "6px",
+    overflow: "hidden",
+  }),
+  menuList: (base: Record<string, unknown>) => ({
+    ...base,
+    maxHeight: "280px",
+    padding: "4px 4px 4px 6px",
+    overflowY: "auto",
+  }),
+  option: (base: Record<string, unknown>, state: { isFocused: boolean; isSelected: boolean }) => ({
+    ...base,
+    backgroundColor: state.isFocused || state.isSelected
+      ? "color-mix(in srgb, var(--surface) 55%, transparent)"
+      : "transparent",
+    borderRadius: "8px",
+    color: "var(--on-surface)",
+    cursor: "pointer",
+    marginBottom: "2px",
+    padding: "8px",
+  }),
+  singleValue: (base: Record<string, unknown>) => ({
+    ...base,
+    margin: "0",
+    color: "var(--on-surface)",
+  }),
+  valueContainer: (base: Record<string, unknown>) => ({
+    ...base,
+    padding: "0",
+  }),
+  indicatorSeparator: () => ({
+    display: "none",
+  }),
+  dropdownIndicator: (base: Record<string, unknown>) => ({
+    ...base,
+    color: "var(--on-variant)",
+    padding: "0 8px 0 2px",
+  }),
+  indicatorsContainer: (base: Record<string, unknown>) => ({
+    ...base,
+    paddingRight: "2px",
+  }),
+} as const;
 
 function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }) {
   return (

@@ -160,6 +160,7 @@ export type DebateGraphDependencies = {
   observer?: AgentObserver;
   supermemoryMirror?: SupermemoryMirror;
   runId?: string;
+  isCanceled?: () => boolean | Promise<boolean>;
   /**
    * Production default is false. Enable only for tests, fixtures,
    * or UI demos where deterministic debate behavior is explicitly desired.

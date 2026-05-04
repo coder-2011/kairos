@@ -98,6 +98,10 @@ export type LocalApiOptions = {
   dataDir?: string;
 };
 
+type DebateCancelState = {
+  canceled: boolean;
+};
+
 export type LocalApiContext = {
   store: KairosLocalStore;
   runHeartbeat: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
@@ -107,6 +111,7 @@ export type LocalApiContext = {
   marketSymbolProvider?: MarketSymbolProvider;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
+  debateCancelStates: Map<string, DebateCancelState>;
 };
 
 type HeartbeatTriggerInput = {
@@ -124,6 +129,7 @@ type DebateCreateInput = {
   payload: JsonRecord;
   branch?: BranchRecord;
   onProgress?: (event: AppendRunEventInput) => Promise<void> | void;
+  isCanceled?: () => boolean;
 };
 
 type DebateCreateResult = {
@@ -219,6 +225,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
       : await createRuntimeStore({ dataDir: options.dataDir }));
   const supermemoryMirror =
     options.dependencies?.supermemoryMirror ?? createLocalApiSupermemoryMirror();
+  const debateCancelStates = new Map<string, DebateCancelState>();
   const store = createSupermemoryMirroredStore(rawStore, supermemoryMirror, {
     required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
   });
@@ -234,6 +241,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
       options.dependencies?.notificationSender ??
       createTradingSmsNotifierFromEnv(),
     supermemoryMirror,
+    debateCancelStates,
   };
 }
 
@@ -856,15 +864,29 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     type: "run.started",
     payload: { kind: "debate" },
   });
+  const debateCancelState: DebateCancelState = { canceled: false };
+  context.debateCancelStates.set(run.id, debateCancelState);
 
   if (input.async) {
-    void executeDebateRun(context, run, runPayload, branch).catch((error) => {
+    void executeDebateRun(
+      context,
+      run,
+      runPayload,
+      branch,
+      debateCancelState,
+    ).catch((error) => {
       console.error("[kairos] background debate failed", error);
     });
     return json({ run }, 202);
   }
 
-  const completed = await executeDebateRun(context, run, runPayload, branch);
+  const completed = await executeDebateRun(
+    context,
+    run,
+    runPayload,
+    branch,
+    debateCancelState,
+  );
   if (completed.status === "failed") {
     return json({
       run: completed,
@@ -881,7 +903,14 @@ async function executeDebateRun(
   run: RunRecord,
   runPayload: JsonRecord,
   branch: BranchRecord | undefined,
+  cancelState?: DebateCancelState,
 ): Promise<RunRecord> {
+  const onProgress = async (event: AppendRunEventInput): Promise<void> => {
+    if (await isDebateCanceled(context, run.id, cancelState)) {
+      return;
+    }
+    await context.store.appendRunEvent(run.id, event);
+  };
   let result: DebateCreateResult;
   try {
     const timeoutMs = debateTimeoutMs();
@@ -889,14 +918,17 @@ async function executeDebateRun(
       context.createDebate({
         payload: runPayload,
         branch,
-        onProgress: async (event) => {
-          await context.store.appendRunEvent(run.id, event);
-        },
+        isCanceled: () => cancelState?.canceled ?? false,
+        onProgress,
       }),
       timeoutMs,
       `Debate workflow timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
     );
   } catch (error) {
+    context.debateCancelStates.delete(run.id);
+    if (await isDebateCanceled(context, run.id, cancelState)) {
+      return (await context.store.getRun(run.id)) ?? run;
+    }
     const message = error instanceof Error ? error.message : "Unknown error.";
     const interrupted = message.toLowerCase().includes("timed out");
     const failed = await context.store.updateRun(run.id, {
@@ -914,10 +946,19 @@ async function executeDebateRun(
     return failed ?? { ...run, status: "failed", output: { error: message, interrupted } };
   }
 
+  if (await isDebateCanceled(context, run.id, cancelState)) {
+    context.debateCancelStates.delete(run.id);
+    return (await context.store.getRun(run.id)) ?? run;
+  }
   for (const event of result.events ?? []) {
-    await context.store.appendRunEvent(run.id, event);
+    await onProgress(event);
+  }
+  if (await isDebateCanceled(context, run.id, cancelState)) {
+    context.debateCancelStates.delete(run.id);
+    return (await context.store.getRun(run.id)) ?? run;
   }
   const completed = await context.store.updateRun(run.id, { status: "succeeded", output: result.output });
+  context.debateCancelStates.delete(run.id);
   if (completed) {
     await applyTradingPolicyToDebate(context, completed, branch);
   }
@@ -953,6 +994,11 @@ async function cancelRun(context: LocalApiContext, runId: string): Promise<Respo
     }, 409);
   }
 
+  const cancelState = context.debateCancelStates.get(runId) ??
+    context.debateCancelStates.set(runId, { canceled: false }).get(runId);
+  if (cancelState) {
+    cancelState.canceled = true;
+  }
   const canceled = await context.store.updateRun(runId, {
     status: "canceled",
     output: {
@@ -1735,6 +1781,19 @@ async function withTimeout<T>(
   }
 }
 
+async function isDebateCanceled(
+  context: LocalApiContext,
+  runId: string,
+  cancelState?: DebateCancelState,
+): Promise<boolean> {
+  if (cancelState?.canceled) {
+    return true;
+  }
+
+  const run = await context.store.getRun(runId);
+  return run?.status === "canceled";
+}
+
 function debateTimeoutMs(): number {
   const configured = Number(process.env.KAIROS_DEBATE_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0
@@ -2164,6 +2223,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
     requiredTools: debateConfig.requiredTools,
     globalTools,
     observer: createDebateProgressObserver(input.onProgress),
+    isCanceled: input.isCanceled,
     tools: createInformationDebateTools({
       ...informationModels,
       exa,
@@ -2233,6 +2293,7 @@ function debateProgressEventsFromObservation(event: {
     const role = event.type.replace("_complete", "");
     return [
       { type: "participant.responded", timestamp, payload: { ...payload, role } },
+      { type: "model.call.completed", timestamp, payload: { ...payload, role } },
     ];
   }
 
@@ -2256,11 +2317,17 @@ function debateProgressEventsFromObservation(event: {
   }
 
   if (event.type === "final_complete") {
-    return [{ type: "debate.completed", timestamp, payload }];
+    return [
+      { type: "debate.completed", timestamp, payload },
+      { type: "model.call.completed", timestamp, payload: { ...payload, role: "final" } },
+    ];
   }
 
   if (event.type === "judge_complete") {
-    return [{ type: "debate.judge.plan", timestamp, payload }];
+    return [
+      { type: "model.call.completed", timestamp, payload: { ...payload, role: "judge" } },
+      { type: "debate.judge.plan", timestamp, payload },
+    ];
   }
 
   return [];

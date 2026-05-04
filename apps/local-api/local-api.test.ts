@@ -259,6 +259,42 @@ describe("local API handler", () => {
     }
   });
 
+  it("keeps debates canceled when user cancels async debate execution", async () => {
+    const { requestJson } = makeClient({
+      createDebate: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        return { output: { decision: "needs_review" } };
+      },
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_deals",
+      name: "PLTR deals",
+      config: { assets: ["PLTR"] },
+    });
+
+    const started = await requestJson("POST", "/debates", {
+      async: true,
+      input: { branchId: "branch_pltr_deals" },
+    });
+    expect(started.status).toBe(202);
+    expect(started.body.run.status).toBe("running");
+
+    const canceled = await requestJson("POST", `/runs/${started.body.run.id}/cancel`);
+    expect(canceled.status).toBe(200);
+    expect(canceled.body.run.status).toBe("canceled");
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const run = await requestJson("GET", `/runs/${started.body.run.id}`);
+    expect(run.body.run.status).toBe("canceled");
+
+    const events = await requestJson("GET", `/runs/${started.body.run.id}/events`);
+    const eventTypes = events.body.events.map((event: { type: string }) => event.type);
+    expect(eventTypes).toContain("run.canceled");
+    expect(eventTypes).not.toContain("run.completed");
+    expect(eventTypes).not.toContain("debate.completed");
+  });
+
   it("reports branch capability preflight readiness without exposing secrets", async () => {
     const previousOpenRouter = process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY = "test-key";
@@ -1352,6 +1388,7 @@ function makeClient(options: {
     marketSymbolProvider: options.marketSymbolProvider,
     notificationSender: options.notificationSender,
     supermemoryMirror: options.supermemoryMirror,
+    debateCancelStates: new Map<string, { canceled: boolean }>(),
   };
   const handler = createLocalApiHandler(context);
 

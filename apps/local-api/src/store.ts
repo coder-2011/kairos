@@ -279,9 +279,13 @@ export class MemoryKairosStore implements KairosLocalStore {
   async updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>): Promise<RunRecord | undefined> {
     const current = this.runs.get(id);
     if (!current) return undefined;
+    const nextStatus = input.status ?? current.status;
+    if (current.status === "canceled" && nextStatus !== "canceled") {
+      return current;
+    }
 
     const now = new Date().toISOString();
-    const status = input.status ?? current.status;
+    const status = nextStatus;
     const run: RunRecord = {
       ...current,
       ...definedFields(input),
@@ -618,6 +622,7 @@ function lifecycleStageForEvent(type: string): Partial<RunLifecycle> {
     "debate.started": { stage: "debate_started", currentOperation: "Debate started." },
     "judge.plan.started": { stage: "judge_plan_started", currentOperation: "Judge is selecting the next debate step." },
     "model.call.started": { stage: "model_call_started", currentOperation: "Model call started." },
+    "model.call.completed": { stage: "model_call_completed", currentOperation: "Model call completed." },
     "debate.message": { stage: "debate_turn", currentOperation: "Debate participant responded." },
     "participant.responded": { stage: "participant_responded", currentOperation: "Debate participant responded." },
     "tool.call.started": { stage: "tool_call_started", currentOperation: "Tool call started." },

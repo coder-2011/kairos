@@ -99,6 +99,16 @@ async function invokeStructured<T>(
   return await model.withStructuredOutput<T>(schema).invoke(input);
 }
 
+async function ensureDebateNotCanceled(
+  deps: DebateGraphDependencies,
+): Promise<void> {
+  if (!deps.isCanceled) return;
+  const canceled = await Promise.resolve(deps.isCanceled());
+  if (canceled) {
+    throw new Error("Debate run was canceled by user.");
+  }
+}
+
 function countMessages(
   state: DebateState,
   agentName: DebateAgentName,
@@ -312,6 +322,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     pendingToolRequest: null;
     updatedAt: string;
   }> => {
+    await ensureDebateNotCanceled(deps);
     await observe(deps.observer, {
       agent: "debate",
       type: "judge_start",
@@ -326,6 +337,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     if (!deps.models?.judge) {
       requireDeterministicFallback(deps, "judge");
     }
+    await ensureDebateNotCanceled(deps);
     const rawPlan = deps.models?.judge
       ? await invokeStructured<JudgePlan>(
           deps.models.judge,
@@ -333,6 +345,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           buildModelInput(state, prompts.judgeSystemPrompt),
         )
       : deterministicJudgePlan(state);
+    await ensureDebateNotCanceled(deps);
     const plan = judgePlanSchema.parse(rawPlan);
     await observe(deps.observer, {
       agent: "debate",
@@ -360,7 +373,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     };
   };
 
-  const createDebateParticipantNode =
+    const createDebateParticipantNode =
     (role: "bull" | "bear", systemPrompt: string) =>
     async (
       state: DebateState,
@@ -370,6 +383,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       budgets: DebateBudgetState;
       updatedAt: string;
     }> => {
+      await ensureDebateNotCanceled(deps);
       await observe(deps.observer, {
         agent: "debate",
         type: `${role}_start`,
@@ -384,6 +398,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       if (!deps.models?.[role]) {
         requireDeterministicFallback(deps, role);
       }
+      await ensureDebateNotCanceled(deps);
       const rawOutput = deps.models?.[role]
         ? await invokeStructured<DebateAgentOutput>(
             deps.models[role],
@@ -391,6 +406,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
             buildModelInput(state, systemPrompt),
           )
         : deterministicAgentOutput(role, state);
+      await ensureDebateNotCanceled(deps);
       const output = debateAgentOutputSchema.parse(rawOutput);
       const shouldForceSideEvidence =
         state.budgets.toolCallsUsed < state.budgets.maxToolCalls &&
@@ -436,9 +452,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       };
     };
 
-  const toolsNode = async (
-    state: DebateState,
-  ): Promise<{
+    const toolsNode = async (
+      state: DebateState,
+    ): Promise<{
     messages: DebateMessage[];
     toolEvents: DebateToolEvent[];
     pendingToolRequest: null;
@@ -462,6 +478,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       deps.globalTools?.[state.pendingToolRequest.toolName as GlobalToolName];
     const builtInPortfolioTool =
       state.pendingToolRequest.toolName === "portfolio";
+    await ensureDebateNotCanceled(deps);
     await observe(deps.observer, {
       agent: "debate",
       type: "tool_start",
@@ -489,6 +506,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         );
       }
 
+      await ensureDebateNotCanceled(deps);
       const result = builtInPortfolioTool
         ? {
             summary: summarizePortfolioContext(state.startInput.portfolioContext),
@@ -510,6 +528,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
               startInput: state.startInput,
             },
           });
+      await ensureDebateNotCanceled(deps);
 
       const event = debateToolEventSchema.parse({
         toolEventId: id,
@@ -611,14 +630,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     return { updatedAt: isoNow(deps) };
   };
 
-  const finalNode = async (
-    state: DebateState,
-  ): Promise<{
+    const finalNode = async (
+      state: DebateState,
+    ): Promise<{
     messages: DebateMessage[];
     finalDecision: DebateDecision;
     status: "completed";
     updatedAt: string;
   }> => {
+    await ensureDebateNotCanceled(deps);
     await observe(deps.observer, {
       agent: "debate",
       type: "final_start",
@@ -633,13 +653,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     if (!deps.models?.final) {
       requireDeterministicFallback(deps, "final");
     }
-    const rawDecision = deps.models?.final
-      ? await invokeStructured<DebateDecision>(
-          deps.models.final,
-          debateDecisionSchema,
-          buildModelInput(state, prompts.finalSystemPrompt),
-        )
-      : deterministicFinalDecision(state);
+      await ensureDebateNotCanceled(deps);
+      const rawDecision = deps.models?.final
+        ? await invokeStructured<DebateDecision>(
+            deps.models.final,
+            debateDecisionSchema,
+            buildModelInput(state, prompts.finalSystemPrompt),
+          )
+        : deterministicFinalDecision(state);
+    await ensureDebateNotCanceled(deps);
     const parsedDecision = debateDecisionSchema.parse(rawDecision);
     const decision = {
       ...parsedDecision,
