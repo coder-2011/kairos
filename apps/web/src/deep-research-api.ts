@@ -1,6 +1,7 @@
 import type { KairosReasoningEffort } from "../../../src/global/agent-config.js";
 
 import { KairosApiError, type RouterToolCallRecord } from "./api";
+import { getKairosApiAuthHeaders } from "./auth";
 
 export type DeepResearchModelOption = {
   id: string;
@@ -132,10 +133,12 @@ export async function* sendDeepResearchMessageStream(input: {
   reasoningEffort?: "auto" | KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
 }): AsyncGenerator<DeepResearchStreamEvent> {
+  const authHeaders = await getKairosApiAuthHeaders();
   const response = await fetch(`${apiBaseUrl}/deep-research/chats/${input.chatId}/messages/stream`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...authHeaders,
     },
     body: JSON.stringify({
       text: input.text,
@@ -238,10 +241,12 @@ export async function* sendDeepResearchMessageStream(input: {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const authHeaders = await getKairosApiAuthHeaders();
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...authHeaders,
       ...init.headers,
     },
   });

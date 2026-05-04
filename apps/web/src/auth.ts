@@ -30,6 +30,17 @@ export const isSupabaseAuthEnabled = isAuthEnabled;
 export const isAuthorizedEmail = (email: string | null | undefined): boolean =>
   isAllowedEmail(email);
 
+export async function getSupabaseAccessToken(): Promise<string | undefined> {
+  const session = await getSupabaseSession();
+  return session?.access_token;
+}
+
+export async function getKairosApiAuthHeaders(): Promise<HeadersInit> {
+  if (!isAuthEnabled) return {};
+  const accessToken = await getSupabaseAccessToken();
+  return accessToken ? { authorization: `Bearer ${accessToken}` } : {};
+}
+
 export function getSupabaseSession(): Promise<KairosSession> {
   if (!supabaseClient) {
     return Promise.resolve(null);

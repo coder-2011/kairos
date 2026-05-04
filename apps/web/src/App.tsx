@@ -844,14 +844,17 @@ export function App() {
         },
         config,
       };
-      const branch = isLocalDraftBranch(currentBranch)
+      const shouldCreateBranch = !currentBranch || isLocalDraftBranch(currentBranch);
+      const branch = shouldCreateBranch
         ? await createBranch({
             id: branchId,
             ...branchInput,
           })
         : await updateBranch(branchId, branchInput);
       setBranches((current) =>
-        current.map((item) => (item.id === branch.id ? branch : item)),
+        current.some((item) => item.id === branch.id)
+          ? current.map((item) => (item.id === branch.id ? branch : item))
+          : [branch, ...current],
       );
       setSelectedBranchId(branch.id);
       setLoadState("api");

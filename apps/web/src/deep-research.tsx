@@ -53,6 +53,7 @@ export function DeepResearchView() {
   }, []);
 
   useEffect(() => {
+    setError("");
     if (!selectedChatId) {
       setMessages([]);
       return;
@@ -61,7 +62,10 @@ export function DeepResearchView() {
     let cancelled = false;
     getDeepResearchMessages(selectedChatId)
       .then((nextMessages) => {
-        if (!cancelled) setMessages(nextMessages);
+        if (!cancelled) {
+          setMessages(nextMessages);
+          setLoadState("api");
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadState("offline");
@@ -290,6 +294,33 @@ export function DeepResearchView() {
         });
 
         applyResult(result.userMessage, result.assistantMessage, result.chat);
+      }
+
+      if (!finalized) {
+        const recoveredMessages = await getDeepResearchMessages(chatId);
+        const userIndex = findSubmittedUserMessageIndex(
+          recoveredMessages,
+          submittedText,
+        );
+        const recoveredUserMessage =
+          userIndex >= 0 ? recoveredMessages[userIndex] : undefined;
+        const recoveredAssistantMessage =
+          userIndex >= 0
+            ? recoveredMessages
+                .slice(userIndex + 1)
+                .find((message) => message.role === "assistant")
+            : [...recoveredMessages]
+                .reverse()
+                .find((message) => message.role === "assistant");
+        if (recoveredUserMessage && recoveredAssistantMessage) {
+          finalized = true;
+          setDraft("");
+          setAttachments([]);
+          setMessages(recoveredMessages);
+          const nextChats = await getDeepResearchChats();
+          setChats(nextChats);
+          setLoadState("api");
+        }
       }
 
       if (!finalized) {
@@ -623,6 +654,23 @@ function ReasoningSelect({
       </select>
     </label>
   );
+}
+
+function findSubmittedUserMessageIndex(
+  messages: DeepResearchMessageRecord[],
+  submittedText: string,
+): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message.role === "user" &&
+      (message.text ?? "").trim() === submittedText.trim()
+    ) {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> = {

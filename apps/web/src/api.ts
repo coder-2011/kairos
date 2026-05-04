@@ -3,6 +3,7 @@ import type {
   KairosConfigModelRole,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
+import { getKairosApiAuthHeaders } from "./auth";
 
 export type JsonRecord = Record<string, unknown>;
 export type TradingMode = "disabled" | "enabled" | "paper";
@@ -439,10 +440,12 @@ export async function deleteRouterChat(chatId: string): Promise<void> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const authHeaders = await getKairosApiAuthHeaders();
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...authHeaders,
       ...init.headers,
     },
   });
