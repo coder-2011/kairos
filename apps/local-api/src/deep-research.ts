@@ -149,6 +149,10 @@ const chatCreateSchema = z.object({
 const DEFAULT_MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
 const LOCAL_REQUEST_HEADER = "x-kairos-local-request";
 const LOCAL_TOKEN_HEADER = "x-kairos-local-token";
+const REQUEST_ID_HEADER = "x-request-id";
+const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+const SENSITIVE_RESPONSE_KEY_PATTERN =
+  /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key|stack)/i;
 
 class RequestBodyTooLargeError extends Error {
   constructor(readonly maxBytes: number) {
@@ -1337,7 +1341,7 @@ function maxJsonBodyBytes(): number {
 }
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+  return new Response(JSON.stringify(redactSensitiveResponseValues(body)), {
     status,
     headers: {
       ...corsHeaders(),
@@ -1361,8 +1365,29 @@ function corsHeaders(): HeadersInit {
     "access-control-allow-headers": [
       "authorization",
       "content-type",
+      IDEMPOTENCY_KEY_HEADER,
       LOCAL_REQUEST_HEADER,
       LOCAL_TOKEN_HEADER,
+      REQUEST_ID_HEADER,
     ].join(","),
   };
+}
+
+function redactSensitiveResponseValues(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitiveResponseValues(item, seen));
+  }
+  if (!isJsonRecord(value)) return value;
+  if (seen.has(value)) return "[redacted:circular]";
+  seen.add(value);
+  const redacted = Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      SENSITIVE_RESPONSE_KEY_PATTERN.test(key)
+        ? "[redacted]"
+        : redactSensitiveResponseValues(item, seen),
+    ]),
+  );
+  seen.delete(value);
+  return redacted;
 }

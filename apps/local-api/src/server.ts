@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { z } from "zod";
@@ -164,8 +165,39 @@ type RouterSourceExtractionResult = {
 };
 
 const DEFAULT_MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 600;
 const LOCAL_REQUEST_HEADER = "x-kairos-local-request";
 const LOCAL_TOKEN_HEADER = "x-kairos-local-token";
+const REQUEST_ID_HEADER = "x-request-id";
+const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+const IDEMPOTENCY_CACHE_TTL_MS = 10 * 60_000;
+const SENSITIVE_RESPONSE_KEY_PATTERN =
+  /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key|stack)/i;
+
+type RequestLogContext = {
+  requestId: string;
+  startedAt: number;
+  method: string;
+  path: string;
+};
+
+type RateLimitBucket = {
+  windowStartedAt: number;
+  count: number;
+};
+
+type CachedIdempotentResponse = {
+  expiresAt: number;
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+  body: ArrayBuffer;
+};
+
+const requestLogContext = new AsyncLocalStorage<RequestLogContext>();
+const rateLimitBuckets = new Map<string, RateLimitBucket>();
+const idempotencyResponses = new Map<string, CachedIdempotentResponse>();
 
 class RequestBodyTooLargeError extends Error {
   constructor(readonly maxBytes: number) {
@@ -297,8 +329,227 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
 }
 
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
-  return async (request: Request): Promise<Response> =>
-    withCors(await handleLocalApiRequest(context, request), request);
+  return async (request: Request): Promise<Response> => {
+    const url = new URL(request.url);
+    const requestId = normalizeRequestId(request.headers.get(REQUEST_ID_HEADER)) ?? randomUUID();
+    return requestLogContext.run(
+      {
+        requestId,
+        startedAt: Date.now(),
+        method: request.method,
+        path: url.pathname,
+      },
+      async () => {
+        let response: Response;
+        try {
+          const rateLimitResponse = checkRateLimit(request, url);
+          if (rateLimitResponse) {
+            response = rateLimitResponse;
+          } else {
+            const idempotencyFailure = idempotencyKeyFailure(request, url);
+            if (idempotencyFailure) {
+              response = idempotencyFailure;
+            } else {
+              const idempotencyKey = idempotencyCacheKey(request, url);
+              const cached = idempotencyKey ? readCachedIdempotentResponse(idempotencyKey) : undefined;
+              if (cached) {
+                response = cached;
+              } else {
+                response = await handleLocalApiRequest(context, request);
+                if (idempotencyKey) {
+                  response = await cacheIdempotentResponse(idempotencyKey, response);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error("[kairos] local api uncaught error", {
+            requestId,
+            method: request.method,
+            path: url.pathname,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          response = json({ error: "internal_error", message: "Internal server error." }, 500);
+        }
+        const secured = withSecurityHeaders(withCors(response, request), request);
+        logLocalApiRequest(secured, request, url);
+        return secured;
+      },
+    );
+  };
+}
+
+function normalizeRequestId(value: string | null): string | undefined {
+  const normalized = value?.trim();
+  return normalized && /^[a-zA-Z0-9_.:-]{8,128}$/.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+function checkRateLimit(request: Request, url: URL): Response | undefined {
+  if (!isRateLimitEnabled() || isHealthOrPreflight(request, url)) return undefined;
+  const now = Date.now();
+  const windowMs = rateLimitWindowMs();
+  const key = rateLimitKey(request);
+  const current = rateLimitBuckets.get(key);
+  const bucket =
+    !current || now - current.windowStartedAt >= windowMs
+      ? { windowStartedAt: now, count: 0 }
+      : current;
+  bucket.count += 1;
+  rateLimitBuckets.set(key, bucket);
+  pruneRateLimitBuckets(now, windowMs);
+
+  const max = rateLimitMaxRequests();
+  if (bucket.count <= max) return undefined;
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((bucket.windowStartedAt + windowMs - now) / 1000),
+  );
+  return json({
+    error: "rate_limited",
+    message: "Too many Kairos API requests. Retry after the current rate-limit window.",
+    retryAfterSeconds,
+  }, 429);
+}
+
+function isRateLimitEnabled(): boolean {
+  return parseAuthEnabledFlag(process.env.KAIROS_RATE_LIMIT_ENABLED) ?? true;
+}
+
+function rateLimitWindowMs(): number {
+  const configured = Number(process.env.KAIROS_RATE_LIMIT_WINDOW_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_RATE_LIMIT_WINDOW_MS;
+}
+
+function rateLimitMaxRequests(): number {
+  const configured = Number(process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_RATE_LIMIT_MAX_REQUESTS;
+}
+
+function rateLimitKey(request: Request): string {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const ip =
+    forwardedFor ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("cf-connecting-ip")?.trim() ||
+    "local";
+  const auth = bearerToken(request.headers.get("authorization"));
+  return auth ? `auth:${auth.slice(0, 16)}:${ip}` : `ip:${ip}`;
+}
+
+function pruneRateLimitBuckets(now: number, windowMs: number): void {
+  if (rateLimitBuckets.size < 1_000) return;
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now - bucket.windowStartedAt >= windowMs) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}
+
+function idempotencyKeyFailure(request: Request, url: URL): Response | undefined {
+  if (!requiresIdempotencyKey(request, url)) return undefined;
+  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim();
+  if (!key) {
+    return json({
+      error: "idempotency_key_required",
+      message: `Missing ${IDEMPOTENCY_KEY_HEADER} header for mutation/job request.`,
+    }, 400);
+  }
+  if (!/^[a-zA-Z0-9_.:-]{8,200}$/.test(key)) {
+    return json({
+      error: "bad_request",
+      message: `${IDEMPOTENCY_KEY_HEADER} must be 8-200 URL-safe characters.`,
+    }, 400);
+  }
+  return undefined;
+}
+
+function requiresIdempotencyKey(request: Request, url: URL): boolean {
+  if (!isIdempotencyRequired() || isHealthOrPreflight(request, url)) return false;
+  if (!["POST", "PATCH", "DELETE"].includes(request.method)) return false;
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (request.method === "POST" && segments[0] === "debates" && segments.length === 1) return true;
+  if (
+    request.method === "POST" &&
+    segments[0] === "branches" &&
+    segments.length === 3 &&
+    segments[2] === "heartbeat-runs"
+  ) return true;
+  if (
+    request.method === "POST" &&
+    segments[0] === "router" &&
+    segments[1] === "chats" &&
+    segments[3] === "messages"
+  ) return true;
+  if (request.method === "POST" && segments[0] === "trade-intents") return true;
+  if (
+    request.method === "POST" &&
+    segments[0] === "deep-research" &&
+    segments[1] === "chats" &&
+    segments[3] === "messages"
+  ) return true;
+  return false;
+}
+
+function isIdempotencyRequired(): boolean {
+  return parseAuthEnabledFlag(process.env.KAIROS_REQUIRE_IDEMPOTENCY) ??
+    isProductionRuntime();
+}
+
+function idempotencyCacheKey(request: Request, url: URL): string | undefined {
+  if (!requiresIdempotencyKey(request, url)) return undefined;
+  const key = request.headers.get(IDEMPOTENCY_KEY_HEADER)?.trim();
+  return key ? `${request.method}:${url.pathname}:${key}` : undefined;
+}
+
+function readCachedIdempotentResponse(key: string): Response | undefined {
+  const cached = idempotencyResponses.get(key);
+  if (!cached) return undefined;
+  if (cached.expiresAt <= Date.now()) {
+    idempotencyResponses.delete(key);
+    return undefined;
+  }
+  const headers = new Headers(cached.headers);
+  headers.set("x-idempotency-cache", "hit");
+  return new Response(cached.body.slice(0), {
+    status: cached.status,
+    statusText: cached.statusText,
+    headers,
+  });
+}
+
+async function cacheIdempotentResponse(key: string, response: Response): Promise<Response> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("text/event-stream") || response.status >= 500) return response;
+  const clone = response.clone();
+  const body = await clone.arrayBuffer();
+  idempotencyResponses.set(key, {
+    expiresAt: Date.now() + IDEMPOTENCY_CACHE_TTL_MS,
+    status: response.status,
+    statusText: response.statusText,
+    headers: Array.from(response.headers.entries()),
+    body,
+  });
+  pruneIdempotencyResponses();
+  return response;
+}
+
+function pruneIdempotencyResponses(): void {
+  const now = Date.now();
+  for (const [key, cached] of idempotencyResponses) {
+    if (cached.expiresAt <= now) {
+      idempotencyResponses.delete(key);
+    }
+  }
+}
+
+function isHealthOrPreflight(request: Request, url: URL): boolean {
+  return request.method === "OPTIONS" || url.pathname === "/" || url.pathname === "/health";
 }
 
 async function handleLocalApiRequest(
@@ -2071,17 +2322,38 @@ async function semanticSymbolSearch(
 ): Promise<AlpacaMarketSymbol[]> {
   const terms = semanticSymbolTerms(query);
   const curatedSymbols = semanticCuratedSymbols(terms);
-  const candidateGroups = await Promise.all([
+  const curatedCandidates =
     provider.getMarketSymbols && curatedSymbols.length > 0
-      ? provider.getMarketSymbols(curatedSymbols).catch(() => [])
-      : Promise.resolve([]),
-    ...terms.slice(0, 8).map((term) =>
-      provider.listMarketSymbols({ query: term, limit: 80 }).catch(() => []),
-    ),
-  ]);
-  const candidates = mergeMarketSymbols(candidateGroups.flat());
+      ? await provider.getMarketSymbols(curatedSymbols).catch(() => [])
+      : [];
+  const curatedResults = rankSemanticSymbols(
+    curatedCandidates,
+    terms,
+    curatedSymbols,
+    limit,
+  );
+  if (curatedResults.length >= Math.min(limit, 8)) {
+    return curatedResults;
+  }
 
-  return candidates
+  const lookupTerms = semanticLookupTerms(terms);
+  const candidateGroups = await Promise.all(
+    lookupTerms.map((term) =>
+      provider.listMarketSymbols({ query: term, limit: 40 }).catch(() => []),
+    ),
+  );
+  const candidates = mergeMarketSymbols([curatedCandidates, ...candidateGroups].flat());
+
+  return rankSemanticSymbols(candidates, terms, curatedSymbols, limit);
+}
+
+function rankSemanticSymbols(
+  candidates: AlpacaMarketSymbol[],
+  terms: string[],
+  curatedSymbols: string[],
+  limit: number,
+): AlpacaMarketSymbol[] {
+  return mergeMarketSymbols(candidates)
     .map((symbol) => ({
       symbol,
       score: semanticSymbolScore(symbol, terms, curatedSymbols),
@@ -2092,6 +2364,12 @@ async function semanticSymbolSearch(
     )
     .slice(0, limit)
     .map((item) => item.symbol);
+}
+
+function semanticLookupTerms(terms: string[]): string[] {
+  return terms
+    .filter((term) => !broadSemanticTerms.has(term))
+    .slice(0, 4);
 }
 
 function semanticSymbolTerms(query: string): string[] {
@@ -3573,7 +3851,12 @@ function maxJsonBodyBytes(): number {
 }
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+  const requestId = requestLogContext.getStore()?.requestId;
+  const responseBody =
+    status >= 400 && isJsonRecord(body) && requestId
+      ? { ...body, requestId }
+      : body;
+  return new Response(JSON.stringify(redactSensitiveResponseValues(responseBody)), {
     status,
     headers: {
       ...corsHeaders(),
@@ -3590,6 +3873,10 @@ function withCors(response: Response, request: Request): Response {
   const headers = new Headers(response.headers);
   const origin = request.headers.get("origin");
   const cors = corsHeaders(origin);
+  headers.delete("access-control-allow-origin");
+  headers.delete("access-control-allow-methods");
+  headers.delete("access-control-allow-headers");
+  headers.delete("vary");
   Object.entries(cors).forEach(([key, value]) => headers.set(key, String(value)));
   return new Response(response.body, {
     status: response.status,
@@ -3598,28 +3885,63 @@ function withCors(response: Response, request: Request): Response {
   });
 }
 
+function withSecurityHeaders(response: Response, request: Request): Response {
+  const headers = new Headers(response.headers);
+  const requestId =
+    requestLogContext.getStore()?.requestId ??
+    normalizeRequestId(request.headers.get(REQUEST_ID_HEADER)) ??
+    randomUUID();
+  headers.set(REQUEST_ID_HEADER, requestId);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function logLocalApiRequest(response: Response, request: Request, url: URL): void {
+  const context = requestLogContext.getStore();
+  const durationMs = context ? Date.now() - context.startedAt : undefined;
+  console.info("[kairos] local api request", {
+    requestId: context?.requestId,
+    method: request.method,
+    path: url.pathname,
+    status: response.status,
+    durationMs,
+    origin: request.headers.get("origin") ?? undefined,
+  });
+}
+
 function corsHeaders(requestOrigin?: string | null): HeadersInit {
   const allowedOrigin = corsAllowedOrigin(requestOrigin);
-  return {
-    "access-control-allow-origin": allowedOrigin,
+  const headers: Record<string, string> = {
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": [
       "authorization",
       "content-type",
+      IDEMPOTENCY_KEY_HEADER,
       LOCAL_REQUEST_HEADER,
       LOCAL_TOKEN_HEADER,
+      REQUEST_ID_HEADER,
     ].join(","),
     "vary": "Origin",
   };
+  if (allowedOrigin) {
+    headers["access-control-allow-origin"] = allowedOrigin;
+  }
+  return headers;
 }
 
-function corsAllowedOrigin(requestOrigin?: string | null): string {
+function corsAllowedOrigin(requestOrigin?: string | null): string | undefined {
   const configured = configuredCorsOrigins();
   const origin = requestOrigin?.trim();
-  if (origin && (configured.includes(origin) || isLoopbackOrigin(origin))) {
+  if (!origin) return configured[0] ?? "http://127.0.0.1:5173";
+  if (configured.includes(origin) || (allowLoopbackCors() && isLoopbackOrigin(origin))) {
     return origin;
   }
-  return configured[0] ?? "http://127.0.0.1:5173";
+  return undefined;
 }
 
 function configuredCorsOrigins(): string[] {
@@ -3627,6 +3949,36 @@ function configuredCorsOrigins(): string[] {
   return (value ? value.split(",") : ["http://127.0.0.1:5173"])
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+function allowLoopbackCors(): boolean {
+  return parseAuthEnabledFlag(process.env.KAIROS_ALLOW_LOOPBACK_CORS) ??
+    !isProductionRuntime();
+}
+
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" ||
+    process.env.VERCEL === "1" ||
+    process.env.KAIROS_DEPLOYMENT_ENV === "production";
+}
+
+function redactSensitiveResponseValues(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitiveResponseValues(item, seen));
+  }
+  if (!isJsonRecord(value)) return value;
+  if (seen.has(value)) return "[redacted:circular]";
+  seen.add(value);
+  const redacted = Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      SENSITIVE_RESPONSE_KEY_PATTERN.test(key)
+        ? "[redacted]"
+        : redactSensitiveResponseValues(item, seen),
+    ]),
+  );
+  seen.delete(value);
+  return redacted;
 }
 
 function isLoopbackOrigin(origin: string): boolean {

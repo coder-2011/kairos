@@ -153,6 +153,103 @@ describe("local API handler", () => {
     }
   });
 
+  it("enforces the production API security envelope end to end", async () => {
+    const previous = {
+      corsOrigin: process.env.KAIROS_CORS_ORIGIN,
+      allowLoopbackCors: process.env.KAIROS_ALLOW_LOOPBACK_CORS,
+      requireIdempotency: process.env.KAIROS_REQUIRE_IDEMPOTENCY,
+      rateLimitEnabled: process.env.KAIROS_RATE_LIMIT_ENABLED,
+      rateLimitMax: process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS,
+      rateLimitWindow: process.env.KAIROS_RATE_LIMIT_WINDOW_MS,
+    };
+    process.env.KAIROS_CORS_ORIGIN = "https://kairos.example";
+    process.env.KAIROS_ALLOW_LOOPBACK_CORS = "false";
+    process.env.KAIROS_REQUIRE_IDEMPOTENCY = "true";
+    process.env.KAIROS_RATE_LIMIT_ENABLED = "true";
+    process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS = "1";
+    process.env.KAIROS_RATE_LIMIT_WINDOW_MS = "60000";
+
+    try {
+      const disallowedCors = await makeClient({
+        origin: "http://127.0.0.1:5173",
+        headers: { "x-forwarded-for": "203.0.113.9" },
+      }).request("GET", "/health");
+      expect(disallowedCors.headers.get("access-control-allow-origin")).toBeNull();
+      expect(disallowedCors.headers.get("x-request-id")).toBeTruthy();
+
+      const limitedClient = makeClient({
+        headers: { "x-forwarded-for": "203.0.113.10" },
+      });
+      expect((await limitedClient.requestJson("GET", "/branches")).status).toBe(200);
+      const rateLimited = await limitedClient.requestJson("GET", "/runs");
+      expect(rateLimited.status).toBe(429);
+      expect(rateLimited.body).toMatchObject({
+        error: "rate_limited",
+      });
+      expect(rateLimited.body.requestId).toBeTruthy();
+
+      process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS = "100";
+      const missingIdempotency = await makeClient({
+        headers: { "x-forwarded-for": "203.0.113.11" },
+      }).requestJson("POST", "/debates", { input: {} });
+      expect(missingIdempotency.status).toBe(400);
+      expect(missingIdempotency.body).toMatchObject({
+        error: "idempotency_key_required",
+      });
+
+      const secretResponse = await makeClient({
+        headers: { "x-forwarded-for": "203.0.113.12" },
+      }).requestJson("POST", "/branches", {
+        name: "Security branch",
+        metadata: {
+          apiKey: "sk-provider-secret",
+          nested: { token: "session-token" },
+          stack: "raw stack trace",
+        },
+      });
+      expect(secretResponse.status).toBe(201);
+      expect(JSON.stringify(secretResponse.body)).not.toContain("sk-provider-secret");
+      expect(JSON.stringify(secretResponse.body)).not.toContain("session-token");
+      expect(JSON.stringify(secretResponse.body)).not.toContain("raw stack trace");
+
+      let debateRuns = 0;
+      const idempotentClient = makeClient({
+        headers: {
+          "idempotency-key": "debate-security-test",
+          "x-forwarded-for": "203.0.113.13",
+        },
+        createDebate: async () => {
+          debateRuns += 1;
+          return {
+            output: {
+              decision: "needs_review",
+              apiKey: "model-provider-secret",
+            },
+            events: [{ type: "debate.created", payload: {} }],
+          };
+        },
+      });
+      const firstDebate = await idempotentClient.request("POST", "/debates", { input: {} });
+      const firstBody = await firstDebate.text();
+      const replayedDebate = await idempotentClient.request("POST", "/debates", { input: {} });
+      const replayedBody = await replayedDebate.text();
+
+      expect(firstDebate.status).toBe(201);
+      expect(replayedDebate.status).toBe(201);
+      expect(replayedDebate.headers.get("x-idempotency-cache")).toBe("hit");
+      expect(debateRuns).toBe(1);
+      expect(firstBody).toBe(replayedBody);
+      expect(firstBody).not.toContain("model-provider-secret");
+    } finally {
+      restoreEnv("KAIROS_CORS_ORIGIN", previous.corsOrigin);
+      restoreEnv("KAIROS_ALLOW_LOOPBACK_CORS", previous.allowLoopbackCors);
+      restoreEnv("KAIROS_REQUIRE_IDEMPOTENCY", previous.requireIdempotency);
+      restoreEnv("KAIROS_RATE_LIMIT_ENABLED", previous.rateLimitEnabled);
+      restoreEnv("KAIROS_RATE_LIMIT_MAX_REQUESTS", previous.rateLimitMax);
+      restoreEnv("KAIROS_RATE_LIMIT_WINDOW_MS", previous.rateLimitWindow);
+    }
+  });
+
   it("rejects oversized JSON request bodies", async () => {
     const previousLimit = process.env.KAIROS_MAX_JSON_BODY_BYTES;
     process.env.KAIROS_MAX_JSON_BODY_BYTES = "32";
@@ -269,6 +366,31 @@ describe("local API handler", () => {
       "NVDA",
       "SMCI",
     ]);
+  });
+
+  it("uses curated semantic symbols without fanning out broad Alpaca searches", async () => {
+    let listCalls = 0;
+    const { requestJson } = makeClient({
+      marketSymbolProvider: {
+        async listMarketSymbols() {
+          listCalls += 1;
+          return [];
+        },
+        async getMarketSymbols(symbols) {
+          return symbols.map((symbol) => marketSymbol(symbol, `${symbol} Corp.`));
+        },
+      },
+    });
+
+    const response = await requestJson("POST", "/market/symbols/semantic", {
+      query: "semiconductor data center networking",
+      limit: 8,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.count).toBe(8);
+    expect(listCalls).toBe(0);
+    expect(response.body.symbols.map((item: { symbol: string }) => item.symbol)).toContain("NVDA");
   });
 
   it("does not synthesize starter tickers when the symbol directory is unavailable", async () => {
@@ -1898,6 +2020,7 @@ function makeClient(options: {
   omitLocalRequestHeader?: boolean;
   localApiToken?: string;
   origin?: string;
+  headers?: Record<string, string>;
 } = {}) {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
@@ -1937,6 +2060,7 @@ function makeClient(options: {
       headers: {
         ...(options.origin ? { origin: options.origin } : {}),
         ...localApiRequestHeaders(options),
+        ...options.headers,
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -1987,6 +2111,14 @@ function localApiRequestHeaders(options: {
     "x-kairos-local-request": "1",
     ...(token ? { "x-kairos-local-token": token } : {}),
   };
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
 }
 
 function createMockMirror(records: SupermemoryMirrorRecord[]): SupermemoryMirror {
