@@ -63,7 +63,7 @@ export type DeepResearchImageAttachment = {
   dataUrl: string;
 };
 
-type DeepResearchContext = {
+export type DeepResearchContext = {
   store: KairosLocalStore;
 };
 
