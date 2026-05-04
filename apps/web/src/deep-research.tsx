@@ -687,13 +687,13 @@ function DeepResearchMessage({
         </div>
       )}
       {hasWorkflow ? (
-        <details className="deep-research-workflow" open>
+        <details className="deep-research-workflow">
           <summary className="deep-research-workflow-summary">
             <span>
               <span className="material-symbols-outlined">visibility</span>
               Workflow
             </span>
-            <b>details</b>
+            <b>{formatWorkflowSummary(message)}</b>
           </summary>
           <div className="deep-research-workflow-content">
             {typeof message.reasoning === "string" &&
@@ -768,6 +768,17 @@ function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
       )}
     </details>
   );
+}
+
+function formatWorkflowSummary(message: DeepResearchMessageRecord): string {
+  const toolCount = message.toolCalls?.length ?? 0;
+  const hasReasoning =
+    typeof message.reasoning === "string" && message.reasoning.trim().length > 0;
+  if (toolCount > 0 && hasReasoning) {
+    return `${toolCount} tool${toolCount === 1 ? "" : "s"} + thinking`;
+  }
+  if (toolCount > 0) return `${toolCount} tool${toolCount === 1 ? "" : "s"}`;
+  return "thinking";
 }
 
 function humanizeDeepResearchToolName(value: string): string {
