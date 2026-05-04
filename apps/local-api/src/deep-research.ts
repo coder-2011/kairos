@@ -312,7 +312,7 @@ function createDeepResearchTools(
   return {
     supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
       description:
-        "Search Supermemory across all accessible user memory when the user asks about preferences, prior work, historical context, or remembered facts.",
+        "Search memory for relevant prior context and observations.",
       inputSchema: z.object({
         query: z.string().min(1),
         limit: z.number().int().min(1).max(12).optional(),
@@ -330,7 +330,7 @@ function createDeepResearchTools(
     }),
     supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
       description:
-        "Load branch-scoped Supermemory profiles for all configured Kairos branches. Use this to understand all user-maintained profiles/laws.",
+        "Load branch summaries to keep the investigation aligned to active laws.",
       inputSchema: z.object({
         query: z.string().min(1),
         limitBranches: z.number().int().min(1).max(20).optional(),
@@ -365,7 +365,7 @@ function createDeepResearchTools(
       },
     }),
     exa_search: tracedTool(traces, "exa_search", {
-      description: "Search current web/news sources with Exa.",
+      description: "Search current web and news sources.",
       inputSchema: z.object({
         query: z.string().min(1),
         category: z.enum(["news", "company", "research paper", "github", "tweet"]).optional(),
@@ -377,7 +377,7 @@ function createDeepResearchTools(
       },
     }),
     exa_research: tracedTool(traces, "exa_research", {
-      description: "Ask Exa to synthesize an answer with citations.",
+      description: "Run a deeper research pass for a source-backed answer.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
@@ -385,7 +385,7 @@ function createDeepResearchTools(
       },
     }),
     exa_contents: tracedTool(traces, "exa_contents", {
-      description: "Read specific URLs through Exa contents.",
+      description: "Read and summarize specific URLs.",
       inputSchema: z.object({
         urls: z.array(z.string().url()).min(1).max(5),
         maxCharacters: z.number().int().min(500).max(20000).optional(),
@@ -396,8 +396,7 @@ function createDeepResearchTools(
       },
     }),
     information_agent: tracedTool(traces, "information_agent", {
-      description:
-        "Use the full Kairos information agent, including market data, Finnhub tools when configured, Exa, and Supermemory search.",
+      description: "Run a broader investigation pass using available system context.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
         return runInformationAgent(query, {
@@ -476,9 +475,12 @@ function deepResearchSystemPrompt(): string {
 
 function resolveDeepResearchModel(model: string | undefined): string {
   if (!model) return DEEP_RESEARCH_DEFAULT_MODEL;
-  return DEEP_RESEARCH_MODELS.some((option) => option.id === model)
-    ? model
-    : DEEP_RESEARCH_DEFAULT_MODEL;
+
+  if (DEEP_RESEARCH_MODELS.some((option) => option.id === model)) {
+    return model;
+  }
+
+  throw new Error(`Selected model is unavailable: ${model}`);
 }
 
 async function generateDeepResearchTitle(text: string): Promise<string | undefined> {
