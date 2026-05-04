@@ -14,6 +14,15 @@ import type {
   KairosConfigModelRole,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
+import type { KairosSession } from "./auth";
+import {
+  getSupabaseAuthConfiguredError,
+  getSupabaseSession,
+  isSupabaseAuthConfigured,
+  onSupabaseAuthStateChange,
+  signInWithGoogle,
+  signOutFromGoogle,
+} from "./auth";
 import {
   appendInterjection,
   cancelRun,
@@ -231,6 +240,9 @@ export function App() {
   const [lastRouterHeartbeatRuns, setLastRouterHeartbeatRuns] = useState<RunRecord[]>([]);
   const [capabilityPreflight, setCapabilityPreflight] = useState<CapabilityPreflight>();
   const [capabilityLoadState, setCapabilityLoadState] = useState<LoadState>("loading");
+  const [authSession, setAuthSession] = useState<KairosSession>(null);
+  const [authStatus, setAuthStatus] = useState<"initializing" | "ready">("initializing");
+  const [authError, setAuthError] = useState("");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -250,6 +262,52 @@ export function App() {
       window.history.pushState(null, "", nextHash);
     }
   }
+
+  const userLabel = authSession?.user
+    ? authSession.user.user_metadata?.full_name ||
+      authSession.user.user_metadata?.name ||
+      authSession.user.email ||
+      "Signed in user"
+    : "Not signed in";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initializeAuth() {
+      try {
+        if (!isSupabaseAuthConfigured) {
+          setAuthError(getSupabaseAuthConfiguredError());
+          setAuthStatus("ready");
+          return;
+        }
+
+        const session = await getSupabaseSession();
+        if (cancelled) return;
+        setAuthSession(session);
+      } catch (error) {
+        if (!cancelled) {
+          setAuthError(error instanceof Error ? error.message : "Auth initialization failed.");
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthStatus("ready");
+        }
+      }
+    }
+
+    void initializeAuth();
+
+    const authChange = onSupabaseAuthStateChange((nextSession) => {
+      if (!cancelled) {
+        setAuthSession(nextSession);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      authChange.data.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -275,6 +333,14 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!authSession) {
+      setBranches([]);
+      setRuns([]);
+      setEvents([]);
+      setLoadState("loading");
+      return;
+    }
 
     async function load() {
       try {
@@ -314,9 +380,15 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authSession]);
 
   useEffect(() => {
+    if (!authSession) {
+      setCapabilityPreflight(undefined);
+      setCapabilityLoadState("offline");
+      return;
+    }
+
     if (!selectedBranch?.id) {
       setCapabilityPreflight(undefined);
       setCapabilityLoadState("offline");
@@ -340,10 +412,16 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedBranch?.id, selectedBranch?.updatedAt]);
+  }, [authSession, selectedBranch?.id, selectedBranch?.updatedAt]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!authSession) {
+      setOpenRouterModels([]);
+      setModelDefaults({});
+      return;
+    }
+
     getOpenRouterModels()
       .then((response) => {
         if (!cancelled) {
@@ -361,10 +439,16 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authSession]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!authSession) {
+      setTradeSymbols([]);
+      setTradeSymbolLoadState("offline");
+      return;
+    }
+
     setTradeSymbolLoadState("loading");
     getTradeSymbols({ limit: 500 })
       .then((symbols) => {
@@ -383,10 +467,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authSession]);
 
   useEffect(() => {
-    if (!selectedRun?.id || loadState !== "api") {
+    if (!authSession || !selectedRun?.id || loadState !== "api") {
       setEvents([]);
       return;
     }
@@ -403,10 +487,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadState, selectedRun?.id]);
+  }, [authSession, loadState, selectedRun?.id]);
 
   useEffect(() => {
-    if (!selectedRun?.id || selectedRun.status !== "running") return;
+    if (!authSession || !selectedRun?.id || selectedRun.status !== "running") return;
 
     const interval = window.setInterval(() => {
       void Promise.all([
@@ -424,9 +508,14 @@ export function App() {
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [selectedRun?.id, selectedRun?.status]);
+  }, [authSession, selectedRun?.id, selectedRun?.status]);
 
   useEffect(() => {
+    if (!authSession) {
+      setSelectedRunId("");
+      return;
+    }
+
     if (
       loadState === "api" &&
       (view === "monitoring" || view === "runDeepDive") &&
@@ -436,20 +525,20 @@ export function App() {
       setSelectedRunId(runs[0].id);
       window.history.replaceState(null, "", routeHash({ view, runId: runs[0].id }));
     }
-  }, [loadState, runs, selectedRunId, view]);
+  }, [authSession, loadState, runs, selectedRunId, view]);
 
   useEffect(() => {
-    if (view !== "portfolio") return;
+    if (!authSession || view !== "portfolio") return;
     void refreshPortfolioData();
-  }, [view]);
+  }, [authSession, view]);
 
   useEffect(() => {
-    if (view !== "router") return;
+    if (!authSession || view !== "router") return;
     void refreshRouterChats();
-  }, [view]);
+  }, [authSession, view]);
 
   useEffect(() => {
-    if (!selectedRouterChatId || routerLoadState !== "api") {
+    if (!authSession || !selectedRouterChatId || routerLoadState !== "api") {
       setRouterMessages([]);
       return;
     }
@@ -466,7 +555,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [routerLoadState, selectedRouterChatId]);
+  }, [authSession, routerLoadState, selectedRouterChatId]);
 
   async function refreshRouterChats() {
     setRouterLoadState("loading");
@@ -721,6 +810,60 @@ export function App() {
     }
   }
 
+  async function startGoogleSignIn() {
+    setAuthError("");
+    try {
+      setAuthStatus("initializing");
+      await signInWithGoogle();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Failed to sign in.");
+      setAuthStatus("ready");
+    }
+  }
+
+  async function handleSignOut() {
+    setAuthError("");
+    try {
+      await signOutFromGoogle();
+      setAuthSession(null);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Sign out failed.");
+      setAuthStatus("ready");
+    }
+  }
+
+  if (!isSupabaseAuthConfigured) {
+    return (
+      <AuthGate
+        onSignIn={startGoogleSignIn}
+        onSignOut={handleSignOut}
+        onRetry={() => void startGoogleSignIn()}
+        ready={false}
+        signedInUser={userLabel}
+        status="Missing Supabase auth configuration."
+        subtitle={authError}
+      />
+    );
+  }
+
+  if (authStatus === "initializing") {
+    return <AuthGate status="Checking Google auth state..." />;
+  }
+
+  if (!authSession) {
+    return (
+      <AuthGate
+        onSignIn={startGoogleSignIn}
+        onSignOut={handleSignOut}
+        onRetry={() => void startGoogleSignIn()}
+        ready={false}
+        signedInUser={userLabel}
+        status="Sign in to continue."
+        subtitle={authError || "Authenticate with Google to unlock the Kairos dashboard."}
+      />
+    );
+  }
+
   return (
     <div className="shell" data-theme={themeMode}>
       <SideNav
@@ -730,7 +873,7 @@ export function App() {
         onThemeModeChange={setThemeMode}
       />
       <div className="workspace">
-        <TopBar />
+        <TopBar onSignOut={handleSignOut} signedInUser={userLabel} />
         {view === "branches" && (
           <BranchList
             branches={branches}
@@ -899,8 +1042,31 @@ function ThemeSwitch({
   );
 }
 
-function TopBar() {
-  return <header className="top-bar" />;
+function TopBar({
+  onSignOut,
+  signedInUser,
+}: {
+  onSignOut: () => void;
+  signedInUser: string;
+}) {
+  return (
+    <header className="top-bar">
+      <div className="top-status">
+        <span className="status-light" />
+        <span>{signedInUser}</span>
+      </div>
+      <div className="top-actions">
+        <button
+          className="command-button compact"
+          onClick={() => void onSignOut()}
+          type="button"
+        >
+          <Icon name="logout" />
+          LOG OUT
+        </button>
+      </div>
+    </header>
+  );
 }
 
 function BranchList({

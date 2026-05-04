@@ -176,11 +176,11 @@ export function DeepResearchView() {
       <aside className="deep-research-sidebar">
         <div className="deep-research-brand">
           <div className="deep-research-logo" aria-hidden="true">
-            <span>DR</span>
+            <span className="material-symbols-outlined">travel_explore</span>
           </div>
           <div>
             <h2>Deep Research</h2>
-            <p>Supermemory + full tool access</p>
+            <p>Research workspace</p>
           </div>
         </div>
         <button
@@ -189,7 +189,7 @@ export function DeepResearchView() {
           type="button"
         >
           <span className="material-symbols-outlined">add</span>
-          NEW RESEARCH
+          NEW CHAT
         </button>
         <div className="deep-research-chat-list">
           {chats.length === 0 ? (
@@ -218,7 +218,7 @@ export function DeepResearchView() {
         <header className="deep-research-head">
           <div>
             <h1>Deep Research Agent</h1>
-            <p>Isolated chat workspace with OpenRouter models, Supermemory, Exa, and Kairos market tools.</p>
+            <p>Isolated chat workspace for market and product research.</p>
           </div>
           <div className="deep-research-controls">
             <span className={`source-pill ${loadState === "offline" || modelState === "offline" ? "warning" : ""}`}>
@@ -244,7 +244,7 @@ export function DeepResearchView() {
               <h2>Ask for a sourced investigation.</h2>
               <p>
                 The agent can search Supermemory globally, inspect branch profiles,
-                query Exa, read URLs, and call the Kairos information toolchain.
+                search current sources, and run deeper context-assisted review.
               </p>
             </div>
           ) : (
@@ -317,7 +317,7 @@ export function DeepResearchView() {
                 void submit();
               }
             }}
-            placeholder="Ask for deep research across memory, current sources, filings, market context, and prior Kairos decisions..."
+            placeholder="Start a new chat with your market research question."
             value={draft}
           />
           <button
@@ -367,7 +367,7 @@ function ModelSelect({
         ))}
       </select>
       <span className="deep-model-meta">
-        {model ? `${model.provider}${model.reasoningEffort ? ` / ${model.reasoningEffort}` : ""}` : "Models"}
+        {model ? `${model.label}${model.reasoningEffort ? ` / ${model.reasoningEffort}` : ""}` : "Models"}
       </span>
     </label>
   );
