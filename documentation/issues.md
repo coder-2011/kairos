@@ -6,6 +6,13 @@ Scope: cleared local branch/run/router runtime state, created one branch named `
 
 ## Findings
 
+### 8. Supabase-backed QA cannot start without server-side service role key
+
+- `2026-05-03 17:07 — [qa-kairos] Feature: Supabase runtime store startup | Severity: high | Environment: web`
+- `Observed: With KAIROS_STORE=supabase loaded from .env.local, the local API exits before serving because SUPABASE_SERVICE_ROLE_KEY is not set. The connected Supabase project named kairos has public.kairos_records present and empty, but the UI cannot be verified against Supabase-backed persistence until the local API has the required server-side key.`
+- `Expected: The local API should start in Supabase mode with KAIROS_STORE=supabase, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY configured, allowing branch/run/router/deep-research QA to exercise Supabase persistence.`
+- `Evidence: Command: set -a; source ./.env.local; set +a; bun run dev:api. Error: SUPABASE_SERVICE_ROLE_KEY is required when KAIROS_STORE=supabase.`
+
 ### 1. Heartbeat runs fail with the default configured model/tools
 
 - Severity: High

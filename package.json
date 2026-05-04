@@ -8,6 +8,7 @@
     "dev:web": "vite --config apps/web/vite.config.ts",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "preview:web": "vite preview --config apps/web/vite.config.ts",
+    "qa:ui": "bun run apps/web/qa-regression.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web/tsconfig.json"
   },
