@@ -1136,9 +1136,12 @@ class DeepResearchFileStore {
     await writeFile(this.messagesPath(input.chatId), `${JSON.stringify(message)}\n`, { flag: "a" });
     const chat = await this.getChat(input.chatId);
     if (chat) {
+      const nextTitle = chat.title ??
+        input.chatTitle ??
+        (input.role === "user" ? buildTitle(input.text ?? "") : undefined);
       await this.writeJson(this.chatPath(input.chatId), {
         ...chat,
-        title: chat.title ?? input.chatTitle ?? buildTitle(input.text ?? ""),
+        ...(nextTitle ? { title: nextTitle } : {}),
         updatedAt: message.createdAt,
       });
     }
@@ -1188,6 +1191,9 @@ function buildTitle(text: string): string | undefined {
 function cleanTitle(value: string | undefined): string | undefined {
   const title = value?.replace(/^["'`]+|["'`.]+$/g, "").replace(/\s+/g, " ").trim();
   if (!title) return undefined;
+  if (/^#|[*_`[\]]/.test(title) || /evidence|conclusion|summary/i.test(title)) {
+    return undefined;
+  }
   return title.length > 48 ? `${title.slice(0, 45).trimEnd()}...` : title;
 }
 
@@ -1425,6 +1431,6 @@ function corsHeaders(): HeadersInit {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "authorization,content-type",
   };
 }

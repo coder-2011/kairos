@@ -131,6 +131,8 @@ type DebateCreateInput = {
   payload: JsonRecord;
   branch?: BranchRecord;
   deepResearchContext?: DeepResearchContext;
+  context?: LocalApiContext;
+  runId?: string;
   onProgress?: (event: AppendRunEventInput) => Promise<void> | void;
   isCanceled?: () => boolean;
 };
@@ -280,6 +282,8 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
+    const authFailure = await authorizeLocalApiRequest(request, url);
+    if (authFailure) return authFailure;
     const deepResearchResponse = await handleDeepResearchRequest(context, request);
     if (deepResearchResponse) return deepResearchResponse;
     const route = matchRoute(request.method, url.pathname);
@@ -295,7 +299,7 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         case "listOpenRouterModels": {
           let models: Awaited<ReturnType<typeof listOpenRouterModels>> = [];
           try {
-            models = await listOpenRouterModels({ requireTools: true });
+            models = await listOpenRouterModels({ supportsToolsOnly: true });
           } catch {
             models = [];
           }
@@ -417,6 +421,107 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
       return json({ error: "internal_error", message: error instanceof Error ? error.message : "Unknown error." }, 500);
     }
   };
+}
+
+async function authorizeLocalApiRequest(
+  request: Request,
+  url: URL,
+): Promise<Response | undefined> {
+  if (!isLocalApiAuthEnabled()) return undefined;
+  if (request.method === "OPTIONS") return undefined;
+  if (url.pathname === "/health") return undefined;
+
+  const token = bearerToken(request.headers.get("authorization"));
+  if (!token) {
+    return json({ error: "unauthorized", message: "Missing authorization token." }, 401);
+  }
+
+  let user: { email?: string };
+  try {
+    user = await getSupabaseUserForToken(token);
+  } catch (error) {
+    return json({
+      error: "unauthorized",
+      message: error instanceof Error ? error.message : "Invalid authorization token.",
+    }, 401);
+  }
+  if (!user.email || !isAllowedKairosEmail(user.email)) {
+    return json({ error: "forbidden", message: "Google account is not authorized for Kairos." }, 403);
+  }
+
+  return undefined;
+}
+
+async function getSupabaseUserForToken(token: string): Promise<{ email?: string }> {
+  const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "")
+    .replace(/\/$/, "");
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("Supabase auth verification requires SUPABASE_URL and SUPABASE_ANON_KEY.");
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Invalid Supabase auth token.");
+  }
+
+  const body = await response.json() as { email?: unknown };
+  return {
+    email: typeof body.email === "string" ? body.email : undefined,
+  };
+}
+
+function bearerToken(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
+  return match?.[1];
+}
+
+function isLocalApiAuthEnabled(): boolean {
+  return parseAuthEnabledFlag(
+    process.env.KAIROS_AUTH_ENABLED ?? process.env.VITE_KAIROS_AUTH_ENABLED,
+  ) ?? false;
+}
+
+function isAllowedKairosEmail(email: string): boolean {
+  return allowedKairosEmails().has(email.trim().toLowerCase());
+}
+
+function allowedKairosEmails(): Set<string> {
+  const configured = parseEmailList(
+    process.env.KAIROS_ALLOWED_EMAILS ?? process.env.VITE_KAIROS_ALLOWED_EMAILS,
+  );
+  return new Set(
+    configured.length > 0
+      ? configured
+      : [
+        "naman.chetwani@gmail.com",
+        "sanjay.chetwani@gmail.com",
+      ],
+  );
+}
+
+function parseEmailList(value: unknown): string[] {
+  return typeof value === "string"
+    ? value
+      .split(",")
+      .map((candidate) => candidate.trim().toLowerCase().replace(/^["']|["']$/g, ""))
+      .filter(Boolean)
+    : [];
+}
+
+function parseAuthEnabledFlag(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["0", "false", "off", "no", "disabled"].includes(normalized)) return false;
+  if (["1", "true", "on", "yes", "enabled"].includes(normalized)) return true;
+  return undefined;
 }
 
 export async function createLocalApi(options: LocalApiOptions = {}): Promise<{ context: LocalApiContext; handler: (request: Request) => Promise<Response> }> {
@@ -974,6 +1079,8 @@ async function executeDebateRun(
         payload: runPayload,
         branch,
         deepResearchContext: context,
+        context,
+        runId: run.id,
         isCanceled: () => cancelState?.canceled ?? false,
         onProgress,
       }),
@@ -2363,6 +2470,8 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
     globalTools,
     observer: createDebateProgressObserver(input.onProgress),
     isCanceled: input.isCanceled,
+    loadHumanInterjections: () =>
+      input.context && input.runId ? loadRunHumanInterjections(input.context, input.runId) : [],
     tools: createInformationDebateTools({
       ...informationModels,
       exa,
@@ -3096,7 +3205,7 @@ function corsHeaders(): HeadersInit {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "authorization,content-type",
   };
 }
 

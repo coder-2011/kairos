@@ -39,7 +39,7 @@ describe("local API handler", () => {
               tradable: true,
               price: 25.5,
               dayChangePercent: 2,
-              source: "yahoo",
+              source: "alpaca",
             },
           ];
         },
@@ -51,7 +51,7 @@ describe("local API handler", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       count: 1,
-      source: "nasdaq_trader_yahoo",
+      source: "alpaca_assets",
       cacheTags: ["market-symbols", "market-symbols:query:PLTR"],
       symbols: [
         {
