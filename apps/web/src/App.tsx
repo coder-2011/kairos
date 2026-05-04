@@ -2732,12 +2732,9 @@ function BranchConfig({
   const branchAssets = config.assets ?? [];
   const tradingConfig = config.trading ?? {};
   const tradingMode = tradingConfig.mode ?? "disabled";
-  const tradingEnabled = tradingMode === "enabled" || tradingMode === "paper";
-  const tradingActionMode = getTradingActionMode(tradingConfig);
+  const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
   const tradeSymbolUniverse = mergeSymbolSelection(
     branchAssets,
-    tradingConfig.symbols ?? [],
-    tradingConfig.symbol ? [tradingConfig.symbol] : [],
     tradeSymbols.map((symbol) => symbol.symbol),
   );
   const selectedTradeSymbols = normalizeSymbolSelection(
@@ -2757,18 +2754,6 @@ function BranchConfig({
       config.thresholds?.buyConfidence ??
       0.9) * 100,
   );
-  const toolCapableModelIds = new Set(openRouterModels.map((model) => model.id));
-  const heartbeatSelectedModel =
-    config.models?.heartbeat?.model ?? modelDefaults.heartbeat?.model ?? "";
-  const heartbeatToolsEnabled = heartbeatToolFields.some(
-    (tool) => config.tools?.heartbeat?.[tool.key]?.enabled ?? true,
-  );
-  const heartbeatModelWarning =
-    heartbeatSelectedModel &&
-    heartbeatToolsEnabled &&
-    !toolCapableModelIds.has(heartbeatSelectedModel)
-      ? `${heartbeatSelectedModel} is not in the current tool-capable model list. Heartbeat will run without tools unless you choose a listed model.`
-      : "";
   const heartbeatBlocked = capabilityPreflight?.checks.some((check) =>
     check.status === "blocked" &&
     ["branch", "law", "openrouter_key"].includes(check.id)
@@ -2786,14 +2771,14 @@ function BranchConfig({
         </div>
         <div className="button-row">
           <button className="command-button" disabled={heartbeatBlocked} onClick={onRunHeartbeat} type="button">
-            <Icon name="play_arrow" /> RUN HEARTBEAT CHECK
+            <Icon name="play_arrow" /> RUN HEARTBEAT
           </button>
           <button className="command-button primary-outline" disabled={debateBlocked} onClick={onEscalate} type="button">
-            <Icon name="forum" /> START MANUAL DEBATE
+            <Icon name="forum" /> START DEBATE
           </button>
           <button
             className="command-button danger-outline"
-            onClick={onDiscard}
+            onClick={resetDraft}
             type="button"
           >
             DISCARD
@@ -2813,7 +2798,7 @@ function BranchConfig({
           preflight={capabilityPreflight}
         />
         <div className="config-grid">
-          <FieldLabel info="Human-readable name for this monitoring branch." label="Branch Name">
+          <FieldLabel label="Branch Name">
             <input
               onChange={(event) => setBranchName(event.target.value)}
               placeholder="Name this monitoring branch."
@@ -2832,20 +2817,14 @@ function BranchConfig({
             </span>
           </label>
         </div>
-        <FieldLabel
-          info="Primary branch thesis: what this agent watches, what counts as signal, and what it should ignore."
-          label="The Law (Primary Thesis)"
-        >
+        <FieldLabel label="The Law (Primary Thesis)">
           <textarea
             onChange={(event) => setLawText(event.target.value)}
             placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
             value={lawText}
           />
         </FieldLabel>
-        <FieldLabel
-          info="Ticker universe this branch watches and uses as the default trade-symbol pool."
-          label="Tracked Tickers"
-        >
+        <FieldLabel label="Tracked Tickers">
           <input
             onChange={(event) => {
               const assets = parseAssetList(event.target.value);
@@ -2866,13 +2845,10 @@ function BranchConfig({
           />
         </FieldLabel>
         <div>
-          <InfoLabel
-            label="AGENT SYSTEM PROMPTS"
-            info="System instructions for each branch-scoped agent role. These shape behavior without changing saved evidence."
-          />
+          <div className="field-label">AGENT SYSTEM PROMPTS</div>
           <div className="prompt-grid">
             {promptFields.map((field) => (
-              <FieldLabel info={field.description} label={field.role} key={field.key}>
+              <FieldLabel label={field.role} key={field.key}>
                 <textarea
                   className="prompt-area"
                   rows={5}
@@ -2892,63 +2868,69 @@ function BranchConfig({
             ))}
           </div>
         </div>
-        <section className="trading-panel">
+        <section className={`trading-panel ${paperAutoBuyEnabled ? "auto-buy" : ""}`}>
           <div className="trading-panel-head">
             <div>
-              <InfoLabel
-                label="TRADING CONTROLS"
-                info="Controls whether this branch can draft trade intents, send notifications, or do both when confidence thresholds are met."
-              />
-              <h2>Trading</h2>
+              <div className="field-label">PAPER TRADING CONTROLS</div>
+              <h2>
+                {tradingMode === "paper"
+                  ? "Paper trading enabled"
+                  : "Trading disabled"}
+              </h2>
             </div>
           </div>
           <div className="trading-grid">
             <div className="trading-section full">
-              <FieldLabel
-                info="Enable Trading creates guarded trade intents. Notify sends branch alerts only. Both does both."
-                label="Mode"
-              >
-                <select
-                  onChange={(event) =>
-                    setConfig((current) => {
-                      const nextMode = event.target.value as TradingActionMode;
-                      const enablesTrading =
-                        nextMode === "enable_trading" || nextMode === "both";
-                      const notifies =
-                        nextMode === "notify" || nextMode === "both";
-
-                      return {
+              <div className="field-label">Mode</div>
+              <div className="trading-card-row">
+                <label className="checkbox-card">
+                  <input
+                    checked={tradingMode === "paper"}
+                    onChange={(event) =>
+                      setConfig((current) => ({
                         ...current,
                         trading: {
                           ...current.trading,
-                          mode: enablesTrading ? "enabled" : "disabled",
-                          notifyOnBuySignal: notifies,
-                          autoTradeEnabled: false,
-                          paperAutoBuyEnabled: false,
+                          mode: event.target.checked ? "paper" : "disabled",
+                          paperAutoBuyEnabled: event.target.checked
+                            ? current.trading?.paperAutoBuyEnabled ?? false
+                            : false,
                         },
-                      };
-                    })
-                  }
-                  value={tradingActionMode}
-                >
-                  {tradingActionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <b>Enable paper trading</b>
+                    <small>Allows Kairos to create paper trade intents.</small>
+                  </span>
+                </label>
+                <label className="checkbox-card">
+                  <input
+                    checked={paperAutoBuyEnabled}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        trading: {
+                          ...current.trading,
+                          paperAutoBuyEnabled: event.target.checked,
+                          mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
+                        },
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <b>Auto-submit paper orders</b>
+                    <small>Enables paper mode when switched on.</small>
+                  </span>
+                </label>
+              </div>
             </div>
             <div className="trading-section full">
-              <InfoLabel
-                label="Execution"
-                info="Select tradeable symbols and order type for generated trade intents."
-              />
+              <div className="field-label">Execution</div>
               <div className="trading-fields-row">
-                <FieldLabel
-                  info="Choose one or more symbols from tracked tickers or the loaded trade catalog. Search loads more ticker matches."
-                  label="Symbols"
-                >
+                <FieldLabel label="Symbols">
                   <TradeSymbolDropdown
                     assets={branchAssets}
                     catalog={tradeSymbols}
@@ -2967,7 +2949,7 @@ function BranchConfig({
                     }
                   />
                 </FieldLabel>
-                <FieldLabel info="Restricts generated trade intents to this order type." label="Order Type">
+                <FieldLabel label="Order Type">
                   <select
                     onChange={(event) =>
                       setConfig((current) => ({
@@ -2990,12 +2972,9 @@ function BranchConfig({
               </div>
             </div>
             <div className="trading-section full">
-              <InfoLabel
-                label="Limits"
-                info="Caps notional exposure for generated trade intents."
-              />
+              <div className="field-label">Limits</div>
               <div className="trading-fields-row">
-                <FieldLabel info="Maximum notional size per generated order intent." label="Max Order">
+                <FieldLabel label="Max Order">
                   <input
                     min="0"
                     onChange={(event) =>
@@ -3011,7 +2990,7 @@ function BranchConfig({
                     value={maxNotionalPerOrder}
                   />
                 </FieldLabel>
-                <FieldLabel info="Maximum open notional exposure per selected symbol." label="Max Position">
+                <FieldLabel label="Max Position">
                   <input
                     min="0"
                     onChange={(event) =>
@@ -3031,8 +3010,7 @@ function BranchConfig({
             </div>
             <div className="threshold-inline">
               <Slider
-                info="Minimum confidence required before Kairos drafts a trade intent."
-                label="Trade Threshold"
+                label="Paper Trade Threshold"
                 onChange={(value) =>
                   setConfig((current) => ({
                     ...current,
@@ -3049,17 +3027,15 @@ function BranchConfig({
           </div>
         </section>
         <div>
-          <InfoLabel
-            label="MODEL ROLE CONFIGURATION"
-            info="Per-role model overrides. Leave a role on default unless the branch needs a specific model or reasoning effort."
-          />
+          <div className="field-label">MODEL ROLE CONFIGURATION</div>
           <div className="model-grid">
             {modelRoleFields.map((field) => (
               <div className="model-row" key={field.key}>
                 <span>
-                  <InfoLabel info={field.purpose} label={field.label} />
+                  <b>{field.label}</b>
                 </span>
-                <select
+                <input
+                  list="openrouter-models"
                   onChange={(event) =>
                     setConfig((current) => ({
                       ...current,
@@ -3072,25 +3048,9 @@ function BranchConfig({
                       },
                     }))
                   }
-                  value={config.models?.[field.key]?.model ?? ""}
-                >
-                  <option value="">
-                    {modelDefaults[field.key]?.model
-                      ? `DEFAULT: ${modelDefaults[field.key]?.model}`
-                      : "DEFAULT MODEL"}
-                  </option>
-                  {config.models?.[field.key]?.model &&
-                    !openRouterModels.some((model) => model.id === config.models?.[field.key]?.model) && (
-                      <option value={config.models[field.key]?.model}>
-                        {config.models[field.key]?.model}
-                      </option>
-                    )}
-                  {openRouterModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name ? `${model.name} / ${model.id}` : model.id}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={modelDefaults[field.key]?.model ?? "Model"}
+                  value={config.models?.[field.key]?.model ?? modelDefaults[field.key]?.model ?? ""}
+                />
                 <select
                   onChange={(event) =>
                     setConfig((current) => ({
@@ -3122,22 +3082,21 @@ function BranchConfig({
               </div>
             ))}
           </div>
+          <datalist id="openrouter-models">
+            {openRouterModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </datalist>
           {openRouterModels.length === 0 && (
             <p className="config-note">
               Model list unavailable.
             </p>
           )}
-          {heartbeatModelWarning && (
-            <p className="config-note danger">
-              {heartbeatModelWarning}
-            </p>
-          )}
         </div>
         <div className="config-grid">
-          <FieldLabel
-            info="Tools available to the information agent for evidence gathering, source reading, market data, and branch memory retrieval."
-            label="Information Agent Tools"
-          >
+          <FieldLabel label="Information Agent Tools">
             <div className="tool-picker">
               {informationToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3160,10 +3119,7 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>
-                    {toolAccessLabel(tool)}
-                    <InfoIcon label={tool.purpose} />
-                  </span>
+                  <span>{toolAccessLabel(tool)}</span>
                   <input
                     checked={config.tools?.information?.[tool.key]?.required ?? false}
                     disabled={config.tools?.information?.[tool.key]?.enabled === false}
@@ -3189,10 +3145,7 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel
-            info="Tools available to bull, bear, judge, and final debate roles."
-            label="Debate Tools"
-          >
+          <FieldLabel label="Debate Tools">
             <div className="tool-picker">
               {debateToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3215,10 +3168,7 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>
-                    {tool.label}
-                    <InfoIcon label={tool.purpose} />
-                  </span>
+                  <span>{tool.label}</span>
                   <input
                     checked={config.tools?.debate?.[tool.key]?.required ?? false}
                     disabled={config.tools?.debate?.[tool.key]?.enabled === false}
@@ -3244,10 +3194,7 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel
-            info="Cheap tools available during heartbeat monitoring before escalation."
-            label="Heartbeat Tools"
-          >
+          <FieldLabel label="Heartbeat Tools">
             <div className="tool-picker">
               {heartbeatToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3270,10 +3217,7 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>
-                    {tool.label}
-                    <InfoIcon label={tool.purpose} />
-                  </span>
+                  <span>{tool.label}</span>
                   <input
                     checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
                     disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
@@ -3300,10 +3244,7 @@ function BranchConfig({
             </div>
           </FieldLabel>
         </div>
-        <FieldLabel
-          info="Branch-specific guidance injected into Exa search and deep research workflows."
-          label="Search & Deep Research Instruction"
-        >
+        <FieldLabel label="Search & Deep Research Instruction">
           <textarea
             onChange={(event) =>
               setConfig((current) => ({
@@ -3319,7 +3260,7 @@ function BranchConfig({
           />
         </FieldLabel>
         <div className="config-grid">
-          <FieldLabel info="Scheduled monitoring cadence for this branch." label="Heartbeat Interval Minutes">
+          <FieldLabel label="Heartbeat Interval Minutes">
             <input
               min="1"
               onChange={(event) =>
@@ -3335,7 +3276,7 @@ function BranchConfig({
               value={heartbeatInterval}
             />
           </FieldLabel>
-          <FieldLabel info="How many recent days of seed context the heartbeat should consider." label="Seed Window Days">
+          <FieldLabel label="Seed Window Days">
             <input
               min="1"
               onChange={(event) =>
@@ -3351,7 +3292,7 @@ function BranchConfig({
               value={seedWindowDays}
             />
           </FieldLabel>
-          <FieldLabel info="Maximum cheap tool calls allowed during one heartbeat pass." label="Heartbeat Max Tool Steps">
+          <FieldLabel label="Heartbeat Max Tool Steps">
             <input
               min="0"
               onChange={(event) =>
@@ -3367,7 +3308,7 @@ function BranchConfig({
               value={heartbeatMaxToolSteps}
             />
           </FieldLabel>
-          <FieldLabel info="Maximum debate loop turns before final synthesis." label="Debate Max Turns">
+          <FieldLabel label="Debate Max Turns">
             <input
               min="1"
               onChange={(event) =>
@@ -3383,7 +3324,7 @@ function BranchConfig({
               value={debateMaxTurns}
             />
           </FieldLabel>
-          <FieldLabel info="Maximum debate tool calls available per debate run." label="Debate Max Tool Calls">
+          <FieldLabel label="Debate Max Tool Calls">
             <input
               min="0"
               onChange={(event) =>
@@ -3399,7 +3340,7 @@ function BranchConfig({
               value={debateMaxToolCalls}
             />
           </FieldLabel>
-          <FieldLabel info="Maximum information-agent tool calls for source and market-data retrieval." label="Information Max Tool Calls">
+          <FieldLabel label="Information Max Tool Calls">
             <input
               min="0"
               onChange={(event) =>
@@ -3417,16 +3358,12 @@ function BranchConfig({
           </FieldLabel>
         </div>
         <div>
-          <InfoLabel
-            label="ESCALATION AND REVIEW THRESHOLDS"
-            info="Confidence cutoffs used when deciding whether to notify, trade, or keep monitoring."
-          />
+          <div className="field-label">ESCALATION AND REVIEW THRESHOLDS</div>
           <div className="threshold-wide">
-              <Slider
-                info="Minimum confidence required before Kairos should notify about this branch."
-                label="Notification Threshold"
-                onChange={(value) =>
-                  setConfig((current) => ({
+            <Slider
+              label="Notification Threshold"
+              onChange={(value) =>
+                setConfig((current) => ({
                   ...current,
                   thresholds: {
                     ...current.thresholds,
@@ -3437,7 +3374,6 @@ function BranchConfig({
               value={`${notifyConfidence}%`}
             />
             <Slider
-              info="Minimum confidence required before Kairos drafts a trade intent."
               label="Buy Signal Threshold"
               onChange={(value) =>
                 setConfig((current) => ({
