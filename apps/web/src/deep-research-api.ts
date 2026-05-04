@@ -25,6 +25,7 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  reasoning?: string;
   reasoningEffort?: KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
@@ -79,7 +80,6 @@ export async function sendDeepResearchMessage(input: {
   chat?: DeepResearchChatRecord;
   userMessage: DeepResearchMessageRecord;
   assistantMessage: DeepResearchMessageRecord;
-  toolCalls: RouterToolCallRecord[];
 }> {
   return request(`/deep-research/chats/${input.chatId}/messages`, {
     method: "POST",

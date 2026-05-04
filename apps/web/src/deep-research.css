@@ -367,6 +367,62 @@
   padding-top: 10px;
 }
 
+.deep-research-workflow {
+  border-top: 1px solid var(--outline-variant);
+  margin-top: 12px;
+}
+
+.deep-research-workflow-summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+}
+
+.deep-research-workflow-summary span {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.deep-research-workflow-summary b {
+  color: var(--on-variant);
+}
+
+.deep-research-workflow-content {
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.deep-research-workflow-label {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.deep-research-reasoning pre,
+.deep-tool-call pre {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  margin: 0;
+  max-height: 220px;
+  max-width: 100%;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
 .deep-tool-call {
   background: var(--surface);
   border: 1px solid var(--outline-variant);
