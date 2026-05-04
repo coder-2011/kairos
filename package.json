@@ -11,7 +11,8 @@
     "qa:ui": "bun run apps/web/qa-regression.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web/tsconfig.json",
-    "browser-use:local": "bash scripts/bu-local-profile.sh"
+    "browser-use:local": "bash scripts/bu-local-profile.sh",
+    "browser-use:local:chatgpt": "BROWSER_USE_PREFER_LIVE_PROFILE_FOR_CHATGPT=1 bun run browser-use:local"
   },
   "dependencies": {
     "@langchain/core": "^1.0.0",

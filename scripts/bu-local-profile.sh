@@ -24,8 +24,10 @@ fi
 # Required/local profile defaults
 : "${BROWSER_USE_USER_DATA_DIR:=$HOME/Library/Application\ Support/Google/Chrome}"
 : "${BROWSER_USE_PROFILE_DIRECTORY:=Default}"
-: "${BROWSER_USE_LLM:=openrouter/gpt-5-mini}"
-: "${BROWSER_USE_PROVIDER:=}"
+: "${BROWSER_USE_CHATGPT_PROFILE_DIRECTORY:=}"
+: "${BROWSER_USE_PREFER_LIVE_PROFILE_FOR_CHATGPT:=0}"
+: "${BROWSER_USE_PROVIDER:=openrouter}"
+: "${BROWSER_USE_LLM:=openai/gpt-5-mini}"
 
 : "${TIMEOUT_BrowserStartEvent:=240}"
 : "${TIMEOUT_BrowserLaunchEvent:=240}"
@@ -43,6 +45,14 @@ fi
 if [[ -z "${OPENROUTER_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" && -z "${BROWSER_USE_API_KEY:-}" ]]; then
   echo "Set OPENROUTER_API_KEY or OPENAI_API_KEY (for LLM inference), or BROWSER_USE_API_KEY."
   exit 1
+fi
+
+if [[ -n "${BROWSER_USE_CHATGPT_PROFILE_DIRECTORY}" ]]; then
+  BROWSER_USE_PROFILE_DIRECTORY="${BROWSER_USE_CHATGPT_PROFILE_DIRECTORY}"
+fi
+
+if [[ "$BROWSER_USE_PREFER_LIVE_PROFILE_FOR_CHATGPT" == "1" ]]; then
+  BROWSER_USE_SKIP_PROFILE_COPY=1
 fi
 
 pkill -f "browser_use\.skill_cli\.server" >/dev/null 2>&1 || true
