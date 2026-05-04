@@ -58,6 +58,7 @@ import {
   type PortfolioSnapshot,
   type TradeIntent,
   type TradingConfig,
+  type CreateTradeIntentInput,
 } from "../../../src/trading/index.js";
 import {
   createTradingSmsNotifierFromEnv,
@@ -574,7 +575,7 @@ async function handleLocalApiRequest(
         case "listOpenRouterModels": {
           let models: Awaited<ReturnType<typeof listOpenRouterModels>> = [];
           try {
-            models = await listOpenRouterModels({ requireTools: true });
+            models = await listOpenRouterModels();
           } catch {
             models = [];
           }
@@ -1214,15 +1215,42 @@ async function applyTradingPolicyToDebate(
       });
       return;
     }
-    const maxOrderNotional = tradingConfig.maxNotionalPerOrder ?? tradingConfig.maxNotionalUsd;
-    const cappedNotional =
-      requestedNotional !== undefined && maxOrderNotional !== undefined
-        ? Math.min(requestedNotional, maxOrderNotional)
-        : requestedNotional;
-    const cappedQty =
-      tradeSide === "sell" && requestedQty !== undefined && currentPosition?.qty !== undefined
-        ? Math.min(requestedQty, currentPosition.qty)
-        : requestedQty;
+    const requestedIntentSizing = {
+      symbol,
+      side: tradeSide,
+      qty: requestedQty,
+      notional:
+        requestedNotional ??
+        (tradeSide === "buy" && requestedQty === undefined ? defaultNotional : undefined),
+      limitPrice: requestedLimitPrice,
+    };
+    const sizingGuard = enforceTradeSizingLimits({
+      input: requestedIntentSizing,
+      tradingConfig,
+      portfolioSnapshot,
+    });
+    if (!sizingGuard.ok) {
+      await context.store.createMessage({
+        type: "paper_order_blocked",
+        severity: "warning",
+        title: `${symbol} trade blocked`,
+        body: sizingGuard.reasons.join(" "),
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        sourceRunId: run.id,
+        confidence: decision.confidence,
+        metadata: {
+          thresholdPolicy: policy,
+          action: decision.action,
+          judgeSizing: decision.sizing,
+          portfolioContext: compactPortfolioContext(portfolioSnapshot),
+          tradingConfig,
+        },
+      });
+      return;
+    }
+    const cappedNotional = requestedIntentSizing.notional;
+    const cappedQty = requestedQty;
     const intentQty =
       cappedQty ??
       (tradeSide === "sell" && cappedNotional === undefined
@@ -1231,18 +1259,7 @@ async function applyTradingPolicyToDebate(
     const intentNotional =
       cappedNotional ??
       (tradeSide === "buy" && cappedQty === undefined ? defaultNotional : undefined);
-    const sizingGuardrailNotes = [
-      requestedNotional !== undefined &&
-      cappedNotional !== undefined &&
-      cappedNotional < requestedNotional
-        ? `Judge notional ${requestedNotional} was capped to max per trade ${cappedNotional}.`
-        : undefined,
-      requestedQty !== undefined &&
-      cappedQty !== undefined &&
-      cappedQty < requestedQty
-        ? `Judge sell quantity ${requestedQty} was capped to held quantity ${cappedQty}.`
-        : undefined,
-    ].filter(Boolean);
+    const sizingGuardrailNotes: string[] = [];
     intent = await context.store.createTradeIntent({
       branchId: branch?.id,
       lawId: branch?.lawId,
@@ -1996,6 +2013,37 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
       confidence: input.confidence,
     });
     return json({ policy, tradeIntent: null, messages: [message] }, 201);
+  }
+
+  const portfolioSnapshot = await context.store.latestPortfolioSnapshot();
+  const sizingGuard = enforceTradeSizingLimits({
+    input,
+    tradingConfig,
+    portfolioSnapshot,
+  });
+  if (!sizingGuard.ok) {
+    const message = await context.store.createMessage({
+      type: "paper_order_blocked",
+      severity: "warning",
+      title: `${input.symbol} trade blocked`,
+      body: sizingGuard.reasons.join(" "),
+      branchId: input.branchId,
+      lawId: input.lawId,
+      sourceRunId: input.sourceRunId,
+      confidence: input.confidence,
+      metadata: {
+        policy,
+        tradingConfig,
+        portfolioContext: compactPortfolioContext(portfolioSnapshot),
+      },
+    });
+    return json({
+      policy,
+      tradeIntent: null,
+      brokerOrder: null,
+      messages: [message],
+      preflight: sizingGuard,
+    }, 422);
   }
 
   const tradeIntent = await context.store.createTradeIntent({
@@ -3537,6 +3585,73 @@ function findPortfolioPosition(
   return snapshot?.positions.find(
     (position) => position.symbol.toUpperCase() === symbol.toUpperCase(),
   );
+}
+
+function enforceTradeSizingLimits(input: {
+  input: Pick<CreateTradeIntentInput, "symbol" | "side" | "qty" | "notional" | "limitPrice">;
+  tradingConfig: TradingConfig;
+  portfolioSnapshot?: PortfolioSnapshot;
+}): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const { tradingConfig, portfolioSnapshot } = input;
+  const position = findPortfolioPosition(portfolioSnapshot, input.input.symbol);
+  const notional = estimateTradeIntentNotional(input.input, position?.currentPrice);
+  const maxOrderNotional = tradingConfig.maxNotionalPerOrder ?? tradingConfig.maxNotionalUsd;
+
+  if (maxOrderNotional !== undefined) {
+    if (notional === undefined) {
+      reasons.push(
+        `Cannot verify ${input.input.symbol} max order notional ${maxOrderNotional} without notional, limit price, or current price.`,
+      );
+    } else if (notional > maxOrderNotional) {
+      reasons.push(`Intent exceeds configured max order notional ${maxOrderNotional}.`);
+    }
+  }
+
+  if (input.input.side === "buy" && tradingConfig.maxOpenPositionNotionalPerSymbol !== undefined) {
+    if (!portfolioSnapshot) {
+      reasons.push(
+        `Cannot verify ${input.input.symbol} max open position notional ${tradingConfig.maxOpenPositionNotionalPerSymbol} without a portfolio snapshot.`,
+      );
+    } else if (notional === undefined) {
+      reasons.push(
+        `Cannot verify ${input.input.symbol} max open position notional ${tradingConfig.maxOpenPositionNotionalPerSymbol} without notional, limit price, or current price.`,
+      );
+    } else {
+      const currentPositionNotional = estimatePortfolioPositionNotional(position);
+      if (currentPositionNotional + notional > tradingConfig.maxOpenPositionNotionalPerSymbol) {
+        reasons.push(
+          `Intent would exceed configured max open position notional ${tradingConfig.maxOpenPositionNotionalPerSymbol} for ${input.input.symbol}.`,
+        );
+      }
+    }
+  }
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+  };
+}
+
+function estimateTradeIntentNotional(
+  input: Pick<CreateTradeIntentInput, "qty" | "notional" | "limitPrice">,
+  currentPrice: number | undefined,
+): number | undefined {
+  if (input.notional !== undefined) return input.notional;
+  if (input.qty !== undefined && input.limitPrice !== undefined) return input.qty * input.limitPrice;
+  if (input.qty !== undefined && currentPrice !== undefined && currentPrice > 0) {
+    return input.qty * currentPrice;
+  }
+  return undefined;
+}
+
+function estimatePortfolioPositionNotional(
+  position: PortfolioSnapshot["positions"][number] | undefined,
+): number {
+  if (!position) return 0;
+  if (position.marketValue !== undefined) return Math.abs(position.marketValue);
+  if (position.currentPrice !== undefined) return Math.abs(position.qty * position.currentPrice);
+  return 0;
 }
 
 function extractTradingDecision(output: JsonRecord | undefined): {

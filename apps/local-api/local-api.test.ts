@@ -1726,6 +1726,59 @@ describe("local API handler", () => {
     expect(brokerOrders.body.brokerOrders).toHaveLength(0);
   });
 
+  it("blocks trade intent creation when max order notional is exceeded", async () => {
+    const { requestJson } = makeClient();
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      notional: 600,
+      confidence: 0.9,
+      tradingConfig: {
+        mode: "enabled",
+        notifyConfidenceThreshold: 0.65,
+        tradeConfidenceThreshold: 0.85,
+        autoTradeEnabled: false,
+        maxNotionalPerOrder: 500,
+      },
+    }));
+
+    expect(response.status).toBe(422);
+    expect(response.body.tradeIntent).toBeNull();
+    expect(response.body.preflight).toEqual({
+      ok: false,
+      reasons: ["Intent exceeds configured max order notional 500."],
+    });
+
+    const intents = await requestJson("GET", "/trade-intents");
+    expect(intents.body.tradeIntents).toHaveLength(0);
+  });
+
+  it("blocks trade intent creation when max position notional would be exceeded", async () => {
+    const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
+    await requestJson("POST", "/portfolio/refresh");
+
+    const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
+      notional: 300,
+      confidence: 0.9,
+      tradingConfig: {
+        mode: "enabled",
+        notifyConfidenceThreshold: 0.65,
+        tradeConfidenceThreshold: 0.85,
+        autoTradeEnabled: false,
+        maxOpenPositionNotionalPerSymbol: 500,
+      },
+    }));
+
+    expect(response.status).toBe(422);
+    expect(response.body.tradeIntent).toBeNull();
+    expect(response.body.preflight).toEqual({
+      ok: false,
+      reasons: ["Intent would exceed configured max open position notional 500 for PLTR."],
+    });
+
+    const intents = await requestJson("GET", "/trade-intents");
+    expect(intents.body.tradeIntents).toHaveLength(0);
+  });
+
   it("sends an SMS notification when confidence crosses the notify threshold", async () => {
     const sent: unknown[] = [];
     const { requestJson } = makeClient({
@@ -1848,6 +1901,60 @@ describe("local API handler", () => {
         side: "buy",
         orderType: "limit",
         limitPrice: 24.98,
+      }),
+    ]);
+  });
+
+  it("blocks a judge-proposed buy that exceeds max order notional instead of capping it", async () => {
+    const { requestJson } = makeClient({
+      tradingBroker: createMockTradingBroker(),
+      createDebate: async ({ payload }) => ({
+        output: {
+          finalDecision: {
+            summary: "Bull case asks for more notional than policy allows.",
+            action: "buy",
+            confidence: 0.91,
+            sizing: {
+              notional: 600,
+              orderType: "market",
+              rationale: "Oversized test order.",
+            },
+            citations: [],
+          },
+        },
+        events: [{ type: "debate.created", payload }],
+      }),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_max_order_block",
+      name: "PLTR max order block",
+      config: {
+        assets: ["PLTR"],
+        trading: {
+          mode: "paper",
+          notifyConfidenceThreshold: 0.65,
+          paperTradeConfidenceThreshold: 0.85,
+          paperAutoBuyEnabled: true,
+          maxNotionalPerOrder: 500,
+        },
+      },
+    });
+
+    const response = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_max_order_block",
+        summary: "Potentially material contract news.",
+      },
+    });
+    const intents = await requestJson("GET", "/trade-intents");
+    const messages = await requestJson("GET", "/messages");
+
+    expect(response.status).toBe(201);
+    expect(intents.body.tradeIntents).toHaveLength(0);
+    expect(messages.body.messages).toEqual([
+      expect.objectContaining({
+        type: "paper_order_blocked",
+        body: "Intent exceeds configured max order notional 500.",
       }),
     ]);
   });
