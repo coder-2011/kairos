@@ -113,6 +113,31 @@ describe("Supermemory mirror", () => {
     );
   });
 
+  it("uses explicit branch container tags instead of deriving defaults", async () => {
+    const writes: Array<{ kind?: string; containerTag: string; customId?: string; content: string }> = [];
+    const mirror = createSupermemoryMirror({
+      memory: createMemoryTarget(writes),
+    });
+
+    await mirror.mirrorRecord({
+      type: "branch.updated",
+      scope: "branch",
+      branchId: "branch_legacy",
+      timestamp: "2026-05-03T12:00:00.000Z",
+      summary: "Branch updated.",
+      containerTags: ["branch_custom", "branch_profile_custom"],
+    });
+
+    expect(writes.map((write) => write.containerTag).sort()).toEqual([
+      "branch_custom",
+      "branch_custom",
+      "branch_profile_custom",
+      "branch_profile_custom",
+      "system_global",
+      "system_global",
+    ]);
+  });
+
   it("keeps formatter redaction available independently", () => {
     expect(redactSecrets({ token: "abc", keep: "value" })).toEqual({
       token: "[REDACTED]",

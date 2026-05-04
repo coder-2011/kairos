@@ -325,8 +325,9 @@ function containerTagsForRecord(
   record: SupermemoryMirrorRecord,
   globalContainerTag: string,
 ): string[] {
-  const tags = new Set<string>([globalContainerTag, ...(record.containerTags ?? [])]);
-  if (record.branchId) {
+  const configuredTags = record.containerTags ?? [];
+  const tags = new Set<string>([globalContainerTag, ...configuredTags]);
+  if (record.branchId && configuredTags.length === 0) {
     tags.add(getMemoryContainerTag({
       scopeId: record.branchId,
       prefix: "branch",
