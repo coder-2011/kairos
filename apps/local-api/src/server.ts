@@ -1968,12 +1968,18 @@ async function mirrorRouterSources(
 ): Promise<boolean> {
   if (!context.supermemoryMirror) return false;
 
-  const containerTags = input.branchIds.map((branchId) =>
-    [
-      getMemoryContainerTag({ scopeId: branchId, prefix: "branch" }),
-      getMemoryContainerTag({ scopeId: branchId, prefix: "branch_profile" }),
-    ],
-  ).flat();
+  const branches = await Promise.all(
+    input.branchIds.map((branchId) => context.store.getBranch(branchId)),
+  );
+  const containerTags = input.branchIds.flatMap((branchId, index) => {
+    const branch = branches[index];
+    return branch
+      ? branchSupermemoryContainerTags(branch)
+      : [
+        getMemoryContainerTag({ scopeId: branchId, prefix: "branch" }),
+        getMemoryContainerTag({ scopeId: branchId, prefix: "branch_profile" }),
+      ];
+  });
 
   await Promise.all(
     input.sources.map((source) =>
@@ -2310,10 +2316,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
     finnhub,
     memory,
     memoryContainerTag: input.branch
-      ? getMemoryContainerTag({
-        scopeId: input.branch.id,
-        prefix: "branch_profile",
-      })
+      ? branchProfileMemoryContainerTag(input.branch)
       : undefined,
     finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
     deepResearch: async (toolInput) => {
@@ -2369,10 +2372,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
       memory,
       supermemory: memory,
       supermemoryContainerTag: input.branch
-        ? getMemoryContainerTag({
-          scopeId: input.branch.id,
-          prefix: "branch_profile",
-        })
+        ? branchProfileMemoryContainerTag(input.branch)
         : undefined,
       maxToolCalls: informationConfig.maxToolCalls,
       enabledTools: informationConfig.enabledTools,
@@ -2682,6 +2682,29 @@ function branchRunContext(branch: BranchRecord): JsonRecord {
     config: branch.config,
     metadata: branch.metadata,
   };
+}
+
+function branchSupermemoryContainerTags(branch: BranchRecord): string[] {
+  return [
+    branchMemoryContainerTag(branch),
+    branchProfileMemoryContainerTag(branch),
+  ];
+}
+
+function branchMemoryContainerTag(branch: BranchRecord): string {
+  return getMemoryContainerTag({
+    configuredContainerTag: branch.config?.memory?.supermemoryContainerTag,
+    scopeId: branch.id,
+    prefix: "branch",
+  });
+}
+
+function branchProfileMemoryContainerTag(branch: BranchRecord): string {
+  return getMemoryContainerTag({
+    configuredContainerTag: branch.config?.memory?.supermemoryProfileContainerTag,
+    scopeId: branch.id,
+    prefix: "branch_profile",
+  });
 }
 
 function toHeartbeatBranchConfig(branch: BranchRecord): HeartbeatBranchConfig {

@@ -683,10 +683,7 @@ async function loadInformativeBranchProfiles(
   const branches = (await context.store.listBranches()).slice(0, 12);
   const profiles = await Promise.all(
     branches.map(async (branch) => {
-      const containerTag = getMemoryContainerTag({
-        scopeId: branch.id,
-        prefix: "branch_profile",
-      });
+      const containerTag = branchProfileMemoryContainerTag(branch);
       try {
         return {
           branchId: branch.id,
@@ -727,6 +724,14 @@ function collectSupermemorySnippets(output: unknown): string[] {
     .filter(Boolean)
     .filter((snippet) => !isLowValueBranchProfileSnippet(snippet));
   return [...new Set(snippets)];
+}
+
+function branchProfileMemoryContainerTag(branch: BranchRecord): string {
+  return getMemoryContainerTag({
+    configuredContainerTag: branch.config?.memory?.supermemoryProfileContainerTag,
+    scopeId: branch.id,
+    prefix: "branch_profile",
+  });
 }
 
 function formatBranchProfileForPrompt(profile: JsonRecord): string {
@@ -779,10 +784,7 @@ function createDeepResearchTools(
         const branches = (await context.store.listBranches()).slice(0, limitBranches ?? 12);
         const profiles = await Promise.all(
           branches.map(async (branch) => {
-            const containerTag = getMemoryContainerTag({
-              scopeId: branch.id,
-              prefix: "branch_profile",
-            });
+            const containerTag = branchProfileMemoryContainerTag(branch);
             try {
               return {
                 branchId: branch.id,

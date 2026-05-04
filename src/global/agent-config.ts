@@ -165,6 +165,13 @@ export const kairosBranchAgentConfigSchema = z
       })
       .strict()
       .optional(),
+    memory: z
+      .object({
+        supermemoryContainerTag: z.string().min(1).optional(),
+        supermemoryProfileContainerTag: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     tools: z
       .object({
         heartbeat: heartbeatToolConfigSchema.optional(),
