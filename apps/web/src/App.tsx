@@ -2550,46 +2550,6 @@ function RunLifecyclePanel({ run }: { run: RunRecord }) {
   );
 }
 
-function CapabilityPreflightPanel({
-  loadState,
-  preflight,
-}: {
-  loadState: LoadState;
-  preflight?: CapabilityPreflight;
-}) {
-  const status = loadState === "loading"
-    ? "checking"
-    : preflight?.status ?? "offline";
-  const checks = preflight?.checks ?? [];
-
-  return (
-    <section className={`capability-panel ${status}`}>
-      <div className="capability-head">
-        <div>
-          <div className="section-title">ACTION READINESS</div>
-          <h2>{status === "ready" ? "Ready" : status === "warning" ? "Ready with warnings" : status === "blocked" ? "Blocked" : status}</h2>
-        </div>
-        <span>{preflight?.checkedAt ? formatDateTime(preflight.checkedAt) : "-"}</span>
-      </div>
-      <div className="capability-grid">
-        {loadState === "loading" ? (
-          <RunFact label="Preflight" value="checking" />
-        ) : checks.length === 0 ? (
-          <RunFact label="Preflight" tone="danger" value="unavailable" />
-        ) : (
-          checks.map((check) => (
-            <div className={`capability-check ${check.status}`} key={check.id}>
-              <b>{check.label}</b>
-              <span>{check.status}</span>
-              <p>{check.detail}</p>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 function summarizeRun(run: RunRecord, branch?: BranchRecord) {
   const output = run.output ?? {};
   const inputBranch = isJsonRecord(run.input.branch) ? run.input.branch : undefined;
