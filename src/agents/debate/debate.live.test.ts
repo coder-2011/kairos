@@ -175,14 +175,29 @@ describe("debate live integrations", () => {
       };
 
       const exaResearchTool: DebateTool = async (input) => {
-        const response = await exa.answer({
+        const response = await exa.search({
           query: input,
-          text: true,
+          type: "deep",
+          outputSchema: {
+            type: "text",
+            description: "concise synthesis for a market-research question",
+          },
+          contents: {
+            highlights: true,
+            summary: {
+              query: "Summarize materially relevant claims and uncertainty.",
+            },
+          },
         });
 
         return {
-          summary: response.answer,
-          citations: response.citations.map((item) => ({
+          summary: typeof response.output?.content === "string"
+            ? response.output.content
+            : response.results
+              .map((item) => item.summary ?? item.highlights?.join(" "))
+              .filter(Boolean)
+              .join("\n"),
+          citations: response.results.map((item) => ({
             title: item.title,
             url: item.url,
             source: item.author,

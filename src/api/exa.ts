@@ -353,5 +353,5 @@ function normalizeExaCategory(
 
 function sanitizePeopleIncludeDomains(includeDomains?: string[]): string[] | undefined {
   if (!includeDomains?.length) return includeDomains;
-  return includeDomains.filter((domain) => domain.endsWith("linkedin.com"));
+  return includeDomains.filter((domain) => domain.trim().toLowerCase().endsWith("linkedin.com"));
 }
