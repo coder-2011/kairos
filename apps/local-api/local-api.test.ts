@@ -225,6 +225,72 @@ describe("local API handler", () => {
     });
   });
 
+  it("fails debate runs instead of leaving them running when the workflow times out", async () => {
+    const previousTimeout = process.env.KAIROS_DEBATE_TIMEOUT_MS;
+    process.env.KAIROS_DEBATE_TIMEOUT_MS = "5";
+    try {
+      const { requestJson } = makeClient({
+        createDebate: async () => new Promise(() => {}),
+      });
+      await requestJson("POST", "/branches", {
+        id: "branch_pltr_deals",
+        name: "PLTR deals",
+        description: "Watch for material PLTR deals.",
+        config: { assets: ["PLTR"] },
+      });
+
+      const response = await requestJson("POST", "/debates", {
+        input: { branchId: "branch_pltr_deals" },
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.body.run.status).toBe("failed");
+      expect(response.body.run.output).toMatchObject({ interrupted: true });
+
+      const events = await requestJson("GET", `/runs/${response.body.run.id}/events`);
+      expect(events.body.events.map((event: { type: string }) => event.type)).toContain("debate.failed");
+      expect(events.body.events.map((event: { type: string }) => event.type)).toContain("run.failed");
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.KAIROS_DEBATE_TIMEOUT_MS;
+      } else {
+        process.env.KAIROS_DEBATE_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
+  it("reports branch capability preflight readiness without exposing secrets", async () => {
+    const previousOpenRouter = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-key";
+    try {
+      const { requestJson } = makeClient();
+      await requestJson("POST", "/branches", {
+        id: "branch_pltr_deals",
+        name: "PLTR deals",
+        description: "Watch for material PLTR deals.",
+        config: { assets: ["PLTR"] },
+      });
+
+      const response = await requestJson("GET", "/capabilities/preflight?branchId=branch_pltr_deals");
+
+      expect(response.status).toBe(200);
+      expect(response.body.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "openrouter_key", status: "ready" }),
+          expect.objectContaining({ id: "law", status: "ready" }),
+          expect.objectContaining({ id: "assets", status: "ready" }),
+        ]),
+      );
+      expect(JSON.stringify(response.body)).not.toContain("test-key");
+    } finally {
+      if (previousOpenRouter === undefined) {
+        delete process.env.OPENROUTER_API_KEY;
+      } else {
+        process.env.OPENROUTER_API_KEY = previousOpenRouter;
+      }
+    }
+  });
+
   it("creates a sell-side paper intent from a sell debate decision when holdings exist", async () => {
     const { requestJson } = makeClient({
       tradingBroker: createMockTradingBroker(),

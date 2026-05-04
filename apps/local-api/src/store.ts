@@ -624,6 +624,7 @@ function lifecycleStageForEvent(type: string): Partial<RunLifecycle> {
     "debate.tool.completed": { stage: "debate_tool", currentOperation: "Debate tool call completed." },
     "debate.tool.failed": { stage: "debate_tool_failed", currentOperation: "Debate tool call failed.", retryable: true },
     "final.synthesis.started": { stage: "final_synthesis_started", currentOperation: "Final debate synthesis started." },
+    "debate.completed": { stage: "debate_completed", currentOperation: "Debate completed.", retryable: false, cancelable: false },
     "debate.judge.plan": { stage: "judge_plan", currentOperation: "Judge selected the next debate step." },
     "debate.judge.summary": { stage: "judge_summary", currentOperation: "Judge produced final synthesis." },
     "debate.output": { stage: "debate_output", currentOperation: "Debate output recorded." },

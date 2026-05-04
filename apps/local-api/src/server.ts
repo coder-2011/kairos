@@ -169,6 +169,7 @@ const heartbeatTriggerSchema = z.object({
 });
 
 const debateCreateSchema = z.object({
+  async: z.boolean().optional().default(false),
   escalation: z.record(z.string(), z.unknown()).optional(),
   input: z.record(z.string(), z.unknown()).optional().default({}),
 });
@@ -202,6 +203,13 @@ const routerMessageCreateSchema = z.object({
 const paperSubmitSchema = z.object({
   tradingConfig: tradingConfigSchema.optional(),
 });
+
+type CapabilityCheck = {
+  id: string;
+  label: string;
+  status: "ready" | "warning" | "blocked";
+  detail: string;
+};
 
 export async function createLocalApiContext(options: LocalApiOptions = {}): Promise<LocalApiContext> {
   const rawStore =
@@ -285,6 +293,9 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
             defaults: openRouterModelDefaults(),
           });
         }
+
+        case "capabilityPreflight":
+          return await capabilityPreflight(context, url.searchParams);
 
         case "listMarketSymbols":
           return await listMarketSymbols(context, url.searchParams);
@@ -452,6 +463,90 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
   return json({ run: completed }, 201);
 }
 
+async function capabilityPreflight(
+  context: LocalApiContext,
+  searchParams: URLSearchParams,
+): Promise<Response> {
+  const branchId = searchParams.get("branchId") ?? undefined;
+  const branch = branchId ? await context.store.getBranch(branchId) : undefined;
+  const checks = buildCapabilityChecks(branch);
+  const blocked = checks.filter((check) => check.status === "blocked").length;
+  const warnings = checks.filter((check) => check.status === "warning").length;
+
+  return json({
+    branchId,
+    checkedAt: new Date().toISOString(),
+    status: blocked > 0 ? "blocked" : warnings > 0 ? "warning" : "ready",
+    checks,
+  });
+}
+
+function buildCapabilityChecks(branch: BranchRecord | undefined): CapabilityCheck[] {
+  const branchConfig = branch?.config;
+  const modelOverrides = branchConfigToModelOverrides(branchConfig);
+  const heartbeatModel = resolveKairosModelConfig("heartbeat", process.env, modelOverrides).model;
+  const heartbeatToolsEnabled = branch
+    ? Object.values(heartbeatEnabledTools(branch)).some(Boolean)
+    : false;
+  const toolCapableHeartbeat = isProbablyOpenRouterToolCapableModel(heartbeatModel);
+  const debateRoles: KairosModelRole[] = [
+    "debateJudge",
+    "debateBull",
+    "debateBear",
+    "debateFinal",
+  ];
+
+  return [
+    branch
+      ? check("branch", "Selected Branch", "ready", `${branch.name} is selected.`)
+      : check("branch", "Selected Branch", "blocked", "No branch is selected."),
+    branch?.enabled
+      ? check("branch_enabled", "Branch Enabled", "ready", "Branch is enabled.")
+      : check("branch_enabled", "Branch Enabled", "warning", "Branch is disabled; manual actions can run, but scheduled monitoring will not."),
+    (branch ? branchLawText(branch).trim() : "")
+      ? check("law", "Law", "ready", "Branch has law text.")
+      : check("law", "Law", "blocked", "Branch needs a law before agent runs are meaningful."),
+    (branchConfig?.assets?.length ?? 0) > 0
+      ? check("assets", "Tracked Assets", "ready", `${branchConfig?.assets?.join(", ")} configured.`)
+      : check("assets", "Tracked Assets", "warning", "No tracked tickers are configured."),
+    process.env.OPENROUTER_API_KEY
+      ? check("openrouter_key", "OpenRouter Key", "ready", "Model calls are configured.")
+      : check("openrouter_key", "OpenRouter Key", "blocked", "OPENROUTER_API_KEY is missing."),
+    heartbeatToolsEnabled && !toolCapableHeartbeat
+      ? check("heartbeat_model_tools", "Heartbeat Model Tools", "warning", `${heartbeatModel} is not known to support tool calling; heartbeat will run without tools.`)
+      : check("heartbeat_model_tools", "Heartbeat Model Tools", "ready", `${heartbeatModel} is compatible with the current heartbeat tool mode.`),
+    ...debateRoles.map((role) => {
+      const model = resolveKairosModelConfig(role, process.env, modelOverrides).model;
+      return check(`${role}_model`, humanizeRole(role), "ready", model);
+    }),
+    process.env.EXA_API_KEY
+      ? check("exa_key", "Exa Key", "ready", "Current web/news research is available.")
+      : check("exa_key", "Exa Key", "warning", "EXA_API_KEY is missing; Exa tools will be disabled."),
+    process.env.SUPERMEMORY_API_KEY
+      ? check("supermemory_key", "Supermemory Key", "ready", "Agent memory mirroring and retrieval are available.")
+      : check("supermemory_key", "Supermemory Key", "warning", "SUPERMEMORY_API_KEY is missing; agent memory is local-only."),
+    process.env.ALPACA_API_KEY && process.env.ALPACA_SECRET_KEY
+      ? check("alpaca_keys", "Alpaca Keys", "ready", "Market snapshots and paper trading can use Alpaca.")
+      : check("alpaca_keys", "Alpaca Keys", "warning", "Alpaca credentials are incomplete; portfolio/market snapshot paths may use fallback or fail."),
+    process.env.FINNHUB_API_KEY
+      ? check("finnhub_key", "Finnhub Key", "ready", "Company news and Finnhub information tools are available.")
+      : check("finnhub_key", "Finnhub Key", "warning", "FINNHUB_API_KEY is missing; Finnhub tools will be disabled."),
+  ];
+}
+
+function check(
+  id: string,
+  label: string,
+  status: CapabilityCheck["status"],
+  detail: string,
+): CapabilityCheck {
+  return { id, label, status, detail };
+}
+
+function humanizeRole(role: KairosModelRole): string {
+  return role.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
+}
+
 async function runHeartbeatForBranch(
   context: LocalApiContext,
   branch: BranchRecord,
@@ -496,6 +591,10 @@ async function runHeartbeatForBranch(
   }
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
+  }
+  const latest = await context.store.getRun(run.id);
+  if (latest?.status === "canceled") {
+    return latest;
   }
   const completed = await context.store.updateRun(run.id, { status: "succeeded", output: result.output });
   if (completed) {
@@ -758,6 +857,31 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     payload: { kind: "debate" },
   });
 
+  if (input.async) {
+    void executeDebateRun(context, run, runPayload, branch).catch((error) => {
+      console.error("[kairos] background debate failed", error);
+    });
+    return json({ run }, 202);
+  }
+
+  const completed = await executeDebateRun(context, run, runPayload, branch);
+  if (completed.status === "failed") {
+    return json({
+      run: completed,
+      error: "run_failed",
+      message: readString(completed.output?.error) ?? "Debate failed.",
+    }, 500);
+  }
+
+  return json({ run: completed }, 201);
+}
+
+async function executeDebateRun(
+  context: LocalApiContext,
+  run: RunRecord,
+  runPayload: JsonRecord,
+  branch: BranchRecord | undefined,
+): Promise<RunRecord> {
   let result: DebateCreateResult;
   try {
     const timeoutMs = debateTimeoutMs();
@@ -765,30 +889,31 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
       context.createDebate({
         payload: runPayload,
         branch,
-        onProgress: (event) => context.store.appendRunEvent(run.id, event),
+        onProgress: async (event) => {
+          await context.store.appendRunEvent(run.id, event);
+        },
       }),
       timeoutMs,
       `Debate workflow timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
+    const interrupted = message.toLowerCase().includes("timed out");
     const failed = await context.store.updateRun(run.id, {
       status: "failed",
-      output: {
-        error: message,
-        interrupted: message.toLowerCase().includes("timed out"),
-      },
+      output: { error: message, interrupted },
     });
     await context.store.appendRunEvent(run.id, {
       type: "debate.failed",
-      payload: { error: message },
+      payload: { error: message, interrupted },
     });
     await context.store.appendRunEvent(run.id, {
       type: "run.failed",
-      payload: { error: message, interrupted: message.toLowerCase().includes("timed out") },
+      payload: { error: message, interrupted },
     });
-    return json({ run: failed, error: "run_failed", message }, 500);
+    return failed ?? { ...run, status: "failed", output: { error: message, interrupted } };
   }
+
   for (const event of result.events ?? []) {
     await context.store.appendRunEvent(run.id, event);
   }
@@ -798,7 +923,7 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
   }
   await context.store.appendRunEvent(run.id, { type: "run.completed", payload: { status: "succeeded" } });
 
-  return json({ run: completed }, 201);
+  return completed ?? run;
 }
 
 async function appendInterjection(context: LocalApiContext, runId: string, body: unknown): Promise<Response> {
@@ -1610,6 +1735,13 @@ async function withTimeout<T>(
   }
 }
 
+function debateTimeoutMs(): number {
+  const configured = Number(process.env.KAIROS_DEBATE_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : 120_000;
+}
+
 function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
   context.marketSymbolProvider ??= lazyMarketSymbolProvider();
   return context.marketSymbolProvider;
@@ -1978,6 +2110,14 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
   }
 
   const config = createLocalDebateRunConfig(input);
+  await input.onProgress?.({
+    type: "debate.created",
+    payload: { debateId: config.debateId, payload: input.payload },
+  });
+  await input.onProgress?.({
+    type: "debate.started",
+    payload: { debateId: config.debateId },
+  });
   const branchConfig = input.branch?.config;
   const modelOverrides = branchConfigToModelOverrides(branchConfig);
   const debateConfig = resolveDebateAgentConfig(branchConfig);
@@ -2023,6 +2163,7 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
     },
     requiredTools: debateConfig.requiredTools,
     globalTools,
+    observer: createDebateProgressObserver(input.onProgress),
     tools: createInformationDebateTools({
       ...informationModels,
       exa,
@@ -2044,8 +2185,85 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
 
   return {
     output: debateResultOutput(result),
-    events: debateResultEvents(result, input.payload),
+    events: debateResultEvents(result, input.payload, { includeStart: false }),
   };
+}
+
+function createDebateProgressObserver(
+  onProgress: DebateCreateInput["onProgress"],
+) {
+  if (!onProgress) return undefined;
+
+  return {
+    event: async (event: {
+      type: string;
+      timestamp: string;
+      payload?: unknown;
+    }) => {
+      for (const progressEvent of debateProgressEventsFromObservation(event)) {
+        await onProgress(progressEvent);
+      }
+    },
+  };
+}
+
+function debateProgressEventsFromObservation(event: {
+  type: string;
+  timestamp: string;
+  payload?: unknown;
+}): AppendRunEventInput[] {
+  const payload = isJsonRecord(event.payload) ? event.payload : {};
+  const timestamp = event.timestamp;
+
+  if (event.type === "judge_start") {
+    return [
+      { type: "judge.plan.started", timestamp, payload },
+      { type: "model.call.started", timestamp, payload: { ...payload, role: "judge" } },
+    ];
+  }
+
+  if (event.type === "bull_start" || event.type === "bear_start") {
+    const role = event.type.replace("_start", "");
+    return [
+      { type: "model.call.started", timestamp, payload: { ...payload, role } },
+    ];
+  }
+
+  if (event.type === "bull_complete" || event.type === "bear_complete") {
+    const role = event.type.replace("_complete", "");
+    return [
+      { type: "participant.responded", timestamp, payload: { ...payload, role } },
+    ];
+  }
+
+  if (event.type === "tool_start") {
+    return [{ type: "tool.call.started", timestamp, payload }];
+  }
+
+  if (event.type === "tool_complete") {
+    return [{ type: "debate.tool.completed", timestamp, payload }];
+  }
+
+  if (event.type === "tool_error") {
+    return [{ type: "debate.tool.failed", timestamp, payload }];
+  }
+
+  if (event.type === "final_start") {
+    return [
+      { type: "final.synthesis.started", timestamp, payload },
+      { type: "model.call.started", timestamp, payload: { ...payload, role: "final" } },
+    ];
+  }
+
+  if (event.type === "final_complete") {
+    return [{ type: "debate.completed", timestamp, payload }];
+  }
+
+  if (event.type === "judge_complete") {
+    return [{ type: "debate.judge.plan", timestamp, payload }];
+  }
+
+  return [];
 }
 
 function structuredModelProvider(
@@ -2190,10 +2408,18 @@ function debateResultOutput(result: DebateRunResult): JsonRecord {
   };
 }
 
-function debateResultEvents(result: DebateRunResult, payload: JsonRecord): AppendRunEventInput[] {
+function debateResultEvents(
+  result: DebateRunResult,
+  payload: JsonRecord,
+  options: { includeStart?: boolean } = {},
+): AppendRunEventInput[] {
   return [
-    { type: "debate.created", payload: { debateId: result.debateId, payload } },
-    { type: "debate.started", payload: { debateId: result.debateId } },
+    ...(options.includeStart === false
+      ? []
+      : [
+          { type: "debate.created", payload: { debateId: result.debateId, payload } },
+          { type: "debate.started", payload: { debateId: result.debateId } },
+        ]),
     ...result.messages.map((message) => ({
       type: "debate.message",
       payload: message as unknown as JsonRecord,
@@ -2450,6 +2676,7 @@ function normalizePortfolioAccountForFrontend(account: unknown): JsonRecord {
 type Route =
   | { name: "health"; params: Record<string, never> }
   | { name: "listOpenRouterModels"; params: Record<string, never> }
+  | { name: "capabilityPreflight"; params: Record<string, never> }
   | { name: "listMarketSymbols"; params: Record<string, never> }
   | { name: "listBranches"; params: Record<string, never> }
   | { name: "createBranch"; params: Record<string, never> }
@@ -2485,6 +2712,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
 
   if (method === "GET" && pathname === "/health") return { name: "health", params: {} };
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
+  if (method === "GET" && pathname === "/capabilities/preflight") return { name: "capabilityPreflight", params: {} };
   if (method === "GET" && pathname === "/market/symbols") return { name: "listMarketSymbols", params: {} };
   if (method === "GET" && pathname === "/portfolio") return { name: "getPortfolio", params: {} };
   if (method === "POST" && pathname === "/portfolio/refresh") return { name: "refreshPortfolio", params: {} };
