@@ -375,6 +375,7 @@ async function runDeepResearchMessageStream(
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let assistantTextRaw = "";
       let controllerClosed = false;
       const closeController = () => {
         if (controllerClosed) return;
@@ -406,7 +407,6 @@ async function runDeepResearchMessageStream(
           temperature: 0.2,
         });
 
-        let assistantTextRaw = "";
         for await (const part of result.fullStream) {
           if (part.type === "text-delta" && part.text) {
             assistantTextRaw += part.text;
@@ -451,11 +451,53 @@ async function runDeepResearchMessageStream(
         closeController();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error.";
+        if (isClosedControllerError(error)) {
+          try {
+            const fallback = await generateText({
+              model: createDeepResearchOpenRouterModel(model, reasoningEffort),
+              system: deepResearchSystemPrompt(),
+              messages: modelMessages as never,
+              tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
+              stopWhen: stepCountIs(8),
+              temperature: 0.2,
+            });
+            const fallbackText = fallback.text?.trim() || assistantTextRaw.trim();
+            const assistantMessage = await store.createMessage({
+              chatId: chat.id,
+              role: "assistant",
+              text: fallbackText.length
+                ? fallbackText
+                : "The live research stream closed before a final synthesis was produced. Retry the question or narrow it to one company, component, or supply-chain layer.",
+              reasoning: extractDeepResearchReasoning(fallback) ??
+                extractDeepResearchReasoning({
+                  reasoning: assistantReasoning.length > 0 ? assistantReasoning : undefined,
+                }),
+              model,
+              reasoningEffort,
+              toolCalls,
+            });
+
+            await mirrorDeepResearchConversation(chat.id, userMessage, assistantMessage);
+            sendEvent("assistant_final", {
+              chat: await store.getChat(chat.id),
+              userMessage,
+              assistantMessage,
+            });
+            closeController();
+            return;
+          } catch {
+            // Fall through to a user-facing failure below.
+          }
+        }
+
+        const userFacingMessage = isClosedControllerError(error)
+          ? "The live research stream closed before a final answer was produced. Retry the question or narrow it to one company, component, or supply-chain layer."
+          : message;
         const assistantMessage = await store.createMessage({
           chatId: chat.id,
           role: "assistant",
-          text: `Deep Research failed: ${message}`,
-          reasoning: `FAILED: ${message}`,
+          text: `Deep Research failed: ${userFacingMessage}`,
+          reasoning: `FAILED: ${userFacingMessage}`,
           model,
           reasoningEffort,
           toolCalls,
@@ -464,7 +506,7 @@ async function runDeepResearchMessageStream(
           chat: await store.getChat(chat.id),
           userMessage,
           assistantMessage,
-          message,
+          message: userFacingMessage,
         });
         closeController();
       }
@@ -481,6 +523,11 @@ async function runDeepResearchMessageStream(
       connection: "keep-alive",
     },
   });
+}
+
+function isClosedControllerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /controller is already closed|invalid state/i.test(message);
 }
 
 function createDeepResearchOpenRouterModel(
