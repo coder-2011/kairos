@@ -18,7 +18,7 @@ const supabaseClient = isConfigured
       auth: {
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        persistSession: false,
+        persistSession: true,
         flowType: "pkce",
       },
     })
