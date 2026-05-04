@@ -1,4 +1,7 @@
-import type { SupermemoryMirror } from "../../../src/global/supermemory-mirror.js";
+import {
+  getMemoryContainerTag,
+  type SupermemoryMirror,
+} from "../../../src/global/index.js";
 import type {
   BrokerOrder,
   CreateBrokerOrderInput,
@@ -341,11 +344,13 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       title: `Kairos branch ${branch.name}`,
       summary: branch.description ?? readSummary(branch.law) ?? branch.name,
       data: branch,
+      containerTags: branchSupermemoryContainerTags(branch),
       customId: `kairos:branch:${branch.id}:${branch.updatedAt}`,
     });
   }
 
-  private mirrorRun(type: string, run: RunRecord): Promise<void> {
+  private async mirrorRun(type: string, run: RunRecord): Promise<void> {
+    const branch = run.branchId ? await this.store.getBranch(run.branchId) : undefined;
     return this.mirrorRecord({
       type,
       scope: run.kind,
@@ -359,6 +364,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         run_kind: run.kind,
         run_status: run.status,
       },
+      containerTags: branch ? branchSupermemoryContainerTags(branch) : undefined,
       customId: `kairos:run:${run.id}:${type}:${run.updatedAt}`,
     });
   }
@@ -419,4 +425,19 @@ function readSummary(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function branchSupermemoryContainerTags(branch: BranchRecord): string[] {
+  return [
+    getMemoryContainerTag({
+      configuredContainerTag: branch.config?.memory?.supermemoryContainerTag,
+      scopeId: branch.id,
+      prefix: "branch",
+    }),
+    getMemoryContainerTag({
+      configuredContainerTag: branch.config?.memory?.supermemoryProfileContainerTag,
+      scopeId: branch.id,
+      prefix: "branch_profile",
+    }),
+  ];
 }

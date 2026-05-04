@@ -639,6 +639,40 @@ describe("local API handler", () => {
     );
   });
 
+  it("uses configured branch Supermemory profile tags for router mirrors", async () => {
+    const mirrored: SupermemoryMirrorRecord[] = [];
+    const { requestJson } = makeClient({
+      supermemoryMirror: createMockMirror(mirrored),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_custom_memory",
+      name: "Custom memory branch",
+      config: {
+        assets: ["PLTR"],
+        memory: {
+          supermemoryContainerTag: "branch_raw_custom",
+          supermemoryProfileContainerTag: "branch_profile_custom",
+        },
+      },
+    });
+    const chat = await requestJson("POST", "/router/chats");
+
+    const response = await requestJson("POST", `/router/chats/${chat.body.chat.id}/messages`, {
+      text: "PLTR custom memory note",
+    });
+
+    expect(response.status).toBe(201);
+    const routerSource = mirrored.find(
+      (record) => record.type === "router.source.ingested",
+    );
+    expect(routerSource?.containerTags).toEqual(
+      expect.arrayContaining(["branch_raw_custom", "branch_profile_custom"]),
+    );
+    expect(routerSource?.containerTags).not.toEqual(
+      expect.arrayContaining(["branch_branch_custom_memory", "branch_profile_branch_custom_memory"]),
+    );
+  });
+
   it("appends human interjections to run events", async () => {
     const { requestJson } = makeClient();
     const debate = await requestJson("POST", "/debates", {
