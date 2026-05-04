@@ -1107,7 +1107,7 @@ function SideNav({
       <div className="nav-list">
         {views.map((item) => (
           <button
-            className={`nav-item ${item.id === "router" || item.id === "deepResearch" ? "blue-nav" : ""} ${view === item.id ? "active" : ""}`}
+            className={`nav-item ${view === item.id ? "active" : ""}`}
             key={item.id}
             onClick={() => setView(item.id)}
             type="button"
@@ -1274,7 +1274,7 @@ function BranchList({
             value={totalEscalations.toString()}
           />
           <button
-            className="command-button primary create-button"
+            className="command-button primary blue create-button"
             onClick={onCreate}
             type="button"
           >
@@ -1464,7 +1464,7 @@ function RouterView({
             value={draft}
           />
           <button
-            className="command-button primary blue"
+            className="command-button primary"
             disabled={!draft.trim() || running || !selectedChatId}
             onClick={submit}
             type="button"
