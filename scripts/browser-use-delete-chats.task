@@ -1,0 +1,16 @@
+Open the local Kairos web app at http://127.0.0.1:5173.
+
+Use this exact flow for Router and Deep Research:
+
+1) Navigate to "#/router".
+2) Click the "NEW CHAT" button.
+3) In the message input, type "Browser-Use router delete chat check".
+4) Click SEND.
+5) Wait until a new router chat appears in the left chat list, then click its delete icon (the one with aria label/title "Delete chat").
+6) Accept the confirmation dialog and then verify the Router chat list no longer shows that chat.
+7) Navigate to "#/deepResearch".
+8) Click "NEW RESEARCH CHAT".
+9) Send one message in the composer: "Browser-Use deep research delete chat check".
+10) Wait until the deep research chat list updates, then delete the first chat in the list using its delete icon (aria label/title "Delete chat").
+11) Accept the confirmation dialog and verify the chat disappears from the list.
+12) Capture no screenshot and finish with a short success message.
