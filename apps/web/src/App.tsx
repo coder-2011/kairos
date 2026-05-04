@@ -49,6 +49,7 @@ import {
   sendRouterMessage,
   updateBranch,
   type AllowedOrderType,
+  type BranchTradingConfig,
   type BranchRecord,
   type CapabilityPreflight,
   type JsonRecord,
@@ -2731,8 +2732,7 @@ function BranchConfig({
   const informationMaxToolCalls = config.budgets?.informationMaxToolCalls ?? 5;
   const branchAssets = config.assets ?? [];
   const tradingConfig = config.trading ?? {};
-  const tradingMode = tradingConfig.mode ?? "disabled";
-  const paperAutoBuyEnabled = tradingConfig.paperAutoBuyEnabled ?? false;
+  const tradingActionMode = getTradingActionMode(tradingConfig);
   const tradeSymbolUniverse = mergeSymbolSelection(
     branchAssets,
     tradeSymbols.map((symbol) => symbol.symbol),
@@ -2868,64 +2868,43 @@ function BranchConfig({
             ))}
           </div>
         </div>
-        <section className={`trading-panel ${paperAutoBuyEnabled ? "auto-buy" : ""}`}>
+        <section className="trading-panel">
           <div className="trading-panel-head">
             <div>
               <div className="field-label">PAPER TRADING CONTROLS</div>
-              <h2>
-                {tradingMode === "paper"
-                  ? "Paper trading enabled"
-                  : "Trading disabled"}
-              </h2>
+              <h2>Trading</h2>
             </div>
           </div>
           <div className="trading-grid">
             <div className="trading-section full">
               <div className="field-label">Mode</div>
-              <div className="trading-card-row">
-                <label className="checkbox-card">
-                  <input
-                    checked={tradingMode === "paper"}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        trading: {
-                          ...current.trading,
-                          mode: event.target.checked ? "paper" : "disabled",
-                          paperAutoBuyEnabled: event.target.checked
-                            ? current.trading?.paperAutoBuyEnabled ?? false
-                            : false,
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    <b>Enable paper trading</b>
-                    <small>Allows Kairos to create paper trade intents.</small>
-                  </span>
-                </label>
-                <label className="checkbox-card">
-                  <input
-                    checked={paperAutoBuyEnabled}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        trading: {
-                          ...current.trading,
-                          paperAutoBuyEnabled: event.target.checked,
-                          mode: event.target.checked ? "paper" : current.trading?.mode ?? "disabled",
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    <b>Auto-submit paper orders</b>
-                    <small>Enables paper mode when switched on.</small>
-                  </span>
-                </label>
-              </div>
+              <FieldLabel label="Action">
+                <select
+                  onChange={(event) => {
+                    const nextMode = event.target.value as TradingActionMode;
+                    const tradingEnabled = nextMode === "enable_trading" || nextMode === "both";
+                    const notifyOnBuySignal = nextMode === "notify" || nextMode === "both";
+
+                    setConfig((current) => ({
+                      ...current,
+                      trading: {
+                        ...current.trading,
+                        mode: tradingEnabled ? "paper" : "disabled",
+                        notifyOnBuySignal,
+                        autoTradeEnabled: false,
+                        paperAutoBuyEnabled: false,
+                      },
+                    }));
+                  }}
+                  value={tradingActionMode}
+                >
+                  {tradingActionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </FieldLabel>
             </div>
             <div className="trading-section full">
               <div className="field-label">Execution</div>
@@ -3068,14 +3047,16 @@ function BranchConfig({
                     }))
                   }
                   value={
-                    config.models?.[field.key]?.reasoningEffort ??
-                    modelDefaults[field.key]?.reasoningEffort ??
-                    ""
+                    config.models?.[field.key]?.reasoningEffort ?? ""
                   }
                 >
                   {reasoningEffortOptions.map((effort) => (
                     <option key={effort || "default"} value={effort}>
-                      {effort === "" ? "DEFAULT EFFORT" : effort.toUpperCase()}
+                      {effort === ""
+                        ? modelDefaults[field.key]?.reasoningEffort
+                          ? `DEFAULT: ${modelDefaults[field.key]?.reasoningEffort?.toUpperCase()}`
+                          : "DEFAULT EFFORT"
+                        : effort.toUpperCase()}
                     </option>
                   ))}
                 </select>
@@ -3471,16 +3452,15 @@ function TradeSymbolDropdown({
   }
 
   return (
-    <div className="trade-symbol-lookup">
-      <input
-        className="multi-select-search"
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search Nasdaq symbols"
-        value={query}
-      />
-      <details className="multi-select" open={Boolean(normalizedQuery)}>
-        <summary>{summary}</summary>
-        <div className="multi-select-menu">
+    <details className="multi-select">
+      <summary>{summary}</summary>
+      <div className="multi-select-menu">
+        <input
+          className="multi-select-search"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search Nasdaq symbols"
+          value={query}
+        />
         {activeLoadState === "loading" && (
           <span className="empty-option">Looking up symbols.</span>
         )}
@@ -3521,9 +3501,8 @@ function TradeSymbolDropdown({
             </label>
           ))
         )}
-        </div>
-      </details>
-    </div>
+      </div>
+    </details>
   );
 }
 

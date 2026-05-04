@@ -3162,12 +3162,6 @@ select:focus:hover {
   text-transform: uppercase;
 }
 
-.trade-symbol-lookup {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .multi-select {
   background: var(--surface-lowest);
   border: 1px solid var(--outline-variant);
