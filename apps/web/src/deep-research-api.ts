@@ -139,6 +139,7 @@ export async function* sendDeepResearchMessageStream(input: {
     headers: {
       "content-type": "application/json",
       ...authHeaders,
+      "idempotency-key": crypto.randomUUID(),
     },
     body: JSON.stringify({
       text: input.text,
@@ -242,11 +243,13 @@ export async function* sendDeepResearchMessageStream(input: {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const authHeaders = await getKairosApiAuthHeaders();
+  const mutationHeaders = mutationRequestHeaders(init.method);
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
       ...authHeaders,
+      ...mutationHeaders,
       ...init.headers,
     },
   });
@@ -263,6 +266,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (response.status === 204) return undefined as T;
   return parseJsonOrText(await response.text()) as T;
+}
+
+function mutationRequestHeaders(method: string | undefined): Record<string, string> {
+  const normalized = (method ?? "GET").toUpperCase();
+  if (normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS") return {};
+  return {
+    "idempotency-key": crypto.randomUUID(),
+  };
 }
 
 function parseJsonOrText(text: string): unknown {

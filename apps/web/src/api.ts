@@ -457,11 +457,13 @@ export async function deleteRouterChat(chatId: string): Promise<void> {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const authHeaders = await getKairosApiAuthHeaders();
+  const mutationHeaders = mutationRequestHeaders(init.method);
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
       ...authHeaders,
+      ...mutationHeaders,
       ...init.headers,
     },
   });
@@ -482,6 +484,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const text = await response.text();
   return parseJsonOrText(text) as T;
+}
+
+function mutationRequestHeaders(method: string | undefined): Record<string, string> {
+  const normalized = (method ?? "GET").toUpperCase();
+  if (normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS") return {};
+  return {
+    "idempotency-key": crypto.randomUUID(),
+  };
 }
 
 function parseJsonOrText(text: string): unknown {
