@@ -1387,7 +1387,7 @@ describe("local API handler", () => {
     expect(response.body.branch).toMatchObject({ id: "branch_best_effort" });
   });
 
-  it("can use Supabase as the same API store backend", async () => {
+  it("can use Supabase as the same API store backend for app, deep research, and trading records", async () => {
     const requests: Array<{ method: string; url: string; body?: unknown }> = [];
     const records = new Map<string, { collection: string; id: string; record: unknown }>();
     const store = new SupabaseKairosStore({
@@ -1408,12 +1408,14 @@ describe("local API handler", () => {
           const collection = url.searchParams.get("collection")?.replace(/^eq\./, "");
           const id = url.searchParams.get("id")?.replace(/^eq\./, "");
           const runId = url.searchParams.get("record->>runId")?.replace(/^eq\./, "");
+          const chatId = url.searchParams.get("record->>chatId")?.replace(/^eq\./, "");
           const rows = [...records.values()].filter((row) => {
-            const record = row.record as { runId?: string };
+            const record = row.record as { runId?: string; chatId?: string };
             return (
               (!collection || row.collection === collection) &&
               (!id || row.id === id) &&
-              (!runId || record.runId === runId)
+              (!runId || record.runId === runId) &&
+              (!chatId || record.chatId === chatId)
             );
           });
           return jsonResponse(rows);
@@ -1442,6 +1444,63 @@ describe("local API handler", () => {
     });
     expect(run.status).toBe(201);
     const events = await requestJson("GET", `/runs/${run.body.run.id}/events`);
+    const routerChat = await requestJson("POST", "/router/chats", {
+      title: "Supabase router",
+    });
+    await requestJson("POST", `/router/chats/${routerChat.body.chat.id}/messages`, {
+      text: "PLTR contract source.",
+    });
+    const deepResearchChat = await requestJson("POST", "/deep-research/chats", {
+      id: "deep_supabase",
+      title: "Deep Supabase",
+    });
+    await store.createDeepResearchMessage({
+      id: "deep_message_supabase",
+      chatId: deepResearchChat.body.chat.id,
+      role: "user",
+      text: "Research PLTR contract quality.",
+      toolCalls: [{
+        id: "tool_1",
+        name: "exa_search",
+        status: "succeeded",
+        summary: "Found source.",
+        createdAt: "2026-05-04T12:00:00.000Z",
+      }],
+    });
+    const deepMessages = await requestJson(
+      "GET",
+      `/deep-research/chats/${deepResearchChat.body.chat.id}/messages`,
+    );
+    await store.createTradeIntent(tradeIntentPayload({
+      id: "trade_intent_supabase",
+      confidence: 0.9,
+    }));
+    await store.createMessage({
+      type: "manual",
+      severity: "info",
+      title: "Manual note",
+      body: "Trading note stored in Supabase.",
+      tradeIntentId: "trade_intent_supabase",
+    });
+    await store.createBrokerOrder({
+      provider: "alpaca",
+      environment: "paper",
+      tradeIntentId: "trade_intent_supabase",
+      clientOrderId: "client_supabase_order",
+      status: "accepted",
+      symbol: "PLTR",
+      side: "buy",
+      orderType: "market",
+      timeInForce: "day",
+      notional: 250,
+      submittedAt: "2026-05-04T12:00:00.000Z",
+    });
+    await store.createPortfolioSnapshot({
+      provider: "alpaca",
+      environment: "paper",
+      account: { buyingPower: 100000 },
+      positions: [{ symbol: "PLTR", qty: 3 }],
+    });
 
     expect(created.status).toBe(201);
     expect(events.body.events.map((event: { type: string }) => event.type)).toEqual([
@@ -1450,6 +1509,42 @@ describe("local API handler", () => {
       "heartbeat.decision",
       "run.completed",
     ]);
+    expect(deepMessages.body.messages).toEqual([
+      expect.objectContaining({
+        id: "deep_message_supabase",
+        chatId: "deep_supabase",
+        role: "user",
+        toolCalls: [expect.objectContaining({ name: "exa_search" })],
+      }),
+    ]);
+    expect(await store.listTradeIntents()).toEqual([
+      expect.objectContaining({ id: "trade_intent_supabase" }),
+    ]);
+    expect(await store.listMessages()).toHaveLength(1);
+    expect(await store.listBrokerOrders()).toEqual([
+      expect.objectContaining({ clientOrderId: "client_supabase_order" }),
+    ]);
+    expect(await store.listPortfolioSnapshots()).toEqual([
+      expect.objectContaining({
+        provider: "alpaca",
+        positions: [expect.objectContaining({ symbol: "PLTR" })],
+      }),
+    ]);
+    expect([...new Set([...records.values()].map((row) => row.collection))]).toEqual(
+      expect.arrayContaining([
+        "branches",
+        "runs",
+        "run_events",
+        "router_chats",
+        "router_messages",
+        "deep_research_chats",
+        "deep_research_messages",
+        "trade_intents",
+        "messages",
+        "broker_orders",
+        "portfolio_snapshots",
+      ]),
+    );
     expect(requests.some((request) => request.url.includes("/rest/v1/kairos_records"))).toBe(true);
   });
 

@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   generateText,
@@ -1292,14 +1290,6 @@ function sanitizeForTrace(
   }
 
   return String(value);
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return isJsonRecord(error) && error.code === "ENOENT";
-}
-
-function encodeFileSegment(value: string): string {
-  return encodeURIComponent(value).replaceAll("%", "_");
 }
 
 async function readJson(request: Request): Promise<unknown> {
