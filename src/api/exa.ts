@@ -184,13 +184,13 @@ export class ExaApi {
       query: request.query,
       ...normalizedRequest,
     };
-    const data = await withRetry(
+    const data: ExaSearchResponse = await withRetry(
       () =>
         this.useSdkSearch
-          ? this.client.search(request.query, normalizedRequest)
+          ? this.client.search(request.query, normalizedRequest) as Promise<ExaSearchResponse>
           : request.stream
             ? this.requestSearchStream("/search", payload)
-            : this.requestJson("/search", payload),
+            : this.requestJson<ExaSearchResponse>("/search", payload),
       { attempts: this.retryAttempts },
     );
 

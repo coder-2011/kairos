@@ -184,7 +184,8 @@ function legacyModelOverride(
 function parseReasoningEffort(
   value: string | undefined,
 ): OpenRouterReasoningEffort | undefined {
-  return value && VALID_REASONING_EFFORTS.has(value as OpenRouterReasoningEffort)
-    ? (value as OpenRouterReasoningEffort)
+  const normalized = value?.trim().toLowerCase();
+  return normalized && VALID_REASONING_EFFORTS.has(normalized as OpenRouterReasoningEffort)
+    ? (normalized as OpenRouterReasoningEffort)
     : undefined;
 }

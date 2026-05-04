@@ -227,7 +227,8 @@ export type GlobalToolDependencies = {
     input: string,
     context?: GlobalToolContext,
   ) => Promise<GlobalToolResult>;
-  exa?: Pick<ExaApi, "search" | "answer" | "deepResearch" | "contents">;
+  exa?: Pick<ExaApi, "search" | "answer" | "contents"> &
+    Partial<Pick<ExaApi, "deepResearch">>;
   finnhub?: Partial<
     Pick<
       FinnhubApi,
