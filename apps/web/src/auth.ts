@@ -6,6 +6,7 @@ const SUPABASE_REDIRECT_URL = import.meta.env.VITE_SUPABASE_REDIRECT_URL?.trim()
 const SUPABASE_AUTH_ENABLED = parseAuthEnabledFlag(
   import.meta.env.VITE_KAIROS_AUTH_ENABLED,
 );
+const LOCAL_API_TOKEN = import.meta.env.VITE_KAIROS_LOCAL_API_TOKEN?.trim();
 const AUTHORIZED_EMAILS = parseAuthorizedEmails(
   import.meta.env.VITE_KAIROS_ALLOWED_EMAILS,
 );
@@ -36,7 +37,12 @@ export async function getSupabaseAccessToken(): Promise<string | undefined> {
 }
 
 export async function getKairosApiAuthHeaders(): Promise<HeadersInit> {
-  if (!isAuthEnabled) return {};
+  if (!isAuthEnabled) {
+    return {
+      "x-kairos-local-request": "1",
+      ...(LOCAL_API_TOKEN ? { "x-kairos-local-token": LOCAL_API_TOKEN } : {}),
+    };
+  }
   const accessToken = await getSupabaseAccessToken();
   return accessToken ? { authorization: `Bearer ${accessToken}` } : {};
 }

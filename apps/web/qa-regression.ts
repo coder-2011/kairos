@@ -53,7 +53,9 @@ async function assertNoPageOverflow(target: typeof page): Promise<void> {
 }
 
 async function assertRuntimeInvariants(): Promise<void> {
-  const response = await fetch(`${apiUrl}/runs`);
+  const response = await fetch(`${apiUrl}/runs`, {
+    headers: localApiHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Unable to read runs from ${apiUrl}: ${response.status}`);
   }
@@ -76,4 +78,24 @@ async function assertRuntimeInvariants(): Promise<void> {
   if (routerWithoutOutput) {
     throw new Error(`Router run still records empty output text: ${routerWithoutOutput.id}`);
   }
+}
+
+function localApiHeaders(): HeadersInit {
+  const authEnabled = parseAuthEnabledFlag(process.env.KAIROS_AUTH_ENABLED);
+  if (authEnabled ?? false) return {};
+
+  return {
+    "x-kairos-local-request": "1",
+    ...(process.env.KAIROS_LOCAL_API_TOKEN
+      ? { "x-kairos-local-token": process.env.KAIROS_LOCAL_API_TOKEN }
+      : {}),
+  };
+}
+
+function parseAuthEnabledFlag(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["0", "false", "off", "no", "disabled"].includes(normalized)) return false;
+  if (["1", "true", "on", "yes", "enabled"].includes(normalized)) return true;
+  return undefined;
 }
