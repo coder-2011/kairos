@@ -150,14 +150,15 @@ const promptFields: Array<{
 const modelRoleFields: Array<{
   label: string;
   key: KairosConfigModelRole;
+  purpose: string;
 }> = [
-  { label: "Heartbeat", key: "heartbeat" },
-  { label: "Information Planner", key: "informationPlanner" },
-  { label: "Information Synthesis", key: "informationSynthesis" },
-  { label: "Debate Judge", key: "debateJudge" },
-  { label: "Debate Bull", key: "debateBull" },
-  { label: "Debate Bear", key: "debateBear" },
-  { label: "Debate Final", key: "debateFinal" },
+  { label: "Heartbeat", key: "heartbeat", purpose: "Cheap frequent monitoring model for this branch law." },
+  { label: "Information Planner", key: "informationPlanner", purpose: "Plans research steps and selects relevant information tools." },
+  { label: "Information Synthesis", key: "informationSynthesis", purpose: "Summarizes retrieved evidence into compact branch context." },
+  { label: "Debate Judge", key: "debateJudge", purpose: "Controls the debate loop and final decision framing." },
+  { label: "Debate Bull", key: "debateBull", purpose: "Argues the constructive or ownership case for the event." },
+  { label: "Debate Bear", key: "debateBear", purpose: "Argues risks, noise, priced-in evidence, and downside cases." },
+  { label: "Debate Final", key: "debateFinal", purpose: "Produces the final synthesis after debate." },
 ];
 
 const reasoningEffortOptions: Array<KairosReasoningEffort | ""> = [
@@ -175,29 +176,38 @@ const informationToolFields: Array<{
   key: InformationConfigToolName;
   access: "free" | "premium" | "mixed";
   purpose: string;
-}> = INFORMATION_TOOL_CATALOG.filter((tool) => {
-  if (tool.name === "supermemory_search") return false;
-  return true;
-}).map((tool) => ({
+}> = INFORMATION_TOOL_CATALOG.map((tool) => ({
   label: humanizeToolName(tool.name),
   key: tool.name,
   access: tool.access,
   purpose: tool.purpose,
 }));
 
-const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName }> = [
-  { label: "Supermemory Profile", key: "supermemory_profile" },
-  { label: "Supermemory Search", key: "supermemory_search" },
-  { label: "Exa News Search", key: "exa_news_search" },
+const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName; purpose: string }> = [
+  { label: "Supermemory Profile", key: "supermemory_profile", purpose: "Retrieves branch-specific user profile context and durable preferences." },
+  { label: "Supermemory Search", key: "supermemory_search", purpose: "Searches branch memory for prior observations and duplicate context." },
+  { label: "Exa News Search", key: "exa_news_search", purpose: "Finds recent web/news evidence relevant to the branch law." },
 ];
 
-const debateToolFields: Array<{ label: string; key: DebateConfigToolName }> = [
-  { label: "Exa Search", key: "exa_search" },
-  { label: "Deep Research", key: "exa_research" },
-  { label: "Information Agent", key: "information" },
+const debateToolFields: Array<{ label: string; key: DebateConfigToolName; purpose: string }> = [
+  { label: "Exa Search", key: "exa_search", purpose: "Lets debate agents search current web evidence." },
+  { label: "Deep Research", key: "exa_research", purpose: "Runs deeper Exa research for higher-effort evidence gathering." },
+  { label: "Information Agent", key: "information", purpose: "Delegates targeted source and market-data lookup to the information workflow." },
+  { label: "Portfolio", key: "portfolio", purpose: "Injects current paper portfolio context into debate reasoning." },
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit"];
+
+type TradingActionMode = "enable_trading" | "notify" | "both";
+
+const tradingActionOptions: Array<{
+  label: string;
+  value: TradingActionMode;
+}> = [
+  { label: "Enable Trading", value: "enable_trading" },
+  { label: "Notify", value: "notify" },
+  { label: "Both", value: "both" },
+];
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
@@ -2723,10 +2733,11 @@ function BranchConfig({
   const tradingConfig = config.trading ?? {};
   const tradingMode = tradingConfig.mode ?? "disabled";
   const tradingEnabled = tradingMode === "enabled" || tradingMode === "paper";
-  const autoTradeEnabled =
-    tradingConfig.autoTradeEnabled ?? tradingConfig.paperAutoBuyEnabled ?? false;
+  const tradingActionMode = getTradingActionMode(tradingConfig);
   const tradeSymbolUniverse = mergeSymbolSelection(
     branchAssets,
+    tradingConfig.symbols ?? [],
+    tradingConfig.symbol ? [tradingConfig.symbol] : [],
     tradeSymbols.map((symbol) => symbol.symbol),
   );
   const selectedTradeSymbols = normalizeSymbolSelection(
@@ -2801,125 +2812,67 @@ function BranchConfig({
           loadState={capabilityLoadState}
           preflight={capabilityPreflight}
         />
-        <section className="config-section">
-          <div className="section-title">BASIC</div>
-          <div className="config-grid">
-            <FieldLabel label="Branch Name">
-              <input
-                onChange={(event) => setBranchName(event.target.value)}
-                placeholder="Name this monitoring branch."
-                value={branchName}
-              />
-            </FieldLabel>
-            <label className="checkbox-card compact">
-              <input
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                <b>Branch enabled</b>
-                <small>Allows scheduled monitoring and router wakeups.</small>
-              </span>
-            </label>
-          </div>
-          <FieldLabel label="The Law (Primary Thesis)">
-            <textarea
-              onChange={(event) => setLawText(event.target.value)}
-              placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
-              value={lawText}
+        <div className="config-grid">
+          <FieldLabel info="Human-readable name for this monitoring branch." label="Branch Name">
+            <input
+              onChange={(event) => setBranchName(event.target.value)}
+              placeholder="Name this monitoring branch."
+              value={branchName}
             />
           </FieldLabel>
-          <div className="config-grid">
-            <FieldLabel label="Tracked Tickers">
-              <input
-                onChange={(event) => {
-                  const assets = parseAssetList(event.target.value);
-                  setConfig((current) => ({
-                    ...current,
-                    assets,
-                    trading: {
-                      ...current.trading,
-                      symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
-                      symbol:
-                        normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
-                        assets[0],
-                    },
-                  }));
-                }}
-                placeholder="PLTR, NVDA, CRWV"
-                value={branchAssets.join(", ")}
-              />
-            </FieldLabel>
-            <FieldLabel label="Heartbeat Cadence">
-              <input
-                min="1"
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    heartbeat: {
-                      ...current.heartbeat,
-                      intervalMinutes: Number(event.target.value),
-                    },
-                  }))
-                }
-                type="number"
-                value={heartbeatInterval}
-              />
-            </FieldLabel>
-          </div>
-          <div className="threshold-wide">
-            <Slider
-              label="Escalation Notify Threshold"
-              onChange={(value) =>
-                setConfig((current) => ({
-                  ...current,
-                  thresholds: {
-                    ...current.thresholds,
-                    notifyConfidence: value / 100,
-                  },
-                }))
-              }
-              value={`${notifyConfidence}%`}
+          <label className="checkbox-card compact">
+            <input
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+              type="checkbox"
             />
-            <label className="checkbox-card compact">
-              <input
-                checked={tradingEnabled}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    trading: {
-                      ...current.trading,
-                      mode: event.target.checked ? "enabled" : "disabled",
-                      autoTradeEnabled: event.target.checked
-                        ? current.trading?.autoTradeEnabled ??
-                          current.trading?.paperAutoBuyEnabled ??
-                          false
-                        : false,
-                      paperAutoBuyEnabled: event.target.checked
-                        ? current.trading?.autoTradeEnabled ??
-                          current.trading?.paperAutoBuyEnabled ??
-                          false
-                        : false,
-                    },
-                  }))
-                }
-                type="checkbox"
-              />
-              <span>
-                <b>{tradingEnabled ? "Trading enabled" : "Trading disabled"}</b>
-                <small>Default boundary remains guarded intents and paper execution.</small>
-              </span>
-            </label>
-          </div>
-        </section>
-        <details className="advanced-config" open>
-          <summary>Advanced</summary>
+            <span>
+              <b>Branch enabled</b>
+              <small>Allows scheduled monitoring and router wakeups.</small>
+            </span>
+          </label>
+        </div>
+        <FieldLabel
+          info="Primary branch thesis: what this agent watches, what counts as signal, and what it should ignore."
+          label="The Law (Primary Thesis)"
+        >
+          <textarea
+            onChange={(event) => setLawText(event.target.value)}
+            placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
+            value={lawText}
+          />
+        </FieldLabel>
+        <FieldLabel
+          info="Ticker universe this branch watches and uses as the default trade-symbol pool."
+          label="Tracked Tickers"
+        >
+          <input
+            onChange={(event) => {
+              const assets = parseAssetList(event.target.value);
+              setConfig((current) => ({
+                ...current,
+                assets,
+                trading: {
+                  ...current.trading,
+                  symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
+                  symbol:
+                    normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
+                    assets[0],
+                },
+              }));
+            }}
+            placeholder="PLTR, NVDA, CRWV"
+            value={branchAssets.join(", ")}
+          />
+        </FieldLabel>
         <div>
-          <div className="field-label">AGENT SYSTEM PROMPTS</div>
+          <InfoLabel
+            label="AGENT SYSTEM PROMPTS"
+            info="System instructions for each branch-scoped agent role. These shape behavior without changing saved evidence."
+          />
           <div className="prompt-grid">
             {promptFields.map((field) => (
-              <FieldLabel label={field.role} key={field.key}>
+              <FieldLabel info={field.description} label={field.role} key={field.key}>
                 <textarea
                   className="prompt-area"
                   rows={5}
@@ -2939,79 +2892,63 @@ function BranchConfig({
             ))}
           </div>
         </div>
-        <section className={`trading-panel ${autoTradeEnabled ? "auto-buy" : ""}`}>
+        <section className="trading-panel">
           <div className="trading-panel-head">
             <div>
-              <div className="field-label">TRADING CONTROLS</div>
-              <h2>
-                {tradingEnabled
-                  ? "Trading enabled"
-                  : "Trading disabled"}
-              </h2>
+              <InfoLabel
+                label="TRADING CONTROLS"
+                info="Controls whether this branch can draft trade intents, send notifications, or do both when confidence thresholds are met."
+              />
+              <h2>Trading</h2>
             </div>
           </div>
           <div className="trading-grid">
             <div className="trading-section full">
-              <div className="field-label">Mode</div>
-              <div className="trading-card-row">
-                <label className="checkbox-card">
-                  <input
-                    checked={tradingEnabled}
-                    onChange={(event) =>
-                      setConfig((current) => ({
+              <FieldLabel
+                info="Enable Trading creates guarded trade intents. Notify sends branch alerts only. Both does both."
+                label="Mode"
+              >
+                <select
+                  onChange={(event) =>
+                    setConfig((current) => {
+                      const nextMode = event.target.value as TradingActionMode;
+                      const enablesTrading =
+                        nextMode === "enable_trading" || nextMode === "both";
+                      const notifies =
+                        nextMode === "notify" || nextMode === "both";
+
+                      return {
                         ...current,
                         trading: {
                           ...current.trading,
-                          mode: event.target.checked ? "enabled" : "disabled",
-                          autoTradeEnabled: event.target.checked
-                            ? current.trading?.autoTradeEnabled ??
-                              current.trading?.paperAutoBuyEnabled ??
-                              false
-                            : false,
-                          paperAutoBuyEnabled: event.target.checked
-                            ? current.trading?.autoTradeEnabled ??
-                              current.trading?.paperAutoBuyEnabled ??
-                              false
-                            : false,
+                          mode: enablesTrading ? "enabled" : "disabled",
+                          notifyOnBuySignal: notifies,
+                          autoTradeEnabled: false,
+                          paperAutoBuyEnabled: false,
                         },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    <b>Enable trading</b>
-                    <small>Allows Kairos to create guarded trade intents.</small>
-                  </span>
-                </label>
-                <label className="checkbox-card">
-                  <input
-                    checked={autoTradeEnabled}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        trading: {
-                          ...current.trading,
-                          autoTradeEnabled: event.target.checked,
-                          paperAutoBuyEnabled: event.target.checked,
-                          mode: event.target.checked
-                            ? "enabled"
-                            : current.trading?.mode ?? "disabled",
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    <b>Auto-submit orders</b>
-                    <small>Submits through the configured Alpaca trading API.</small>
-                  </span>
-                </label>
-              </div>
+                      };
+                    })
+                  }
+                  value={tradingActionMode}
+                >
+                  {tradingActionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </FieldLabel>
             </div>
             <div className="trading-section full">
-              <div className="field-label">Execution</div>
+              <InfoLabel
+                label="Execution"
+                info="Select tradeable symbols and order type for generated trade intents."
+              />
               <div className="trading-fields-row">
-                <FieldLabel label="Symbols">
+                <FieldLabel
+                  info="Choose one or more symbols from tracked tickers or the loaded trade catalog. Search loads more ticker matches."
+                  label="Symbols"
+                >
                   <TradeSymbolDropdown
                     assets={branchAssets}
                     catalog={tradeSymbols}
@@ -3030,7 +2967,7 @@ function BranchConfig({
                     }
                   />
                 </FieldLabel>
-                <FieldLabel label="Order Type">
+                <FieldLabel info="Restricts generated trade intents to this order type." label="Order Type">
                   <select
                     onChange={(event) =>
                       setConfig((current) => ({
@@ -3053,9 +2990,12 @@ function BranchConfig({
               </div>
             </div>
             <div className="trading-section full">
-              <div className="field-label">Limits</div>
+              <InfoLabel
+                label="Limits"
+                info="Caps notional exposure for generated trade intents."
+              />
               <div className="trading-fields-row">
-                <FieldLabel label="Max Order">
+                <FieldLabel info="Maximum notional size per generated order intent." label="Max Order">
                   <input
                     min="0"
                     onChange={(event) =>
@@ -3071,7 +3011,7 @@ function BranchConfig({
                     value={maxNotionalPerOrder}
                   />
                 </FieldLabel>
-                <FieldLabel label="Max Position">
+                <FieldLabel info="Maximum open notional exposure per selected symbol." label="Max Position">
                   <input
                     min="0"
                     onChange={(event) =>
@@ -3091,6 +3031,7 @@ function BranchConfig({
             </div>
             <div className="threshold-inline">
               <Slider
+                info="Minimum confidence required before Kairos drafts a trade intent."
                 label="Trade Threshold"
                 onChange={(value) =>
                   setConfig((current) => ({
@@ -3108,15 +3049,17 @@ function BranchConfig({
           </div>
         </section>
         <div>
-          <div className="field-label">MODEL ROLE CONFIGURATION</div>
+          <InfoLabel
+            label="MODEL ROLE CONFIGURATION"
+            info="Per-role model overrides. Leave a role on default unless the branch needs a specific model or reasoning effort."
+          />
           <div className="model-grid">
             {modelRoleFields.map((field) => (
               <div className="model-row" key={field.key}>
                 <span>
-                  <b>{field.label}</b>
+                  <InfoLabel info={field.purpose} label={field.label} />
                 </span>
-                <input
-                  list="openrouter-models"
+                <select
                   onChange={(event) =>
                     setConfig((current) => ({
                       ...current,
@@ -3129,9 +3072,25 @@ function BranchConfig({
                       },
                     }))
                   }
-                  placeholder={modelDefaults[field.key]?.model ?? "Model"}
-                  value={config.models?.[field.key]?.model ?? modelDefaults[field.key]?.model ?? ""}
-                />
+                  value={config.models?.[field.key]?.model ?? ""}
+                >
+                  <option value="">
+                    {modelDefaults[field.key]?.model
+                      ? `DEFAULT: ${modelDefaults[field.key]?.model}`
+                      : "DEFAULT MODEL"}
+                  </option>
+                  {config.models?.[field.key]?.model &&
+                    !openRouterModels.some((model) => model.id === config.models?.[field.key]?.model) && (
+                      <option value={config.models[field.key]?.model}>
+                        {config.models[field.key]?.model}
+                      </option>
+                    )}
+                  {openRouterModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name ? `${model.name} / ${model.id}` : model.id}
+                    </option>
+                  ))}
+                </select>
                 <select
                   onChange={(event) =>
                     setConfig((current) => ({
@@ -3163,13 +3122,6 @@ function BranchConfig({
               </div>
             ))}
           </div>
-          <datalist id="openrouter-models">
-            {openRouterModels.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </datalist>
           {openRouterModels.length === 0 && (
             <p className="config-note">
               Model list unavailable.
@@ -3182,7 +3134,10 @@ function BranchConfig({
           )}
         </div>
         <div className="config-grid">
-          <FieldLabel label="Information Agent Tools">
+          <FieldLabel
+            info="Tools available to the information agent for evidence gathering, source reading, market data, and branch memory retrieval."
+            label="Information Agent Tools"
+          >
             <div className="tool-picker">
               {informationToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3205,7 +3160,10 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>{toolAccessLabel(tool)}</span>
+                  <span>
+                    {toolAccessLabel(tool)}
+                    <InfoIcon label={tool.purpose} />
+                  </span>
                   <input
                     checked={config.tools?.information?.[tool.key]?.required ?? false}
                     disabled={config.tools?.information?.[tool.key]?.enabled === false}
@@ -3231,7 +3189,10 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel label="Debate Tools">
+          <FieldLabel
+            info="Tools available to bull, bear, judge, and final debate roles."
+            label="Debate Tools"
+          >
             <div className="tool-picker">
               {debateToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3254,7 +3215,10 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>{tool.label}</span>
+                  <span>
+                    {tool.label}
+                    <InfoIcon label={tool.purpose} />
+                  </span>
                   <input
                     checked={config.tools?.debate?.[tool.key]?.required ?? false}
                     disabled={config.tools?.debate?.[tool.key]?.enabled === false}
@@ -3280,7 +3244,10 @@ function BranchConfig({
               ))}
             </div>
           </FieldLabel>
-          <FieldLabel label="Heartbeat Tools">
+          <FieldLabel
+            info="Cheap tools available during heartbeat monitoring before escalation."
+            label="Heartbeat Tools"
+          >
             <div className="tool-picker">
               {heartbeatToolFields.map((tool) => (
                 <label key={tool.key}>
@@ -3303,7 +3270,10 @@ function BranchConfig({
                     }
                     type="checkbox"
                   />
-                  <span>{tool.label}</span>
+                  <span>
+                    {tool.label}
+                    <InfoIcon label={tool.purpose} />
+                  </span>
                   <input
                     checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
                     disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
@@ -3330,7 +3300,10 @@ function BranchConfig({
             </div>
           </FieldLabel>
         </div>
-        <FieldLabel label="Search & Deep Research Instruction">
+        <FieldLabel
+          info="Branch-specific guidance injected into Exa search and deep research workflows."
+          label="Search & Deep Research Instruction"
+        >
           <textarea
             onChange={(event) =>
               setConfig((current) => ({
@@ -3346,7 +3319,7 @@ function BranchConfig({
           />
         </FieldLabel>
         <div className="config-grid">
-          <FieldLabel label="Heartbeat Interval Minutes">
+          <FieldLabel info="Scheduled monitoring cadence for this branch." label="Heartbeat Interval Minutes">
             <input
               min="1"
               onChange={(event) =>
@@ -3362,7 +3335,7 @@ function BranchConfig({
               value={heartbeatInterval}
             />
           </FieldLabel>
-          <FieldLabel label="Seed Window Days">
+          <FieldLabel info="How many recent days of seed context the heartbeat should consider." label="Seed Window Days">
             <input
               min="1"
               onChange={(event) =>
@@ -3378,7 +3351,7 @@ function BranchConfig({
               value={seedWindowDays}
             />
           </FieldLabel>
-          <FieldLabel label="Heartbeat Max Tool Steps">
+          <FieldLabel info="Maximum cheap tool calls allowed during one heartbeat pass." label="Heartbeat Max Tool Steps">
             <input
               min="0"
               onChange={(event) =>
@@ -3394,7 +3367,7 @@ function BranchConfig({
               value={heartbeatMaxToolSteps}
             />
           </FieldLabel>
-          <FieldLabel label="Debate Max Turns">
+          <FieldLabel info="Maximum debate loop turns before final synthesis." label="Debate Max Turns">
             <input
               min="1"
               onChange={(event) =>
@@ -3410,7 +3383,7 @@ function BranchConfig({
               value={debateMaxTurns}
             />
           </FieldLabel>
-          <FieldLabel label="Debate Max Tool Calls">
+          <FieldLabel info="Maximum debate tool calls available per debate run." label="Debate Max Tool Calls">
             <input
               min="0"
               onChange={(event) =>
@@ -3426,7 +3399,7 @@ function BranchConfig({
               value={debateMaxToolCalls}
             />
           </FieldLabel>
-          <FieldLabel label="Information Max Tool Calls">
+          <FieldLabel info="Maximum information-agent tool calls for source and market-data retrieval." label="Information Max Tool Calls">
             <input
               min="0"
               onChange={(event) =>
@@ -3444,12 +3417,16 @@ function BranchConfig({
           </FieldLabel>
         </div>
         <div>
-          <div className="field-label">ESCALATION AND REVIEW THRESHOLDS</div>
+          <InfoLabel
+            label="ESCALATION AND REVIEW THRESHOLDS"
+            info="Confidence cutoffs used when deciding whether to notify, trade, or keep monitoring."
+          />
           <div className="threshold-wide">
-            <Slider
-              label="Notification Threshold"
-              onChange={(value) =>
-                setConfig((current) => ({
+              <Slider
+                info="Minimum confidence required before Kairos should notify about this branch."
+                label="Notification Threshold"
+                onChange={(value) =>
+                  setConfig((current) => ({
                   ...current,
                   thresholds: {
                     ...current.thresholds,
@@ -3460,6 +3437,7 @@ function BranchConfig({
               value={`${notifyConfidence}%`}
             />
             <Slider
+              info="Minimum confidence required before Kairos drafts a trade intent."
               label="Buy Signal Threshold"
               onChange={(value) =>
                 setConfig((current) => ({
@@ -3475,7 +3453,6 @@ function BranchConfig({
             />
           </div>
         </div>
-        </details>
       </div>
     </main>
   );
@@ -3511,6 +3488,9 @@ function TradeSymbolDropdown({
       option.name?.toUpperCase().includes(normalizedQuery)
     );
   });
+  const canAddQuery =
+    normalizedQuery.length > 0 &&
+    !options.some((option) => option.symbol === normalizedQuery);
   const selectedSet = new Set(selected);
   const summary =
     selected.length === 0
@@ -3551,26 +3531,40 @@ function TradeSymbolDropdown({
     const next = checked
       ? [...selectedSet, symbol]
       : selected.filter((item) => item !== symbol);
-    onChange(normalizeSymbolSelection(next, optionSymbols));
+    onChange(normalizeSymbolSelection(next, mergeSymbolSelection(optionSymbols, [symbol])));
   }
 
   return (
-    <details className="multi-select">
-      <summary>{summary}</summary>
-      <div className="multi-select-menu">
-        <input
-          className="multi-select-search"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search tickers"
-          value={query}
-        />
+    <div className="trade-symbol-lookup">
+      <input
+        className="multi-select-search"
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search Nasdaq symbols"
+        value={query}
+      />
+      <details className="multi-select" open={Boolean(normalizedQuery)}>
+        <summary>{summary}</summary>
+        <div className="multi-select-menu">
         {activeLoadState === "loading" && (
-          <span className="empty-option">Updating symbol catalog.</span>
+          <span className="empty-option">Looking up symbols.</span>
         )}
         {activeLoadState === "offline" && activeCatalog.length === 0 && (
           <span className="empty-option">Symbol lookup unavailable. Add tracked tickers manually.</span>
         )}
-        {visibleOptions.length === 0 ? (
+        {canAddQuery && (
+          <label className="symbol-option">
+            <input
+              checked={selectedSet.has(normalizedQuery)}
+              onChange={(event) => toggle(normalizedQuery, event.target.checked)}
+              type="checkbox"
+            />
+            <span className="symbol-option-main">
+              <b>{normalizedQuery}</b>
+              <small>Add custom ticker</small>
+            </span>
+          </label>
+        )}
+        {visibleOptions.length === 0 && !canAddQuery ? (
           <span className="empty-option">No matching symbols.</span>
         ) : (
           visibleOptions.map((option) => (
@@ -3591,8 +3585,9 @@ function TradeSymbolDropdown({
             </label>
           ))
         )}
-      </div>
-    </details>
+        </div>
+      </details>
+    </div>
   );
 }
 
@@ -3876,16 +3871,35 @@ function PaneHeader({
 
 function FieldLabel({
   label,
+  info,
   children,
 }: {
   label: string;
+  info?: string;
   children: ReactNode;
 }) {
   return (
     <label className="field">
-      <span className="field-label">{label}</span>
+      <InfoLabel info={info} label={label} />
       {children}
     </label>
+  );
+}
+
+function InfoLabel({ label, info }: { label: string; info?: string }) {
+  return (
+    <span className="field-label info-label">
+      {label}
+      {info && <InfoIcon label={info} />}
+    </span>
+  );
+}
+
+function InfoIcon({ label }: { label: string }) {
+  return (
+    <span className="info-icon" aria-label={label} role="img" tabIndex={0}>
+      <Icon name="info" />
+    </span>
   );
 }
 
@@ -3909,17 +3923,19 @@ function Metric({
 function Slider({
   label,
   value,
+  info,
   onChange,
 }: {
   label: string;
   value: string;
+  info?: string;
   onChange?: (value: number) => void;
 }) {
   const numericValue = Number(value.replace("%", ""));
   return (
     <div className="slider-block">
       <div>
-        <span>{label}</span>
+        <InfoLabel info={info} label={label} />
         <b>{value}</b>
       </div>
       <input
@@ -4462,6 +4478,16 @@ function parseAssetList(value: string): string[] {
 
 function normalizeTickerInput(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
+}
+
+function getTradingActionMode(trading: BranchTradingConfig): TradingActionMode {
+  const mode = trading.mode ?? "disabled";
+  const tradingEnabled = mode === "enabled" || mode === "paper";
+  const notifyEnabled = trading.notifyOnBuySignal ?? !tradingEnabled;
+
+  if (tradingEnabled && notifyEnabled) return "both";
+  if (tradingEnabled) return "enable_trading";
+  return "notify";
 }
 
 function mergeSymbolSelection(...groups: string[][]): string[] {

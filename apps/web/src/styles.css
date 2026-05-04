@@ -2935,6 +2935,64 @@ select:focus:hover {
   text-transform: uppercase;
 }
 
+.info-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.info-icon {
+  align-items: center;
+  color: var(--on-variant);
+  cursor: help;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 16px;
+  justify-content: center;
+  position: relative;
+  width: 16px;
+}
+
+.info-icon .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.info-icon:hover,
+.info-icon:focus {
+  color: var(--on-surface);
+  outline: none;
+}
+
+.info-icon::after {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+  color: var(--on-surface);
+  content: attr(aria-label);
+  display: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  left: 50%;
+  letter-spacing: 0;
+  line-height: 15px;
+  max-width: 260px;
+  min-width: 180px;
+  padding: 8px;
+  position: absolute;
+  text-transform: none;
+  top: calc(100% + 6px);
+  transform: translateX(-50%);
+  white-space: normal;
+  z-index: 20;
+}
+
+.info-icon:hover::after,
+.info-icon:focus::after {
+  display: block;
+}
+
 .model-row span small {
   color: var(--on-variant);
   font-size: 11px;
@@ -3090,7 +3148,11 @@ select:focus:hover {
 }
 
 .tool-picker label > span {
+  align-items: center;
+  display: inline-flex;
   flex: 1;
+  gap: 5px;
+  min-width: 0;
 }
 
 .tool-picker em {
@@ -3098,6 +3160,12 @@ select:focus:hover {
   font-style: normal;
   font-size: 10px;
   text-transform: uppercase;
+}
+
+.trade-symbol-lookup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .multi-select {
