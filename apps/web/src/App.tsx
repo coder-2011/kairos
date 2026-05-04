@@ -3371,8 +3371,7 @@ function ModelPicker({
     .filter((model) => {
       if (!normalizedQuery) return true;
       return `${model.id} ${model.name}`.toLowerCase().includes(normalizedQuery);
-    })
-    .slice(0, 40);
+    });
 
   function choose(model: OpenRouterModelRecord) {
     onChange(model.id);
