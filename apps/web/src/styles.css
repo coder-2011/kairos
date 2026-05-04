@@ -248,6 +248,22 @@ a {
   color: #ffffff;
 }
 
+.nav-icon {
+  display: block;
+  flex: 0 0 18px;
+  height: 18px;
+  width: 18px;
+}
+
+.nav-icon path,
+.nav-icon circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .operator-block {
   align-items: center;
   border-top: 1px solid #e2e8f0;

@@ -1110,7 +1110,7 @@ function SideNav({
             onClick={() => setView(item.id)}
             type="button"
           >
-            <Icon name={item.icon} />
+            <NavIcon name={item.icon} />
             <span>{item.label}</span>
           </button>
         ))}
@@ -3969,6 +3969,55 @@ function IconButton({
 
 function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
+}
+
+function NavIcon({ name }: { name: string }) {
+  switch (name) {
+    case "account_tree":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 5h5v5H6zM13 14h5v5h-5zM6 14h5v5H6z" />
+          <path d="M11 7.5h3.5V16H13M8.5 10v4" />
+        </svg>
+      );
+    case "route":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM18 12.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" />
+          <path d="M8.5 9h5.25a3.75 3.75 0 0 1 0 7.5H11" />
+        </svg>
+      );
+    case "travel_explore":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="5.5" />
+          <path d="m15 15 4 4M8.5 6.5c1.5 1.4 2.4 2.8 2.8 4.2M6 11h9" />
+        </svg>
+      );
+    case "monitoring":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 17h16M6 15l3.5-4 3 2.5L18 7" />
+          <path d="M5 5v14h15" />
+        </svg>
+      );
+    case "account_balance":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9h16L12 5zM6 10.5V17M10 10.5V17M14 10.5V17M18 10.5V17M4.5 19h15" />
+        </svg>
+      );
+    case "timeline":
+      return (
+        <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 7h4l3 5h3l4 5M5 17h4M15 7h4" />
+          <circle cx="5" cy="7" r="1.5" />
+          <circle cx="19" cy="17" r="1.5" />
+        </svg>
+      );
+    default:
+      return <Icon name={name} />;
+  }
 }
 
 function KairosLogo({ className }: { className?: string }) {
