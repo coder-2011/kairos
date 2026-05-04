@@ -347,6 +347,11 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
             ),
           }, 201);
 
+        case "deleteRouterChat": {
+          const deleted = await context.store.deleteRouterChat(route.params.chatId);
+          return deleted ? empty(204) : json({ error: "not_found", message: "Router chat not found." }, 404);
+        }
+
         case "listRouterMessages": {
           const chat = await context.store.getRouterChat(route.params.chatId);
           if (!chat) return json({ error: "not_found", message: "Router chat not found." }, 404);
@@ -2896,6 +2901,7 @@ type Route =
   | { name: "listRuns"; params: Record<string, never> }
   | { name: "listRouterChats"; params: Record<string, never> }
   | { name: "createRouterChat"; params: Record<string, never> }
+  | { name: "deleteRouterChat"; params: { chatId: string } }
   | { name: "listRouterMessages"; params: { chatId: string } }
   | { name: "createRouterMessage"; params: { chatId: string } }
   | { name: "getRun"; params: { runId: string } }
@@ -2907,10 +2913,6 @@ type Route =
   | { name: "streamRunEvents"; params: { runId: string } }
   | { name: "getPortfolio"; params: Record<string, never> }
   | { name: "refreshPortfolio"; params: Record<string, never> }
-  | { name: "listRouterChats"; params: Record<string, never> }
-  | { name: "createRouterChat"; params: Record<string, never> }
-  | { name: "listRouterMessages"; params: { chatId: string } }
-  | { name: "createRouterMessage"; params: { chatId: string } }
   | { name: "listMessages"; params: Record<string, never> }
   | { name: "listTradeIntents"; params: Record<string, never> }
   | { name: "createTradeIntent"; params: Record<string, never> }
@@ -2930,6 +2932,9 @@ function matchRoute(method: string, pathname: string): Route | undefined {
     if (method === "GET") return { name: "listRouterChats", params: {} };
     if (method === "POST") return { name: "createRouterChat", params: {} };
   }
+  if (segments.length === 3 && segments[0] === "router" && segments[1] === "chats" && method === "DELETE") {
+    return { name: "deleteRouterChat", params: { chatId: segments[2] } };
+  }
   if (segments.length === 4 && segments[0] === "router" && segments[1] === "chats" && segments[3] === "messages") {
     if (method === "GET") return { name: "listRouterMessages", params: { chatId: segments[2] } };
     if (method === "POST") return { name: "createRouterMessage", params: { chatId: segments[2] } };
@@ -2943,14 +2948,6 @@ function matchRoute(method: string, pathname: string): Route | undefined {
     return { name: "submitPaperTradeIntent", params: { tradeIntentId: segments[1] } };
   }
   if (method === "GET" && pathname === "/broker-orders") return { name: "listBrokerOrders", params: {} };
-  if (segments.length === 2 && segments[0] === "router" && segments[1] === "chats") {
-    if (method === "GET") return { name: "listRouterChats", params: {} };
-    if (method === "POST") return { name: "createRouterChat", params: {} };
-  }
-  if (segments.length === 4 && segments[0] === "router" && segments[1] === "chats" && segments[3] === "messages") {
-    if (method === "GET") return { name: "listRouterMessages", params: { chatId: segments[2] } };
-    if (method === "POST") return { name: "createRouterMessage", params: { chatId: segments[2] } };
-  }
   if (segments.length === 1 && segments[0] === "branches") {
     if (method === "GET") return { name: "listBranches", params: {} };
     if (method === "POST") return { name: "createBranch", params: {} };

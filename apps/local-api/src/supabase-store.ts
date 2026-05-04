@@ -231,6 +231,15 @@ export class SupabaseKairosStore implements KairosLocalStore {
     return this.client.get<RouterChatRecord>("router_chats", id);
   }
 
+  async deleteRouterChat(id: string): Promise<boolean> {
+    const deleted = await this.client.delete("router_chats", id);
+    if (!deleted) return false;
+
+    const messages = await this.listRouterMessages(id);
+    await Promise.all(messages.map((message) => this.client.delete("router_messages", message.id)));
+    return true;
+  }
+
   async listRouterMessages(chatId: string): Promise<RouterMessageRecord[]> {
     const messages = await this.client.list<RouterMessageRecord>("router_messages", {
       "record->>chatId": `eq.${chatId}`,

@@ -885,6 +885,69 @@ describe("local API handler", () => {
     });
   });
 
+  it("deletes router chats and their messages through the chat endpoint", async () => {
+    const { requestJson } = makeClient();
+    const chat = await requestJson("POST", "/router/chats");
+    const message = await requestJson(
+      "POST",
+      `/router/chats/${chat.body.chat.id}/messages`,
+      { text: "PLTR contract appears in press release." },
+    );
+
+    expect(message.status).toBe(201);
+
+    const deleted = await requestJson("DELETE", `/router/chats/${chat.body.chat.id}`);
+    expect(deleted.status).toBe(204);
+
+    const remainingChats = await requestJson("GET", "/router/chats");
+    expect(remainingChats.body.chats.map((next: { id: string }) => next.id)).not.toContain(
+      chat.body.chat.id,
+    );
+
+    const missingMessages = await requestJson(
+      "GET",
+      `/router/chats/${chat.body.chat.id}/messages`,
+    );
+    expect(missingMessages.status).toBe(404);
+  });
+
+  it("deletes deep research chats and conversation history", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "kairos-deep-research-"));
+    const previousDeepResearchDir = process.env.KAIROS_DEEP_RESEARCH_DATA_DIR;
+    process.env.KAIROS_DEEP_RESEARCH_DATA_DIR = dataDir;
+
+    try {
+      const { handler } = await createLocalApi({ dataDir });
+      const requestJson = apiClient(handler);
+
+      const created = await requestJson("POST", "/deep-research/chats");
+      expect(created.status).toBe(201);
+
+      const chatId = created.body.chat.id;
+      const listBefore = await requestJson("GET", "/deep-research/chats");
+      expect(listBefore.body.chats.map((next: { id: string }) => next.id)).toContain(chatId);
+
+      const deleted = await requestJson("DELETE", `/deep-research/chats/${chatId}`);
+      expect(deleted.status).toBe(204);
+
+      const listAfter = await requestJson("GET", "/deep-research/chats");
+      expect(listAfter.body.chats.map((next: { id: string }) => next.id)).not.toContain(chatId);
+
+      const missingMessages = await requestJson(
+        "GET",
+        `/deep-research/chats/${chatId}/messages`,
+      );
+      expect(missingMessages.status).toBe(404);
+    } finally {
+      if (previousDeepResearchDir === undefined) {
+        delete process.env.KAIROS_DEEP_RESEARCH_DATA_DIR;
+      } else {
+        process.env.KAIROS_DEEP_RESEARCH_DATA_DIR = previousDeepResearchDir;
+      }
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("streams historical run events as SSE", async () => {
     const { requestJson, request } = makeClient();
     const debate = await requestJson("POST", "/debates", {

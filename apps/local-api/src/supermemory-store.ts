@@ -185,6 +185,24 @@ class SupermemoryMirroredStore implements KairosLocalStore {
     return chat;
   }
 
+  async deleteRouterChat(id: string): Promise<boolean> {
+    const chat = await this.store.getRouterChat(id);
+    const deleted = await this.store.deleteRouterChat(id);
+    if (deleted) {
+      await this.mirrorRecord({
+        type: "router_chat.deleted",
+        scope: "router",
+        timestamp: new Date().toISOString(),
+        artifactId: id,
+        title: chat?.title ?? `Kairos router chat ${id}`,
+        summary: `Deleted router chat ${chat?.title ?? id}.`,
+        data: chat ?? { id },
+        customId: `kairos:router_chat:${id}:deleted`,
+      });
+    }
+    return deleted;
+  }
+
   getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
     return this.store.getRouterChat(id);
   }

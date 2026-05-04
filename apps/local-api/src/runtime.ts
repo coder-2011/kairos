@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -285,6 +285,17 @@ class RuntimeStoreAdapter implements KairosLocalStore {
       });
     }
     return message;
+  }
+
+  async deleteRouterChat(id: string): Promise<boolean> {
+    const chat = await this.getRouterChat(id);
+    if (!chat) return false;
+
+    await Promise.all([
+      rm(this.routerChatPath(id), { force: true }),
+      rm(this.routerMessagesPath(id), { force: true }),
+    ]);
+    return true;
   }
 
   listMessages(): Promise<TradingMessage[]> {

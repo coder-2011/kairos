@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
@@ -181,6 +181,11 @@ export async function handleDeepResearchRequest(
         return json({ chat: await store.createChat(chatCreateSchema.parse(await readJson(request))) }, 201);
       }
     }
+    if (segments.length === 3 && segments[1] === "chats" && request.method === "DELETE") {
+      const chatId = segments[2];
+      const deleted = await store.deleteChat(chatId);
+      return deleted ? empty(204) : json({ error: "not_found", message: "Deep Research chat not found." }, 404);
+    }
 
     if (segments.length === 4 && segments[1] === "chats" && segments[3] === "messages") {
       const chatId = segments[2];
@@ -239,11 +244,15 @@ export async function runDeepResearchQuery(
   const model = resolveDeepResearchModel(input.model);
   const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const toolCalls: RouterToolCallRecord[] = [];
+  const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
 
   const result = await generateText({
     model: createDeepResearchOpenRouterModel(model, reasoningEffort),
     system: deepResearchSystemPrompt(),
-    messages: [{ role: "user", content: input.text }],
+    messages: [
+      ...(memoryContext ? [{ role: "user" as const, content: memoryContext }] : []),
+      { role: "user", content: input.text },
+    ],
     tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
     temperature: 0.2,
   });
@@ -279,6 +288,7 @@ async function runDeepResearchMessage(
   });
   const previousMessages = await store.listMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
+  const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
   const modelMessages = [
     ...previousMessages
       .filter((message) => message.id !== userMessage.id)
@@ -287,6 +297,12 @@ async function runDeepResearchMessage(
         role: message.role,
         content: message.text ?? "",
       })),
+    ...(memoryContext
+      ? [{
+        role: "user" as const,
+        content: memoryContext,
+      }]
+      : []),
     {
       role: "user" as const,
       content: deepResearchUserContent(userMessage),
@@ -357,6 +373,7 @@ async function runDeepResearchMessageStream(
 
   const previousMessages = await store.listMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
+  const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
   let assistantReasoning = "";
   const modelMessages = [
     ...previousMessages
@@ -366,6 +383,12 @@ async function runDeepResearchMessageStream(
         role: message.role,
         content: message.text ?? "",
       })),
+    ...(memoryContext
+      ? [{
+        role: "user" as const,
+        content: memoryContext,
+      }]
+      : []),
     {
       role: "user" as const,
       content: deepResearchUserContent(userMessage),
@@ -579,6 +602,142 @@ function dataUrlToBase64(dataUrl: string): string {
   return dataUrl.replace(/^data:[^;]+;base64,/, "");
 }
 
+async function buildDeepResearchMemoryContext(
+  context: DeepResearchContext,
+  query: string,
+  traces: RouterToolCallRecord[],
+): Promise<string | undefined> {
+  if (!process.env.SUPERMEMORY_API_KEY) return undefined;
+  const startedAt = new Date().toISOString();
+  const supermemory = new SupermemoryApi();
+  try {
+    const [searchOutput, branchProfiles] = await Promise.all([
+      supermemory.search({
+        q: query,
+        limit: 10,
+        rerank: true,
+        searchMode: "hybrid",
+        rewriteQuery: true,
+      }),
+      loadInformativeBranchProfiles(context, supermemory, query),
+    ]);
+    const memorySnippets = collectSupermemorySnippets(searchOutput).slice(0, 10);
+    const output = {
+      memorySnippets,
+      branchProfiles: branchProfiles.profiles,
+      omittedEmptyProfiles: branchProfiles.omittedEmptyProfiles,
+    };
+    const summary = [
+      `Loaded ${memorySnippets.length} Supermemory snippet${memorySnippets.length === 1 ? "" : "s"}.`,
+      `Loaded ${branchProfiles.profiles.length} informative branch profile${branchProfiles.profiles.length === 1 ? "" : "s"}.`,
+    ].join(" ");
+
+    traces.push({
+      id: randomUUID(),
+      name: "supermemory_context",
+      status: "succeeded",
+      summary,
+      input: { query },
+      output: compactJson(output),
+      createdAt: startedAt,
+    });
+
+    if (memorySnippets.length === 0 && branchProfiles.profiles.length === 0) {
+      return [
+        "Kairos memory context:",
+        "No substantive Supermemory or branch-profile context was found for this query.",
+        "Use public-source research for public facts, and do not treat empty memory as evidence.",
+      ].join("\n");
+    }
+
+    return [
+      "Kairos memory context:",
+      "Use this as prior user/project context, not as public factual evidence. If it conflicts with current public sources, say so.",
+      memorySnippets.length > 0
+        ? `Supermemory snippets:\n${memorySnippets.map((snippet, index) => `${index + 1}. ${snippet}`).join("\n")}`
+        : "Supermemory snippets: none found.",
+      branchProfiles.profiles.length > 0
+        ? `Informative branch profiles:\n${branchProfiles.profiles.map(formatBranchProfileForPrompt).join("\n")}`
+        : "Informative branch profiles: none found.",
+    ].join("\n\n");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    traces.push({
+      id: randomUUID(),
+      name: "supermemory_context",
+      status: "failed",
+      summary: message,
+      input: { query },
+      error: message,
+      createdAt: startedAt,
+    });
+    return undefined;
+  }
+}
+
+async function loadInformativeBranchProfiles(
+  context: DeepResearchContext,
+  supermemory: SupermemoryApi,
+  query: string,
+): Promise<{ profiles: JsonRecord[]; omittedEmptyProfiles: number }> {
+  const branches = (await context.store.listBranches()).slice(0, 12);
+  const profiles = await Promise.all(
+    branches.map(async (branch) => {
+      const containerTag = getMemoryContainerTag({
+        scopeId: branch.id,
+        prefix: "branch_profile",
+      });
+      try {
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          containerTag,
+          profile: await supermemory.profile({ containerTag, q: query, threshold: 0.4 }),
+        };
+      } catch (error) {
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          containerTag,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+  const informativeProfiles = profiles
+    .filter(isInformativeBranchProfile)
+    .map(compactBranchProfile);
+  return {
+    profiles: informativeProfiles,
+    omittedEmptyProfiles: profiles.length - informativeProfiles.length,
+  };
+}
+
+function collectSupermemorySnippets(output: unknown): string[] {
+  if (!isJsonRecord(output) || !Array.isArray(output.results)) return [];
+  const snippets = output.results
+    .map((result) => {
+      if (!isJsonRecord(result)) return "";
+      if (typeof result.memory === "string") return result.memory;
+      if (typeof result.summary === "string") return result.summary;
+      if (typeof result.content === "string") return result.content;
+      return "";
+    })
+    .map((snippet) => snippet.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((snippet) => !isLowValueBranchProfileSnippet(snippet));
+  return [...new Set(snippets)];
+}
+
+function formatBranchProfileForPrompt(profile: JsonRecord): string {
+  const branchName = typeof profile.name === "string" ? profile.name : "Unnamed branch";
+  const branchId = typeof profile.branchId === "string" ? profile.branchId : "unknown";
+  const snippets = Array.isArray(profile.snippets)
+    ? profile.snippets.filter((snippet): snippet is string => typeof snippet === "string")
+    : [];
+  return `- ${branchName} (${branchId}): ${snippets.slice(0, 4).join(" | ")}`;
+}
+
 function createDeepResearchTools(
   context: DeepResearchContext,
   traces: RouterToolCallRecord[],
@@ -592,7 +751,7 @@ function createDeepResearchTools(
   return {
     supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
       description:
-        "Search the user's saved Kairos memory only for prior conversations, preferences, private notes, laws, branches, or past decisions. Do not use this for public facts, market research, company discovery, or current events.",
+        "Search saved Kairos/Supermemory context for prior conversations, preferences, private notes, remembered companies, laws, branches, past decisions, and user-specific research context. Use it early when context could personalize or steer the investigation, but corroborate public factual claims with public-source tools.",
       inputSchema: z.object({
         query: z.string().min(1),
         limit: z.number().int().min(1).max(12).optional(),
@@ -610,7 +769,7 @@ function createDeepResearchTools(
     }),
     supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
       description:
-        "Load useful Kairos branch/law profiles only when the user asks about existing branches, laws, monitoring setup, or wants research aligned to saved Kairos context. Do not use this for general public-market research.",
+        "Load useful Kairos branch/law profiles when saved monitoring context could shape the investigation. Empty branch-created-only profiles are filtered out. Use alongside public-source tools for public-market research.",
       inputSchema: z.object({
         query: z.string().min(1),
         limitBranches: z.number().int().min(1).max(20).optional(),
@@ -827,9 +986,11 @@ function summarizeExaSearchOutput(result: Awaited<ReturnType<ExaApi["deepResearc
 function deepResearchSystemPrompt(): string {
   return [
     "You are Kairos Deep Research, an isolated research agent for market, product, technical, and memory-backed investigation.",
+    "Every run receives a Kairos memory preflight when Supermemory is configured. Treat that memory as important user/project context and use it to steer follow-up research.",
+    "Use Supermemory again with targeted queries when prior user context, remembered companies, saved notes, laws, branches, or past decisions could change the answer.",
     "For public-market, public-company, supply-chain, technical ecosystem, product, current-event, or investment-research questions, use public source tools first: exa_research, exa_search, exa_contents, and information_agent.",
-    "Use Supermemory only when the user asks about prior conversations, private notes, preferences, saved Kairos laws, saved branches, or past decisions. Do not search memory just because it is available.",
-    "Use branch profiles only when saved Kairos branch/law context is directly relevant to the user's request.",
+    "For public factual claims, use public-source tools for corroboration even when memory provides useful leads.",
+    "Use branch profiles when saved Kairos branch/law context can shape the investigation.",
     "If a memory or branch-profile tool returns no substantive content, ignore it and continue with source-backed public research.",
     "For market claims, separate evidence, belief update, and conclusion. Cite URLs when public source tools provide them, and clearly mark uncertainty.",
     "Do not place live trades, submit broker orders, or claim execution authority.",
@@ -918,6 +1079,16 @@ class DeepResearchFileStore {
 
   async getChat(id: string): Promise<DeepResearchChatRecord | undefined> {
     return this.readJson<DeepResearchChatRecord>(this.chatPath(id));
+  }
+
+  async deleteChat(id: string): Promise<boolean> {
+    const chat = await this.getChat(id);
+    if (!chat) return false;
+    await Promise.all([
+      rm(this.chatPath(id), { force: true }),
+      rm(this.messagesPath(id), { force: true }),
+    ]);
+    return true;
   }
 
   async listMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {

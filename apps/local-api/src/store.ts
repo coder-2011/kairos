@@ -164,6 +164,7 @@ export type KairosLocalStore = {
   appendRunEvent(runId: string, input: AppendRunEventInput): Promise<RunEventRecord>;
   subscribeToRunEvents?(runId: string, subscriber: RunEventSubscriber): () => void;
   listRouterChats(): Promise<RouterChatRecord[]>;
+  deleteRouterChat(id: string): Promise<boolean>;
   createRouterChat(input?: CreateRouterChatInput): Promise<RouterChatRecord>;
   getRouterChat(id: string): Promise<RouterChatRecord | undefined>;
   listRouterMessages(chatId: string): Promise<RouterMessageRecord[]>;
@@ -360,6 +361,12 @@ export class MemoryKairosStore implements KairosLocalStore {
     };
     this.routerChats.set(chat.id, chat);
     return chat;
+  }
+
+  async deleteRouterChat(id: string): Promise<boolean> {
+    const deleted = this.routerChats.delete(id);
+    this.routerMessages.delete(id);
+    return deleted;
   }
 
   async getRouterChat(id: string): Promise<RouterChatRecord | undefined> {
