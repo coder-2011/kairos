@@ -438,7 +438,7 @@ async function authorizeLocalApiRequest(
 ): Promise<Response | undefined> {
   if (!isLocalApiAuthEnabled()) return undefined;
   if (request.method === "OPTIONS") return undefined;
-  if (url.pathname === "/health") return undefined;
+  if (url.pathname === "/" || url.pathname === "/health") return undefined;
 
   const token = bearerToken(request.headers.get("authorization"));
   if (!token) {
@@ -3353,7 +3353,7 @@ type Route =
 function matchRoute(method: string, pathname: string): Route | undefined {
   const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
-  if (method === "GET" && pathname === "/health") return { name: "health", params: {} };
+  if (method === "GET" && (pathname === "/" || pathname === "/health")) return { name: "health", params: {} };
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
   if (method === "GET" && pathname === "/capabilities/preflight") return { name: "capabilityPreflight", params: {} };
   if (method === "GET" && pathname === "/market/symbols") return { name: "listMarketSymbols", params: {} };

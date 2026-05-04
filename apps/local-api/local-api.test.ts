@@ -36,6 +36,15 @@ describe("local API handler", () => {
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
   });
 
+  it("responds to root checks", async () => {
+    const { requestJson } = makeClient();
+
+    const response = await requestJson("GET", "/");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
+  });
+
   it("lists market symbols through the configured symbol provider", async () => {
     const { requestJson } = makeClient({
       marketSymbolProvider: {
