@@ -184,8 +184,11 @@ a {
 }
 
 .brand-logo {
+  background: #ffffff;
   border: 1px solid var(--outline-variant);
   border-radius: 6px;
+  display: block;
+  flex: 0 0 auto;
   height: 40px;
   width: 40px;
 }

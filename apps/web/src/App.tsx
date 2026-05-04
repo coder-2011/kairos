@@ -1094,10 +1094,8 @@ function SideNav({
   return (
     <nav className="side-nav">
       <div className="brand-block">
-        <img
-          alt="Kairos Command"
+        <KairosLogo
           className="brand-logo"
-          src="/kairos-logo.svg"
         />
         <div>
           <div className="brand">KAIROS</div>
@@ -3383,7 +3381,9 @@ function TradeSymbolDropdown({
     ? mergeTradeSymbolRecords(catalog, searchCatalog)
     : catalog;
   const activeLoadState = searchQuery ? searchLoadState : loadState;
-  const semanticOptions = mergeTradeSymbolOptions(semanticCatalog, [], selected);
+  const semanticOptions = semanticCatalog.length > 0
+    ? mergeTradeSymbolOptions(semanticCatalog, [], [])
+    : [];
   const semanticOptionSymbols = semanticOptions.map((option) => option.symbol);
   const options = mergeTradeSymbolOptions(activeCatalog, assets, selected);
   const optionSymbols = options.map((option) => option.symbol);
@@ -3969,6 +3969,26 @@ function IconButton({
 
 function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined">{name}</span>;
+}
+
+function KairosLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-label="Kairos Command"
+      className={className}
+      role="img"
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect width="1024" height="1024" fill="#ffffff" />
+      <g fill="#0d1b2e">
+        <path d="M252 300h184v426H252z" />
+        <path d="M541 300h231L584 512l188 214H537L456 633l77-78 31 35 66 72h-65l-65-75-64 68v-24l195-269h-63L373 590V362h-58v300h58v-31l194-269h-63L436 412v-1z" />
+      </g>
+      <rect x="315" y="362" width="58" height="300" fill="#ffffff" />
+      <path d="M436 412 541 300h231L584 512l188 214H537l-81-93 77-78 31 35 66 72h-65l-65-75-64 68v-24l195-269h-63L373 590v-23z" fill="#0d1b2e" />
+    </svg>
+  );
 }
 
 function createBranchId(): string {
@@ -4607,7 +4627,8 @@ function mergeTradeSymbolOptions(
   }
 
   return [...options.values()].sort((left, right) => {
-    const tradableDelta = Number(right.tradable) - Number(left.tradable);
+    const tradableDelta =
+      Number(right.tradable === true) - Number(left.tradable === true);
     if (tradableDelta !== 0) return tradableDelta;
     return (order.get(left.symbol) ?? 0) - (order.get(right.symbol) ?? 0);
   });
