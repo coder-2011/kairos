@@ -1,23 +1,17 @@
 {
-  "branchId": "branch_moqgrt7h",
+  "branchId": "branch_moqgyghv",
   "name": "The monitoring",
   "status": "enabled",
-  "assets": [
-    "PLTR",
-    "NVDA"
-  ],
-  "createdAt": "2026-05-04T00:31:18.185Z",
-  "updatedAt": "2026-05-04T00:31:19.064Z",
-  "summary": "Synthetic monitoring branch for QA coverage.",
+  "assets": [],
+  "createdAt": "2026-05-04T00:36:28.328Z",
+  "updatedAt": "2026-05-04T00:36:28.951Z",
+  "summary": "Monitor broad market anomalies and report escalation only on sustained signal.",
   "payload": {
     "law": {
-      "thesis": "Synthetic monitoring branch for QA coverage."
+      "thesis": "Monitor broad market anomalies and report escalation only on sustained signal."
     },
     "config": {
-      "assets": [
-        "PLTR",
-        "NVDA"
-      ],
+      "assets": [],
       "heartbeat": {
         "intervalMinutes": 5,
         "seedWindowDays": 30,
@@ -142,7 +136,6 @@
       },
       "trading": {
         "mode": "disabled",
-        "symbol": "PLTR",
         "symbols": [],
         "autoTradeEnabled": false,
         "paperAutoBuyEnabled": false,
