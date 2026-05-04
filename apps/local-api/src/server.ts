@@ -297,7 +297,14 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
 }
 
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
-  return async (request: Request): Promise<Response> => {
+  return async (request: Request): Promise<Response> =>
+    withCors(await handleLocalApiRequest(context, request), request);
+}
+
+async function handleLocalApiRequest(
+  context: LocalApiContext,
+  request: Request,
+): Promise<Response> {
     const url = new URL(request.url);
     const authFailure = await authorizeLocalApiRequest(request, url);
     if (authFailure) return authFailure;
@@ -316,7 +323,7 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         case "listOpenRouterModels": {
           let models: Awaited<ReturnType<typeof listOpenRouterModels>> = [];
           try {
-            models = await listOpenRouterModels({ supportsToolsOnly: true });
+            models = await listOpenRouterModels({ requireTools: true });
           } catch {
             models = [];
           }
@@ -450,7 +457,6 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
       }
       return json({ error: "internal_error", message: error instanceof Error ? error.message : "Unknown error." }, 500);
     }
-  };
 }
 
 async function authorizeLocalApiRequest(
@@ -933,6 +939,30 @@ async function applyTradingPolicyToDebate(
       500;
     const requestedQty = decision.sizing?.qty;
     const requestedNotional = decision.sizing?.notional;
+    const requestedOrderType = resolveDecisionOrderType(decision.sizing, tradingConfig);
+    const requestedLimitPrice =
+      requestedOrderType === "limit"
+        ? normalizeLimitPriceForSide(tradeSide, decision.sizing?.limitPrice)
+        : undefined;
+    if (requestedOrderType === "limit" && requestedLimitPrice === undefined) {
+      await context.store.createMessage({
+        type: "paper_order_blocked",
+        severity: "warning",
+        title: `${symbol} limit order blocked`,
+        body: "The debate selected or branch config required a limit order, but the final decision did not include a valid limit price.",
+        branchId: branch?.id,
+        lawId: branch?.lawId,
+        sourceRunId: run.id,
+        confidence: decision.confidence,
+        metadata: {
+          thresholdPolicy: policy,
+          action: decision.action,
+          judgeSizing: decision.sizing,
+          portfolioContext: compactPortfolioContext(portfolioSnapshot),
+        },
+      });
+      return;
+    }
     const maxOrderNotional = tradingConfig.maxNotionalPerOrder ?? tradingConfig.maxNotionalUsd;
     const cappedNotional =
       requestedNotional !== undefined && maxOrderNotional !== undefined
@@ -970,12 +1000,9 @@ async function applyTradingPolicyToDebate(
       side: tradeSide,
       qty: intentQty,
       notional: intentNotional,
-      orderType:
-        tradingConfig.allowedOrderType === "limit" ||
-        tradingConfig.defaultOrderType === "limit"
-          ? "limit"
-          : "market",
+      orderType: requestedOrderType,
       timeInForce: tradingConfig.defaultTimeInForce ?? "day",
+      limitPrice: requestedLimitPrice,
       confidence: decision.confidence,
       evidence: decision.citations,
       reasoning: decision.summary,
@@ -1000,6 +1027,8 @@ async function applyTradingPolicyToDebate(
           thresholdPolicy: policy,
           action: decision.action,
           judgeSizing: decision.sizing,
+          normalizedOrderType: requestedOrderType,
+          normalizedLimitPrice: requestedLimitPrice,
           autoTradeEnabled: policy.autoTradeEnabled,
           portfolioContext: compactPortfolioContext(portfolioSnapshot),
         },
@@ -3239,6 +3268,8 @@ function extractTradingDecision(output: JsonRecord | undefined): {
   sizing?: {
     qty?: number;
     notional?: number;
+    orderType?: "market" | "limit";
+    limitPrice?: number;
     rationale?: string;
   };
   citations: unknown[];
@@ -3273,6 +3304,8 @@ function extractTradingDecision(output: JsonRecord | undefined): {
 function extractDecisionSizing(value: unknown): {
   qty?: number;
   notional?: number;
+  orderType?: "market" | "limit";
+  limitPrice?: number;
   rationale?: string;
 } | undefined {
   if (!isJsonRecord(value)) return undefined;
@@ -3281,12 +3314,44 @@ function extractDecisionSizing(value: unknown): {
     typeof value.notional === "number" && value.notional > 0
       ? value.notional
       : undefined;
+  const orderType =
+    value.orderType === "market" || value.orderType === "limit"
+      ? value.orderType
+      : undefined;
+  const limitPrice =
+    typeof value.limitPrice === "number" && value.limitPrice > 0
+      ? value.limitPrice
+      : undefined;
   const rationale =
     typeof value.rationale === "string" && value.rationale.trim().length > 0
       ? value.rationale.trim()
       : undefined;
   if (qty === undefined && notional === undefined) return undefined;
-  return { qty, notional, rationale };
+  return { qty, notional, orderType, limitPrice, rationale };
+}
+
+function resolveDecisionOrderType(
+  sizing: ReturnType<typeof extractDecisionSizing>,
+  tradingConfig: TradingConfig,
+): "market" | "limit" {
+  return tradingConfig.allowedOrderType ??
+    sizing?.orderType ??
+    tradingConfig.defaultOrderType ??
+    "market";
+}
+
+function normalizeLimitPriceForSide(
+  side: "buy" | "sell",
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
+  const decimals = value >= 1 ? 2 : 4;
+  const factor = 10 ** decimals;
+  const normalized =
+    side === "buy"
+      ? Math.floor(value * factor) / factor
+      : Math.ceil(value * factor) / factor;
+  return Number(normalized.toFixed(decimals));
 }
 
 function normalizeTradingDecisionAction(
@@ -3521,11 +3586,20 @@ function empty(status: number): Response {
   return new Response(null, { status, headers: corsHeaders() });
 }
 
-function corsHeaders(): HeadersInit {
-  const allowedOrigin =
-    process.env.KAIROS_CORS_ORIGIN ??
-    process.env.VITE_KAIROS_APP_ORIGIN ??
-    "http://127.0.0.1:5173";
+function withCors(response: Response, request: Request): Response {
+  const headers = new Headers(response.headers);
+  const origin = request.headers.get("origin");
+  const cors = corsHeaders(origin);
+  Object.entries(cors).forEach(([key, value]) => headers.set(key, String(value)));
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function corsHeaders(requestOrigin?: string | null): HeadersInit {
+  const allowedOrigin = corsAllowedOrigin(requestOrigin);
   return {
     "access-control-allow-origin": allowedOrigin,
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
@@ -3535,7 +3609,34 @@ function corsHeaders(): HeadersInit {
       LOCAL_REQUEST_HEADER,
       LOCAL_TOKEN_HEADER,
     ].join(","),
+    "vary": "Origin",
   };
+}
+
+function corsAllowedOrigin(requestOrigin?: string | null): string {
+  const configured = configuredCorsOrigins();
+  const origin = requestOrigin?.trim();
+  if (origin && (configured.includes(origin) || isLoopbackOrigin(origin))) {
+    return origin;
+  }
+  return configured[0] ?? "http://127.0.0.1:5173";
+}
+
+function configuredCorsOrigins(): string[] {
+  const value = process.env.KAIROS_CORS_ORIGIN ?? process.env.VITE_KAIROS_APP_ORIGIN;
+  return (value ? value.split(",") : ["http://127.0.0.1:5173"])
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function formatSseEvent(event: { id: string; type: string; timestamp: string; payload: JsonRecord }): string {

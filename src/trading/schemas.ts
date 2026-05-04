@@ -277,7 +277,11 @@ export function createTradeIntentRecord(
     updatedAt: timestamp,
     status: parsed.status ?? "paper_ready",
     mode: parsed.mode ?? "paper",
-    orderType: parsed.orderType ?? tradingConfig?.defaultOrderType ?? "market",
+    orderType:
+      parsed.orderType ??
+      tradingConfig?.defaultOrderType ??
+      tradingConfig?.allowedOrderType ??
+      "market",
     timeInForce: parsed.timeInForce ?? tradingConfig?.defaultTimeInForce ?? "day",
     approvalsRequired: parsed.approvalsRequired ?? ["human_review"],
   });

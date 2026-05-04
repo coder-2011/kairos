@@ -50,6 +50,26 @@ describe("local API handler", () => {
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
   });
 
+  it("allows the active loopback web origin when a stale CORS origin remains configured", async () => {
+    const previousCorsOrigin = process.env.KAIROS_CORS_ORIGIN;
+    process.env.KAIROS_CORS_ORIGIN = "http://127.0.0.1:5174";
+    try {
+      const { request } = makeClient({ origin: "http://127.0.0.1:5173" });
+
+      const response = await request("GET", "/health");
+
+      expect(response.headers.get("access-control-allow-origin")).toBe(
+        "http://127.0.0.1:5173",
+      );
+    } finally {
+      if (previousCorsOrigin === undefined) {
+        delete process.env.KAIROS_CORS_ORIGIN;
+      } else {
+        process.env.KAIROS_CORS_ORIGIN = previousCorsOrigin;
+      }
+    }
+  });
+
   it("responds to root checks", async () => {
     const { requestJson } = makeClient();
 
@@ -1646,6 +1666,70 @@ describe("local API handler", () => {
     expect(brokerOrders.body.brokerOrders).toHaveLength(1);
   });
 
+  it("submits a judge-proposed buy limit order to Alpaca with limit_price", async () => {
+    const { requestJson } = makeClient({
+      tradingBroker: createMockTradingBroker(),
+      createDebate: async ({ payload }) => ({
+        output: {
+          finalDecision: {
+            summary: "Bull case supports a controlled limit entry.",
+            action: "buy",
+            confidence: 0.91,
+            sizing: {
+              notional: 500,
+              orderType: "limit",
+              limitPrice: 24.987,
+              rationale: "Buy only below the current reference price.",
+            },
+            citations: [],
+          },
+        },
+        events: [{ type: "debate.created", payload }],
+      }),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_buy_limit",
+      name: "PLTR buy limit",
+      config: {
+        assets: ["PLTR"],
+        trading: {
+          mode: "paper",
+          notifyConfidenceThreshold: 0.65,
+          paperTradeConfidenceThreshold: 0.85,
+          paperAutoBuyEnabled: true,
+        },
+      },
+    });
+
+    const response = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_buy_limit",
+        summary: "Potentially material contract news.",
+      },
+    });
+    const intents = await requestJson("GET", "/trade-intents");
+    const brokerOrders = await requestJson("GET", "/broker-orders");
+
+    expect(response.status).toBe(201);
+    expect(intents.body.tradeIntents).toEqual([
+      expect.objectContaining({
+        symbol: "PLTR",
+        side: "buy",
+        orderType: "limit",
+        limitPrice: 24.98,
+        status: "paper_submitted",
+      }),
+    ]);
+    expect(brokerOrders.body.brokerOrders).toEqual([
+      expect.objectContaining({
+        symbol: "PLTR",
+        side: "buy",
+        orderType: "limit",
+        limitPrice: 24.98,
+      }),
+    ]);
+  });
+
   it("preflights and submits an Alpaca paper sell order against cached holdings", async () => {
     const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
 
@@ -1673,6 +1757,73 @@ describe("local API handler", () => {
       qty: 5,
     });
     expect(response.body.preflight).toEqual({ ok: true, reasons: [] });
+  });
+
+  it("submits a judge-proposed sell limit order to Alpaca with limit_price", async () => {
+    const { requestJson } = makeClient({
+      tradingBroker: createMockTradingBroker(),
+      createDebate: async ({ payload }) => ({
+        output: {
+          finalDecision: {
+            summary: "Bear case supports trimming above the minimum exit price.",
+            action: "sell",
+            confidence: 0.91,
+            sizing: {
+              qty: 5,
+              orderType: "limit",
+              limitPrice: 25.001,
+              rationale: "Sell only at or above the selected minimum price.",
+            },
+            citations: [],
+          },
+        },
+        events: [{ type: "debate.created", payload }],
+      }),
+    });
+    await requestJson("POST", "/branches", {
+      id: "branch_pltr_sell_limit",
+      name: "PLTR sell limit",
+      config: {
+        assets: ["PLTR"],
+        trading: {
+          mode: "paper",
+          notifyConfidenceThreshold: 0.65,
+          paperTradeConfidenceThreshold: 0.85,
+          paperAutoBuyEnabled: true,
+        },
+      },
+    });
+    await requestJson("POST", "/portfolio/refresh");
+
+    const response = await requestJson("POST", "/debates", {
+      escalation: {
+        branchId: "branch_pltr_sell_limit",
+        summary: "Potentially thesis-breaking news.",
+      },
+    });
+    const intents = await requestJson("GET", "/trade-intents");
+    const brokerOrders = await requestJson("GET", "/broker-orders");
+
+    expect(response.status).toBe(201);
+    expect(intents.body.tradeIntents).toEqual([
+      expect.objectContaining({
+        symbol: "PLTR",
+        side: "sell",
+        qty: 5,
+        orderType: "limit",
+        limitPrice: 25.01,
+        status: "paper_submitted",
+      }),
+    ]);
+    expect(brokerOrders.body.brokerOrders).toEqual([
+      expect.objectContaining({
+        symbol: "PLTR",
+        side: "sell",
+        qty: 5,
+        orderType: "limit",
+        limitPrice: 25.01,
+      }),
+    ]);
   });
 
   it("refreshes and persists portfolio snapshots through the trading broker", async () => {
@@ -1746,6 +1897,7 @@ function makeClient(options: {
   supermemoryMirror?: SupermemoryMirror;
   omitLocalRequestHeader?: boolean;
   localApiToken?: string;
+  origin?: string;
 } = {}) {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
@@ -1783,6 +1935,7 @@ function makeClient(options: {
     return handler(new Request(`${baseUrl}${path}`, {
       method,
       headers: {
+        ...(options.origin ? { origin: options.origin } : {}),
         ...localApiRequestHeaders(options),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },

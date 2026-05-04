@@ -100,12 +100,12 @@ export async function listOpenRouterModels(input: {
   apiKey?: string;
   baseURL?: string;
   fetchImpl?: typeof fetch;
-  supportsToolsOnly?: boolean;
+  requireTools?: boolean;
 } = {}): Promise<OpenRouterModelInfo[]> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const baseURL = input.baseURL ?? "https://openrouter.ai/api/v1";
   const url = new URL(`${baseURL.replace(/\/$/, "")}/models`);
-  if (input.supportsToolsOnly) {
+  if (input.requireTools) {
     url.searchParams.set("supported_parameters", "tools");
   }
 
