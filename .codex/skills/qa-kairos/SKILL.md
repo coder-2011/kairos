@@ -9,20 +9,41 @@ Use this workflow when the user wants a destructive reset-and-verify pass for th
 
 ## Preconditions
 - Run from the Kairos repo root (`/Users/namanchetwani/Projects/kairos`).
-- Keep the web app started at the expected URL for `playwright` (default `http://127.0.0.1:4321` unless user specifies).
+- Keep the web app started at the expected URL for QA (default `http://127.0.0.1:5173` unless user specifies).
 - Keep a fresh workspace note for timestamped `data/runtime/QA/issues.md` entries.
 - Do not edit files outside the QA scope unless user explicitly adds scope.
 
 ## Core intent
-- Clear all of: runs, router chats, and branches that were created during the session.
+- Clear all of: runs, router chats, and branches created during the session.
 - Create one new branch named `The monitoring`.
-- Validate all implemented front-end features in one pass and check visual cleanliness at every inspected state.
+- Validate implemented front-end features in one pass and check visual cleanliness at every inspected state.
 - Log every defect (functional, visual, edge-case) to `data/runtime/QA/issues.md` only; do not patch/resolve.
+
+## Browser tooling
+
+Use `browser-use` direct mode for this QA flow:
+
+```bash
+export BROWSER_USE="~/.bun/install/global/node_modules/browser-use/dist/skill-cli/direct.js"
+```
+
+Use:
+- `$BROWSER_USE open <url>`
+- `$BROWSER_USE state`
+- `$BROWSER_USE click <index>`
+- `$BROWSER_USE input <index> <text>`
+- `$BROWSER_USE scroll [up|down]`
+- `$BROWSER_USE screenshot <label>.png`
+- `$BROWSER_USE close`
+
+If normal non-direct commands fail, continue using the direct command path above instead.
+
+For local profile testing, only run when explicitly requested. Follow project safety policy (copied profile, required env flags, disk check).
 
 ## Workflow
 
 1. Build a QA inventory once before execution.
-   - Pull implemented user-facing features from the user request and codebase.
+   - Pull implemented user-facing features from the request and codebase.
    - For each item, list: control/state, expected result, and a screenshot evidence point.
    - Include off-path checks (error and concurrent state).
 
@@ -35,13 +56,12 @@ Use this workflow when the user wants a destructive reset-and-verify pass for th
    - If the local filesystem is the active store in this project, also remove matching local artifacts (usually under `data/runtime/`).
    - Verify `git status`/counts after clear.
 
-3. Start the app session and attach playwright.
-   - Use `$playwright-interactive`.
-   - Run one-pass bootstrap and use stable handles.
-   - Confirm app loads, then keep `page` session across checks.
+3. Start the app session and attach browser automation.
+   - Launch app UI and connect with `$BROWSER_USE`.
+   - Confirm app loads, then keep the browser session across checks.
 
 4. Create `The monitoring` branch.
-   - Go to Branches view, create a new branch with exactly `The monitoring`.
+   - Go to Branches view, create a new branch named exactly `The monitoring`.
    - Save it and mark it as active.
    - Capture initial screenshot immediately and state whether layout/spacing/labels are clean.
 
@@ -83,12 +103,15 @@ Use this workflow when the user wants a destructive reset-and-verify pass for th
 
 8. Consolidate evidence.
    - For each inventory item mark: passed/failed/skipped.
-  - For every failed or risky behavior, append a timestamped entry to `data/runtime/QA/issues.md` with reproduction steps and observed vs expected.
-  - Ensure `data/runtime/QA` exists before logging; create it if missing.
+   - For every failed or risky behavior, append a timestamped entry to `data/runtime/QA/issues.md` with reproduction steps and observed vs expected.
+   - Ensure `data/runtime/QA` exists before logging; create it if missing.
 
 9. Cleanup and handoff.
-   - Keep playwright session alive only if follow-up is required.
-   - If done, close browser/session via `$playwright-interactive` cleanup flow.
+   - Keep the browser-use session alive only if follow-up is required.
+   - If done, close browser/session:
+     ```bash
+     $BROWSER_USE close
+     ```
    - Return a concise signoff with checked items, coverage gaps, and open issues.
 
 ## Issue logging format (`data/runtime/QA/issues.md`)
