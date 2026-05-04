@@ -18,6 +18,7 @@ import type { KairosSession } from "./auth";
 import {
   getSupabaseAuthConfiguredError,
   getSupabaseSession,
+  isSupabaseAuthEnabled,
   isSupabaseAuthConfigured,
   onSupabaseAuthStateChange,
   signInWithGoogle,
@@ -243,6 +244,8 @@ export function App() {
   const [authSession, setAuthSession] = useState<KairosSession>(null);
   const [authStatus, setAuthStatus] = useState<"initializing" | "ready">("initializing");
   const [authError, setAuthError] = useState("");
+  const authEnabled = isSupabaseAuthEnabled;
+  const hasActiveSession = authEnabled ? Boolean(authSession) : true;
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -275,6 +278,11 @@ export function App() {
 
     async function initializeAuth() {
       try {
+        if (!authEnabled) {
+          setAuthStatus("ready");
+          return;
+        }
+
         if (!isSupabaseAuthConfigured) {
           setAuthError(getSupabaseAuthConfiguredError());
           setAuthStatus("ready");
@@ -296,6 +304,12 @@ export function App() {
     }
 
     void initializeAuth();
+
+    if (!authEnabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const authChange = onSupabaseAuthStateChange((nextSession) => {
       if (!cancelled) {
@@ -334,7 +348,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!authSession) {
+    if (!hasActiveSession) {
       setBranches([]);
       setRuns([]);
       setEvents([]);
@@ -380,10 +394,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession]);
+  }, [hasActiveSession]);
 
   useEffect(() => {
-    if (!authSession) {
+    if (!hasActiveSession) {
       setCapabilityPreflight(undefined);
       setCapabilityLoadState("offline");
       return;
@@ -412,11 +426,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, selectedBranch?.id, selectedBranch?.updatedAt]);
+  }, [hasActiveSession, selectedBranch?.id, selectedBranch?.updatedAt]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!authSession) {
+    if (!hasActiveSession) {
       setOpenRouterModels([]);
       setModelDefaults({});
       return;
@@ -439,11 +453,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession]);
+  }, [hasActiveSession]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!authSession) {
+    if (!hasActiveSession) {
       setTradeSymbols([]);
       setTradeSymbolLoadState("offline");
       return;
@@ -467,10 +481,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession]);
+  }, [hasActiveSession]);
 
   useEffect(() => {
-    if (!authSession || !selectedRun?.id || loadState !== "api") {
+    if (!hasActiveSession || !selectedRun?.id || loadState !== "api") {
       setEvents([]);
       return;
     }
@@ -487,10 +501,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, loadState, selectedRun?.id]);
+  }, [hasActiveSession, loadState, selectedRun?.id]);
 
   useEffect(() => {
-    if (!authSession || !selectedRun?.id || selectedRun.status !== "running") return;
+    if (!hasActiveSession || !selectedRun?.id || selectedRun.status !== "running") return;
 
     const interval = window.setInterval(() => {
       void Promise.all([
@@ -508,10 +522,10 @@ export function App() {
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [authSession, selectedRun?.id, selectedRun?.status]);
+  }, [hasActiveSession, selectedRun?.id, selectedRun?.status]);
 
   useEffect(() => {
-    if (!authSession) {
+    if (!hasActiveSession) {
       setSelectedRunId("");
       return;
     }
@@ -525,20 +539,20 @@ export function App() {
       setSelectedRunId(runs[0].id);
       window.history.replaceState(null, "", routeHash({ view, runId: runs[0].id }));
     }
-  }, [authSession, loadState, runs, selectedRunId, view]);
+  }, [hasActiveSession, loadState, runs, selectedRunId, view]);
 
   useEffect(() => {
-    if (!authSession || view !== "portfolio") return;
+    if (!hasActiveSession || view !== "portfolio") return;
     void refreshPortfolioData();
-  }, [authSession, view]);
+  }, [hasActiveSession, view]);
 
   useEffect(() => {
-    if (!authSession || view !== "router") return;
+    if (!hasActiveSession || view !== "router") return;
     void refreshRouterChats();
-  }, [authSession, view]);
+  }, [hasActiveSession, view]);
 
   useEffect(() => {
-    if (!authSession || !selectedRouterChatId || routerLoadState !== "api") {
+    if (!hasActiveSession || !selectedRouterChatId || routerLoadState !== "api") {
       setRouterMessages([]);
       return;
     }
@@ -555,7 +569,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, routerLoadState, selectedRouterChatId]);
+  }, [hasActiveSession, routerLoadState, selectedRouterChatId]);
 
   async function refreshRouterChats() {
     setRouterLoadState("loading");
@@ -832,25 +846,23 @@ export function App() {
     }
   }
 
-  if (!isSupabaseAuthConfigured) {
+  if (authEnabled && !isSupabaseAuthConfigured) {
     return (
       <AuthGate
-        onSignIn={startGoogleSignIn}
-        onSignOut={handleSignOut}
-        onRetry={() => void startGoogleSignIn()}
-        ready={false}
-        signedInUser={userLabel}
         status="Missing Supabase auth configuration."
-        subtitle={authError}
+        subtitle={
+          authError ||
+          "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before enabling Google login."
+        }
       />
     );
   }
 
-  if (authStatus === "initializing") {
+  if (authEnabled && authStatus === "initializing") {
     return <AuthGate status="Checking Google auth state..." />;
   }
 
-  if (!authSession) {
+  if (authEnabled && !authSession) {
     return (
       <AuthGate
         onSignIn={startGoogleSignIn}
@@ -873,7 +885,9 @@ export function App() {
         onThemeModeChange={setThemeMode}
       />
       <div className="workspace">
-        <TopBar onSignOut={handleSignOut} signedInUser={userLabel} />
+        {authEnabled ? (
+          <TopBar onSignOut={handleSignOut} signedInUser={userLabel} />
+        ) : null}
         {view === "branches" && (
           <BranchList
             branches={branches}

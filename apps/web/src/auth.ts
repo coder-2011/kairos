@@ -3,6 +3,10 @@ import { createClient, type Session } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 const SUPABASE_REDIRECT_URL = import.meta.env.VITE_SUPABASE_REDIRECT_URL?.trim();
+const SUPABASE_AUTH_ENABLED = parseAuthEnabledFlag(
+  import.meta.env.VITE_KAIROS_AUTH_ENABLED,
+);
+const isAuthEnabled = SUPABASE_AUTH_ENABLED ?? true;
 
 const isConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -19,6 +23,7 @@ const supabaseClient = isConfigured
 
 export type KairosSession = Session | null;
 export const isSupabaseAuthConfigured = isConfigured;
+export const isSupabaseAuthEnabled = isAuthEnabled;
 
 export function getSupabaseSession(): Promise<KairosSession> {
   if (!supabaseClient) {
@@ -83,4 +88,21 @@ export async function signOutFromGoogle(): Promise<void> {
   if (error) {
     throw error;
   }
+}
+
+function parseAuthEnabledFlag(value: unknown): boolean | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["0", "false", "off", "no", "disabled"].includes(normalized)) {
+    return false;
+  }
+
+  if (["1", "true", "on", "yes", "enabled"].includes(normalized)) {
+    return true;
+  }
+
+  return undefined;
 }

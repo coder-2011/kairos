@@ -373,7 +373,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     };
   };
 
-    const createDebateParticipantNode =
+  const createDebateParticipantNode =
     (role: "bull" | "bear", systemPrompt: string) =>
     async (
       state: DebateState,
@@ -452,10 +452,10 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       };
     };
 
-    const toolsNode = async (
+  const toolsNode = async (
       state: DebateState,
     ): Promise<{
-    messages: DebateMessage[];
+      messages: DebateMessage[];
     toolEvents: DebateToolEvent[];
     pendingToolRequest: null;
     budgets: DebateBudgetState;
@@ -630,9 +630,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     return { updatedAt: isoNow(deps) };
   };
 
-    const finalNode = async (
-      state: DebateState,
-    ): Promise<{
+  const finalNode = async (
+    state: DebateState,
+  ): Promise<{
     messages: DebateMessage[];
     finalDecision: DebateDecision;
     status: "completed";
@@ -653,14 +653,14 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     if (!deps.models?.final) {
       requireDeterministicFallback(deps, "final");
     }
-      await ensureDebateNotCanceled(deps);
-      const rawDecision = deps.models?.final
-        ? await invokeStructured<DebateDecision>(
-            deps.models.final,
-            debateDecisionSchema,
-            buildModelInput(state, prompts.finalSystemPrompt),
-          )
-        : deterministicFinalDecision(state);
+    await ensureDebateNotCanceled(deps);
+    const rawDecision = deps.models?.final
+      ? await invokeStructured<DebateDecision>(
+          deps.models.final,
+          debateDecisionSchema,
+          buildModelInput(state, prompts.finalSystemPrompt),
+        )
+      : deterministicFinalDecision(state);
     await ensureDebateNotCanceled(deps);
     const parsedDecision = debateDecisionSchema.parse(rawDecision);
     const decision = {
