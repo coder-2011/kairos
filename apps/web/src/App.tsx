@@ -249,6 +249,9 @@ export function App() {
   const hasActiveSession = authEnabled
     ? Boolean(authSession && isAuthorizedEmail(authSession.user?.email))
     : true;
+  const canLoadBackendData = authEnabled
+    ? authStatus === "ready" && hasActiveSession
+    : true;
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -379,7 +382,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!hasActiveSession) {
+    if (!canLoadBackendData) {
       setBranches([]);
       setRuns([]);
       setEvents([]);
@@ -425,10 +428,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession]);
+  }, [canLoadBackendData]);
 
   useEffect(() => {
-    if (!hasActiveSession) {
+    if (!canLoadBackendData) {
       setCapabilityPreflight(undefined);
       setCapabilityLoadState("offline");
       return;
@@ -457,11 +460,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession, selectedBranch?.id, selectedBranch?.updatedAt]);
+  }, [canLoadBackendData, selectedBranch?.id, selectedBranch?.updatedAt]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!hasActiveSession) {
+    if (!canLoadBackendData) {
       setOpenRouterModels([]);
       setModelDefaults({});
       return;
@@ -484,11 +487,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession]);
+  }, [canLoadBackendData]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!hasActiveSession) {
+    if (!canLoadBackendData) {
       setTradeSymbols([]);
       setTradeSymbolLoadState("offline");
       return;
@@ -512,10 +515,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession]);
+  }, [canLoadBackendData]);
 
   useEffect(() => {
-    if (!hasActiveSession || !selectedRun?.id || loadState !== "api") {
+    if (!canLoadBackendData || !selectedRun?.id || loadState !== "api") {
       setEvents([]);
       return;
     }
@@ -532,10 +535,15 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession, loadState, selectedRun?.id]);
+  }, [canLoadBackendData, loadState, selectedRun?.id]);
 
   useEffect(() => {
-    if (!hasActiveSession || !selectedRun?.id || selectedRun.status !== "running") return;
+    if (
+      !canLoadBackendData ||
+      !selectedRun?.id ||
+      selectedRun.status !== "running"
+    )
+      return;
 
     const interval = window.setInterval(() => {
       void Promise.all([
@@ -553,10 +561,10 @@ export function App() {
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [hasActiveSession, selectedRun?.id, selectedRun?.status]);
+  }, [canLoadBackendData, selectedRun?.id, selectedRun?.status]);
 
   useEffect(() => {
-    if (!hasActiveSession) {
+    if (!canLoadBackendData) {
       setSelectedRunId("");
       return;
     }
@@ -570,20 +578,24 @@ export function App() {
       setSelectedRunId(runs[0].id);
       window.history.replaceState(null, "", routeHash({ view, runId: runs[0].id }));
     }
-  }, [hasActiveSession, loadState, runs, selectedRunId, view]);
+  }, [canLoadBackendData, loadState, runs, selectedRunId, view]);
 
   useEffect(() => {
-    if (!hasActiveSession || view !== "portfolio") return;
+    if (!canLoadBackendData || view !== "portfolio") return;
     void refreshPortfolioData();
-  }, [hasActiveSession, view]);
+  }, [canLoadBackendData, view]);
 
   useEffect(() => {
-    if (!hasActiveSession || view !== "router") return;
+    if (!canLoadBackendData || view !== "router") return;
     void refreshRouterChats();
-  }, [hasActiveSession, view]);
+  }, [canLoadBackendData, view]);
 
   useEffect(() => {
-    if (!hasActiveSession || !selectedRouterChatId || routerLoadState !== "api") {
+    if (
+      !canLoadBackendData ||
+      !selectedRouterChatId ||
+      routerLoadState !== "api"
+    ) {
       setRouterMessages([]);
       return;
     }
@@ -600,7 +612,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveSession, routerLoadState, selectedRouterChatId]);
+  }, [canLoadBackendData, routerLoadState, selectedRouterChatId]);
 
   async function refreshRouterChats() {
     setRouterLoadState("loading");
@@ -955,6 +967,7 @@ export function App() {
           <MonitoringView
             branches={branches}
             events={events}
+            loadState={loadState}
             onInject={injectHumanContext}
             onSelectRun={(runId) => navigate("monitoring", { runId })}
             onCancelRun={(runId) => void cancelSelectedRun(runId)}
@@ -981,6 +994,7 @@ export function App() {
           <RunDeepDive
             branches={branches}
             events={events}
+            loadState={loadState}
             onSelectRun={(runId) => navigate("runDeepDive", { runId })}
             onCancelRun={(runId) => void cancelSelectedRun(runId)}
             runs={runs}
@@ -1474,6 +1488,7 @@ function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
 function MonitoringView({
   branches,
   events,
+  loadState,
   onCancelRun,
   onSelectRun,
   onStartDebateFromEscalation,
@@ -1483,6 +1498,7 @@ function MonitoringView({
 }: {
   branches: BranchRecord[];
   events: RunEventRecord[];
+  loadState: LoadState;
   onCancelRun: (runId: string) => void;
   onSelectRun: (runId: string) => void;
   run?: RunRecord;
@@ -1549,7 +1565,13 @@ function MonitoringView({
         />
         <div className="monitoring-run-strip">
           <div className="section-title">RECENT ACTIVITY</div>
-          {runs.length === 0 ? (
+          {loadState === "loading" ? (
+            <EmptyPanel
+              icon="hourglass_top"
+              message="Loading run history."
+              title="Loading Runs"
+            />
+          ) : runs.length === 0 ? (
             <EmptyPanel
               icon="history"
               message="Run a heartbeat or debate to populate Monitoring."
@@ -1580,7 +1602,7 @@ function MonitoringView({
           {!run ? (
             <EmptyPanel
               icon="touch_app"
-              message="Select a run to inspect its timeline."
+              message={loadState === "loading" ? "Loading timeline..." : "Select a run to inspect its timeline."}
               title="No Run Selected"
             />
           ) : events.length === 0 ? (
@@ -1631,7 +1653,11 @@ function MonitoringView({
           ) : (
             <EmptyPanel
               icon="touch_app"
-              message="Select a run from the left column to inspect the decision packet."
+              message={
+                loadState === "loading"
+                  ? "Loading monitoring data..."
+                  : "Select a run from the left column to inspect the decision packet."
+              }
               title="No Run Selected"
             />
           )}
@@ -2250,6 +2276,7 @@ function MessageCard({ message }: { message: MessageRecord }) {
 function RunDeepDive({
   branches,
   events,
+  loadState,
   onCancelRun,
   runs,
   selectedRun,
@@ -2257,6 +2284,7 @@ function RunDeepDive({
 }: {
   branches: BranchRecord[];
   events: RunEventRecord[];
+  loadState: LoadState;
   onCancelRun: (runId: string) => void;
   runs: RunRecord[];
   selectedRun?: RunRecord;
@@ -2278,7 +2306,13 @@ function RunDeepDive({
           title="RUNS"
         />
         <div className="run-list">
-          {runs.length === 0 ? (
+          {loadState === "loading" ? (
+            <EmptyPanel
+              icon="hourglass_top"
+              message="Loading run records."
+              title="Loading Runs"
+            />
+          ) : runs.length === 0 ? (
             <EmptyPanel
               icon="history"
               message="No runs yet."
@@ -2311,7 +2345,11 @@ function RunDeepDive({
         {!selectedRun || !selectedRunSummary ? (
           <EmptyPanel
             icon="timeline"
-            message="Choose a run."
+            message={
+              loadState === "loading"
+                ? "Loading selected run..."
+                : "Choose a run."
+            }
             title="No Run Selected"
           />
         ) : (
@@ -2446,6 +2484,7 @@ function RunFact({
 
 function RunLifecyclePanel({ run }: { run: RunRecord }) {
   const lifecycle = run.lifecycle;
+  const childRunIds = lifecycle?.childRunIds ?? [];
   const stage = lifecycle?.stage ?? run.status;
   const currentOperation =
     lifecycle?.currentOperation ?? `${run.kind} workflow is ${run.status}.`;
@@ -2470,7 +2509,7 @@ function RunLifecyclePanel({ run }: { run: RunRecord }) {
         />
         <RunFact
           label="Children"
-          value={String(lifecycle?.childRunIds.length ?? 0)}
+          value={String(childRunIds.length)}
         />
         <RunFact
           label="Blocking Service"
@@ -2486,13 +2525,13 @@ function RunLifecyclePanel({ run }: { run: RunRecord }) {
           value={lifecycle?.cancelable ? "yes" : "no"}
         />
       </div>
-      {(lifecycle?.parentRunId || (lifecycle?.childRunIds.length ?? 0) > 0) && (
+      {(lifecycle?.parentRunId || childRunIds.length > 0) && (
         <div className="run-lifecycle-links">
           {lifecycle?.parentRunId && (
             <span>Parent run: {lifecycle.parentRunId}</span>
           )}
-          {(lifecycle?.childRunIds ?? []).length > 0 && (
-            <span>Child runs: {(lifecycle?.childRunIds ?? []).join(", ")}</span>
+          {childRunIds.length > 0 && (
+            <span>Child runs: {childRunIds.join(", ")}</span>
           )}
         </div>
       )}
@@ -2549,14 +2588,14 @@ function summarizeRun(run: RunRecord, branch?: BranchRecord) {
     inputBranchName ??
     readDisplay(run.branchId, "No branch");
   const error = readDisplay(output.error, "");
-  const summary = readDisplay(output.summary, "");
-  const decision = readDisplay(output.decision, "");
+  const summary = compactValue(output.summary, "");
+  const decision = compactValue(output.decision, "");
   const finalDecision = isJsonRecord(output.finalDecision)
     ? output.finalDecision
     : undefined;
-  const action = readDisplay(finalDecision?.action ?? output.action, "");
+  const action = compactValue(finalDecision?.action ?? output.action, "");
   const confidence = formatConfidenceValue(finalDecision?.confidence ?? output.confidence);
-  const routerResponse = run.kind === "router" ? readDisplay(output.response, "") : "";
+  const routerResponse = run.kind === "router" ? compactValue(output.response, "") : "";
   const routedBranches = Array.isArray(output.branchIds)
     ? output.branchIds.filter((branchId): branchId is string => typeof branchId === "string")
     : [];
@@ -4355,12 +4394,39 @@ function readDisplay(value: unknown, fallback = "-") {
 function compactValue(value: unknown, fallback = "-") {
   if (typeof value === "string" && value.length > 0) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.length === 0 ? fallback : `${value.length} items`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return fallback;
+    return `${value.length} items`;
+  }
   if (isJsonRecord(value)) {
+    const summary =
+      "summary" in value && value.summary
+        ? compactString(value.summary, 90)
+        : "error" in value && value.error
+          ? compactString(value.error, 90)
+          : "message" in value && value.message
+            ? compactString(value.message, 90)
+            : "name" in value && value.name
+              ? compactString(value.name, 90)
+              : "id" in value && value.id
+                ? compactString(value.id, 90)
+                : "branchId" in value && value.branchId
+                  ? compactString(value.branchId, 90)
+                  : undefined;
+
+    if (summary) return summary;
+
     const keys = Object.keys(value);
-    return keys.length === 0 ? fallback : keys.slice(0, 4).join(", ");
+    return keys.length === 0 ? fallback : `${keys.length} fields`;
   }
   return fallback;
+}
+
+function compactString(value: unknown, maxLength: number): string {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (!text) return "";
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
 function getHeartbeatEscalation(run: RunRecord | undefined): JsonRecord | undefined {
