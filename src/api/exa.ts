@@ -180,14 +180,17 @@ export class ExaApi {
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
     const category = normalizeExaCategory(request.category);
     const normalizedRequest = buildSearchRequest(request, category);
+    const payload = {
+      query: request.query,
+      ...normalizedRequest,
+    };
     const data = await withRetry(
       () =>
         this.useSdkSearch
           ? this.client.search(request.query, normalizedRequest)
-          : this.requestJson("/search", {
-          query: request.query,
-          ...normalizedRequest,
-        }),
+          : request.stream
+            ? this.requestSearchStream("/search", payload)
+            : this.requestJson("/search", payload),
       { attempts: this.retryAttempts },
     );
 
@@ -218,6 +221,10 @@ export class ExaApi {
           maxCharacters: 10_000,
           verbosity: "standard",
         },
+      },
+      outputSchema: request.outputSchema ?? {
+        type: "text",
+        description: "source-backed synthesis",
       },
     });
   }
@@ -269,6 +276,98 @@ export class ExaApi {
           `Body preview: ${responseText.slice(0, 1200)}`,
       );
     }
+  }
+
+  private async requestSearchStream(
+    path: "/search",
+    request: Record<string, unknown>,
+  ): Promise<ExaSearchResponse> {
+    const response = await fetch(`https://api.exa.ai${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.apiKey,
+      },
+      body: JSON.stringify(request),
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      const truncated = responseText.slice(0, 1200);
+      throw new Error(
+        `Exa API ${path} returned ${response.status}: ${truncated}`,
+      );
+    }
+
+    const lines = responseText.split(/\r?\n/);
+    let outputText = "";
+    let requestId: string | undefined;
+    let searchType: string | undefined;
+    const grounding: ExaSearchOutputGrounding[] = [];
+
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+
+      let chunk: unknown;
+      try {
+        chunk = JSON.parse(payload);
+      } catch (error) {
+        throw new Error(
+          `Exa API ${path} returned malformed stream payload: ${error instanceof Error ? error.message : String(error)}. ` +
+            `Payload preview: ${payload.slice(0, 500)}`,
+        );
+      }
+
+      if (!chunk || typeof chunk !== "object") continue;
+
+      const chunkObject = chunk as Record<string, unknown>;
+      requestId ??= typeof chunkObject.requestId === "string" ? chunkObject.requestId : undefined;
+      searchType ??= typeof chunkObject.searchType === "string" ? chunkObject.searchType : undefined;
+
+      const output = chunkObject.output as ExaSearchOutput | undefined;
+      if (output?.content) {
+        if (typeof output.content === "string") {
+          outputText = `${outputText}${output.content}`;
+        } else if (typeof output.content === "object") {
+          outputText = `${outputText}${JSON.stringify(output.content)}`;
+        }
+        if (Array.isArray(output.grounding) && output.grounding.length > 0) {
+          grounding.push(...output.grounding);
+        }
+      }
+
+      const choices = Array.isArray(chunkObject.choices)
+        ? chunkObject.choices as unknown[]
+        : [];
+      const choice = choices[0];
+      if (!choice || typeof choice !== "object") continue;
+      const delta = (choice as Record<string, unknown>).delta as Record<string, unknown> | undefined;
+      const deltaContent = delta && typeof delta.content === "string" ? delta.content : "";
+      if (deltaContent) {
+        outputText = `${outputText}${deltaContent}`;
+      }
+    }
+
+    const output: ExaSearchOutput = {
+      content: outputText,
+    };
+
+    if (grounding.length > 0) {
+      output.grounding = grounding;
+    }
+    const hasOutput =
+      (typeof output.content === "string" && output.content.length > 0) ||
+      grounding.length > 0;
+
+    return {
+      requestId,
+      searchType,
+      results: [],
+      output: hasOutput ? output : undefined,
+      costDollars: undefined,
+    };
   }
 }
 
@@ -322,7 +421,7 @@ function normalizeSearchResponse(
       author: result.author,
       highlights: result.highlights,
       summary: result.summary ?? result.highlights?.join(" "),
-      id: result.id,
+      id: result.id ?? result.url,
       image: result.image,
       favicon: result.favicon,
       text: result.text,
