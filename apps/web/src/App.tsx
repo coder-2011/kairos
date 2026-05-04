@@ -2762,9 +2762,9 @@ function BranchConfig({
   const notifyConfidence = Math.round(
     (config.thresholds?.notifyConfidence ?? 0.75) * 100,
   );
-  const paperTradeDraftConfidence = Math.round(
-    (config.thresholds?.paperTradeDraftConfidence ??
-      config.thresholds?.buyConfidence ??
+  const buySignalConfidence = Math.round(
+    (config.thresholds?.buyConfidence ??
+      config.thresholds?.paperTradeDraftConfidence ??
       0.9) * 100,
   );
   const heartbeatBlocked = capabilityPreflight?.checks.some((check) =>
@@ -2962,22 +2962,6 @@ function BranchConfig({
                 </FieldLabel>
               </div>
             </div>
-            <div className="threshold-inline">
-              <Slider
-                label="Paper Trade Threshold"
-                onChange={(value) =>
-                  setConfig((current) => ({
-                    ...current,
-                    thresholds: {
-                      ...current.thresholds,
-                      buyConfidence: value / 100,
-                      paperTradeDraftConfidence: value / 100,
-                    },
-                  }))
-                }
-                value={`${paperTradeDraftConfidence}%`}
-              />
-            </div>
           </div>
         </section>
         <div>
@@ -3054,7 +3038,7 @@ function BranchConfig({
         <section>
           <div className="field-label">TOOL ACCESS</div>
           <p className="section-note">
-            Enabled means the agent may call the tool. Required means a tool failure should fail the run instead of silently degrading.
+            Enabled tools may be called by the agent. Tool failures are captured in the run trace and the agent continues with the remaining context.
           </p>
           <div className="config-grid">
             <FieldLabel label="Heartbeat Tools">
@@ -3084,27 +3068,6 @@ function BranchConfig({
                       <b>{tool.label}</b>
                       <small>{tool.purpose}</small>
                     </span>
-                    <input
-                      checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
-                      disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          tools: {
-                            ...current.tools,
-                            heartbeat: {
-                              ...current.tools?.heartbeat,
-                              [tool.key]: {
-                                ...current.tools?.heartbeat?.[tool.key],
-                                required: event.target.checked,
-                              },
-                            },
-                          },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <em>Required</em>
                   </label>
                 ))}
               </div>
@@ -3136,27 +3099,6 @@ function BranchConfig({
                       <b>{tool.label}</b>
                       <small>{tool.purpose}</small>
                     </span>
-                    <input
-                      checked={config.tools?.debate?.[tool.key]?.required ?? false}
-                      disabled={config.tools?.debate?.[tool.key]?.enabled === false}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          tools: {
-                            ...current.tools,
-                            debate: {
-                              ...current.tools?.debate,
-                              [tool.key]: {
-                                ...current.tools?.debate?.[tool.key],
-                                required: event.target.checked,
-                              },
-                            },
-                          },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <em>Required</em>
                   </label>
                 ))}
               </div>
@@ -3188,27 +3130,6 @@ function BranchConfig({
                       <b>{toolAccessLabel(tool)}</b>
                       <small>{tool.purpose}</small>
                     </span>
-                    <input
-                      checked={config.tools?.information?.[tool.key]?.required ?? false}
-                      disabled={config.tools?.information?.[tool.key]?.enabled === false}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          tools: {
-                            ...current.tools,
-                            information: {
-                              ...current.tools?.information,
-                              [tool.key]: {
-                                ...current.tools?.information?.[tool.key],
-                                required: event.target.checked,
-                              },
-                            },
-                          },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <em>Required</em>
                   </label>
                 ))}
               </div>
@@ -3371,11 +3292,10 @@ function BranchConfig({
                   thresholds: {
                     ...current.thresholds,
                     buyConfidence: value / 100,
-                    paperTradeDraftConfidence: value / 100,
                   },
                 }))
               }
-              value={`${paperTradeDraftConfidence}%`}
+              value={`${buySignalConfidence}%`}
             />
           </div>
         </div>
@@ -3595,7 +3515,7 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
         <input
           readOnly
           value={formatConfidence(
-            thresholds?.paperTradeDraftConfidence ?? thresholds?.buyConfidence,
+            thresholds?.buyConfidence ?? thresholds?.paperTradeDraftConfidence,
           )}
         />
       </FieldLabel>
@@ -4012,7 +3932,7 @@ function defaultBranchConfig(): WebBranchConfig {
     },
     thresholds: {
       notifyConfidence: 0.75,
-      paperTradeDraftConfidence: 0.9,
+      buyConfidence: 0.9,
     },
     trading: {
       mode: "disabled",
@@ -4023,6 +3943,18 @@ function defaultBranchConfig(): WebBranchConfig {
       allowedOrderType: "market",
     },
     research: {},
+  };
+}
+
+function normalizeBranchThresholds(
+  thresholds?: NonNullable<WebBranchConfig["thresholds"]>,
+): NonNullable<WebBranchConfig["thresholds"]> {
+  const { paperTradeDraftConfidence, ...currentThresholds } = thresholds ?? {};
+
+  return {
+    notifyConfidence: 0.75,
+    ...currentThresholds,
+    buyConfidence: thresholds?.buyConfidence ?? paperTradeDraftConfidence ?? 0.9,
   };
 }
 
@@ -4058,17 +3990,17 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       ...config.tools,
       heartbeat: {
         ...defaultHeartbeatToolPolicies,
-        ...config.tools?.heartbeat,
+        ...stripLegacyRequiredToolPolicies(config.tools?.heartbeat),
       },
       debate: {
         ...defaultDebateToolPolicies,
-        ...config.tools?.debate,
+        ...stripLegacyRequiredToolPolicies(config.tools?.debate),
       },
       information: {
         ...defaultInformationToolPolicies,
-        ...config.tools?.information,
+        ...stripLegacyRequiredToolPolicies(config.tools?.information),
         supermemory_search: {
-          ...config.tools?.information?.supermemory_search,
+          ...stripLegacyRequiredToolPolicy(config.tools?.information?.supermemory_search),
           enabled: true,
         },
       },
@@ -4081,11 +4013,7 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       informationMaxToolCalls: 5,
       ...config.budgets,
     },
-    thresholds: {
-      notifyConfidence: 0.75,
-      paperTradeDraftConfidence: 0.9,
-      ...config.thresholds,
-    },
+    thresholds: normalizeBranchThresholds(config.thresholds),
     trading: {
       mode: "disabled",
       symbol: config.trading?.symbol || config.assets?.[0] || readAssets(branch)[0],
@@ -4103,6 +4031,26 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       ...config.research,
     },
   };
+}
+
+function stripLegacyRequiredToolPolicies<
+  TPolicies extends Record<string, unknown> | undefined,
+>(policies: TPolicies): TPolicies {
+  if (!policies) return policies;
+
+  return Object.fromEntries(
+    Object.entries(policies).map(([toolName, policy]) => [
+      toolName,
+      stripLegacyRequiredToolPolicy(policy),
+    ]),
+  ) as TPolicies;
+}
+
+function stripLegacyRequiredToolPolicy<TPolicy>(policy: TPolicy): TPolicy {
+  if (!isJsonRecord(policy)) return policy;
+
+  const { required: _required, ...rest } = policy;
+  return rest as TPolicy;
 }
 
 function cloneBranchConfig(config: WebBranchConfig): WebBranchConfig {
