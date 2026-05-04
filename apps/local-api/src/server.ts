@@ -163,6 +163,17 @@ type RouterSourceExtractionResult = {
   toolCalls: RouterToolCallRecord[];
 };
 
+const DEFAULT_MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
+const LOCAL_REQUEST_HEADER = "x-kairos-local-request";
+const LOCAL_TOKEN_HEADER = "x-kairos-local-token";
+
+class RequestBodyTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`Request body exceeds the configured ${maxBytes} byte limit.`);
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
 const branchCreateSchema = z.object({
   id: z.string().min(1).optional(),
   lawId: z.string().min(1).optional(),
@@ -427,6 +438,16 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
       if (error instanceof z.ZodError) {
         return json({ error: "bad_request", issues: error.issues }, 400);
       }
+      if (error instanceof RequestBodyTooLargeError) {
+        return json({
+          error: "payload_too_large",
+          message: error.message,
+          maxBytes: error.maxBytes,
+        }, 413);
+      }
+      if (error instanceof SyntaxError) {
+        return json({ error: "bad_request", message: "Request body must be valid JSON." }, 400);
+      }
       return json({ error: "internal_error", message: error instanceof Error ? error.message : "Unknown error." }, 500);
     }
   };
@@ -436,9 +457,12 @@ async function authorizeLocalApiRequest(
   request: Request,
   url: URL,
 ): Promise<Response | undefined> {
-  if (!isLocalApiAuthEnabled()) return undefined;
   if (request.method === "OPTIONS") return undefined;
   if (url.pathname === "/" || url.pathname === "/health") return undefined;
+
+  if (!isLocalApiAuthEnabled()) {
+    return authorizeUnauthenticatedLocalRequest(request);
+  }
 
   const token = bearerToken(request.headers.get("authorization"));
   if (!token) {
@@ -459,6 +483,34 @@ async function authorizeLocalApiRequest(
   }
 
   return undefined;
+}
+
+function authorizeUnauthenticatedLocalRequest(request: Request): Response | undefined {
+  const localToken = localApiToken();
+  if (localToken) {
+    if (request.headers.get(LOCAL_TOKEN_HEADER) === localToken) {
+      return undefined;
+    }
+
+    return json({
+      error: "unauthorized",
+      message: `Missing or invalid ${LOCAL_TOKEN_HEADER} header for auth-disabled Kairos API.`,
+    }, 401);
+  }
+
+  if (request.headers.get(LOCAL_REQUEST_HEADER) === "1") {
+    return undefined;
+  }
+
+  return json({
+    error: "unauthorized",
+    message: `Missing ${LOCAL_REQUEST_HEADER}: 1 header for auth-disabled Kairos API.`,
+  }, 401);
+}
+
+function localApiToken(): string | undefined {
+  const token = process.env.KAIROS_LOCAL_API_TOKEN?.trim();
+  return token || undefined;
 }
 
 async function getSupabaseUserForToken(token: string): Promise<{ email?: string }> {
@@ -3412,9 +3464,47 @@ function matchRoute(method: string, pathname: string): Route | undefined {
 }
 
 async function readJson(request: Request): Promise<unknown> {
-  const text = await request.text();
+  const text = await readTextWithLimit(request, maxJsonBodyBytes());
   if (!text.trim()) return {};
   return JSON.parse(text);
+}
+
+async function readTextWithLimit(request: Request, maxBytes: number): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const length = Number(contentLength);
+    if (Number.isFinite(length) && length > maxBytes) {
+      throw new RequestBodyTooLargeError(maxBytes);
+    }
+  }
+
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let output = "";
+
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    bytesRead += chunk.value.byteLength;
+    if (bytesRead > maxBytes) {
+      await reader.cancel();
+      throw new RequestBodyTooLargeError(maxBytes);
+    }
+    output += decoder.decode(chunk.value, { stream: true });
+  }
+
+  output += decoder.decode();
+  return output;
+}
+
+function maxJsonBodyBytes(): number {
+  const configured = Number(process.env.KAIROS_MAX_JSON_BODY_BYTES);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_MAX_JSON_BODY_BYTES;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -3439,7 +3529,12 @@ function corsHeaders(): HeadersInit {
   return {
     "access-control-allow-origin": allowedOrigin,
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type",
+    "access-control-allow-headers": [
+      "authorization",
+      "content-type",
+      LOCAL_REQUEST_HEADER,
+      LOCAL_TOKEN_HEADER,
+    ].join(","),
   };
 }
 
