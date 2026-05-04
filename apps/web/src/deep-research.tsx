@@ -10,10 +10,12 @@ import {
   getDeepResearchMessages,
   getDeepResearchModels,
   sendDeepResearchMessage,
+  sendDeepResearchMessageStream,
   type DeepResearchChatRecord,
   type DeepResearchImageAttachment,
   type DeepResearchMessageRecord,
   type DeepResearchModelOption,
+  type DeepResearchStreamEvent,
 } from "./deep-research-api";
 import "./deep-research.css";
 
@@ -144,34 +146,138 @@ export function DeepResearchView() {
       };
       setMessages((current) => [...current, pendingUserMessage]);
 
-      const result = await sendDeepResearchMessage({
+      const pendingAssistantMessage: DeepResearchMessageRecord = {
+        id: `pending-assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         chatId,
-        text: submittedText,
+        role: "assistant",
+        createdAt: new Date().toISOString(),
         model: selectedModel,
         reasoningEffort: submittedReasoningEffort,
-        attachments: submittedAttachments,
-      });
+        text: "",
+        reasoning: "",
+        toolCalls: [],
+      };
+      let assistantDraftText = "";
+      let assistantDraftReasoning = "";
+      setMessages((current) => [...current, pendingAssistantMessage]);
 
-      setDraft("");
-      setAttachments([]);
-      setMessages((current) => [
-        ...current.filter((message) => message.id !== pendingUserMessage.id),
-        result.userMessage,
-        result.assistantMessage,
-      ]);
-      setChats((current) =>
-        current.map((chat) =>
-          chat.id === chatId
-            ? {
-                ...chat,
-                title: result.chat?.title ?? chat.title ?? buildTitle(result.userMessage.text),
-                updatedAt: result.assistantMessage.createdAt,
-              }
-            : chat,
-        ),
-      );
+      let finalized = false;
+      const setAssistantDraft = (draft: {
+        text?: string;
+        reasoning?: string;
+        toolCalls?: RouterToolCallRecord[];
+      }) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === pendingAssistantMessage.id
+              ? { ...message, ...draft, role: "assistant", chatId }
+              : message,
+          ),
+        );
+      };
+
+      const applyResult = (
+        userMessage: DeepResearchMessageRecord,
+        assistantMessage: DeepResearchMessageRecord,
+        nextChat?: DeepResearchChatRecord,
+      ) => {
+        finalized = true;
+        setDraft("");
+        setAttachments([]);
+        setMessages((current) => [
+          ...current.filter(
+            (message) =>
+              message.id !== pendingUserMessage.id &&
+              message.id !== pendingAssistantMessage.id,
+          ),
+          userMessage,
+          assistantMessage,
+        ]);
+        if (nextChat) {
+          setChats((current) =>
+            current.map((chatItem) =>
+              chatItem.id === chatId
+                ? {
+                    ...chatItem,
+                    title: nextChat.title ?? chatItem.title ?? buildTitle(userMessage.text),
+                    updatedAt: assistantMessage.createdAt,
+                  }
+                : chatItem,
+            ),
+          );
+        }
+        setLoadState("api");
+      };
+
+      const applyStreamingEvent = (event: DeepResearchStreamEvent) => {
+        if (event.type === "assistant_delta") {
+          assistantDraftText += event.text;
+          setAssistantDraft({ text: assistantDraftText });
+          return;
+        }
+        if (event.type === "assistant_reasoning") {
+          assistantDraftReasoning += event.text;
+          setAssistantDraft({
+            reasoning: assistantDraftReasoning,
+          });
+          return;
+        }
+        if (event.type === "assistant_tool") {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === pendingAssistantMessage.id
+                ? {
+                    ...message,
+                    toolCalls: [
+                      ...(message.toolCalls ?? []).filter((toolCall) => toolCall.id !== event.toolCall.id),
+                      event.toolCall,
+                    ],
+                  }
+                : message,
+            ),
+          );
+          return;
+        }
+        if (event.type === "assistant_final" || event.type === "assistant_error") {
+          applyResult(event.userMessage, event.assistantMessage, event.chat);
+        }
+      };
+
+      try {
+        for await (const event of sendDeepResearchMessageStream({
+          chatId,
+          text: submittedText,
+          model: selectedModel,
+          reasoningEffort: submittedReasoningEffort,
+          attachments: submittedAttachments,
+        })) {
+          applyStreamingEvent(event);
+        }
+      } catch {
+        const result = await sendDeepResearchMessage({
+          chatId,
+          text: submittedText,
+          model: selectedModel,
+          reasoningEffort: submittedReasoningEffort,
+          attachments: submittedAttachments,
+        });
+
+        applyResult(result.userMessage, result.assistantMessage, result.chat);
+      }
+
+      if (!finalized) {
+        throw new Error("Deep Research streaming did not complete.");
+      }
+
       setLoadState("api");
     } catch (sendError) {
+      setMessages((current) =>
+        current.filter(
+          (message) =>
+            message.id !== pendingUserMessage.id &&
+            message.id !== pendingAssistantMessage.id,
+        ),
+      );
       setError(sendError instanceof Error ? sendError.message : "Deep Research failed.");
       setLoadState("api");
     } finally {
