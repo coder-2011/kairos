@@ -61,6 +61,39 @@ describe("market symbol directory provider", () => {
       }),
     ]);
   });
+
+  it("prioritizes exact symbol tokens in multi-word symbol searches", async () => {
+    const provider = createMarketSymbolDirectoryProvider({
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url === NASDAQ_LISTED_URL) {
+          return textResponse([
+            "Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares",
+            "GSPY|Gotham Enhanced 500 ETF|Q|N|N|100|Y|N",
+            "YSPY|GraniteShares YieldBOOST SPY ETF|Q|N|N|100|Y|N",
+            "File Creation Time: 0503202600:00|||||||",
+          ].join("\n"));
+        }
+        if (url === OTHER_LISTED_URL) {
+          return textResponse([
+            "ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol",
+            "SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY",
+          ].join("\n"));
+        }
+        if (url.startsWith(YAHOO_QUOTE_URL)) {
+          return jsonResponse({ quoteResponse: { result: [] } });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    const symbols = await provider.listMarketSymbols({ query: "SPY ETF", limit: 3 });
+
+    expect(symbols[0]?.symbol).toBe("SPY");
+    expect(symbols.map((symbol) => symbol.symbol)).toEqual(
+      expect.arrayContaining(["SPY", "YSPY", "GSPY"]),
+    );
+  });
 });
 
 function textResponse(text: string): Response {

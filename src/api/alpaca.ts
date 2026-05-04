@@ -507,14 +507,15 @@ function symbolRelevance(
   const name = stringValue(asset.name)?.toUpperCase() ?? "";
   if (!query) return 0;
   if (symbol === query) return 0;
-  if (symbol.startsWith(query)) return 1;
-  if (symbol.includes(query)) return 2;
-  if (name.startsWith(query)) return 3;
-  if (name.includes(query)) return 4;
-  if (queryTokens.some((token) => symbol === token)) return 5;
-  if (queryTokens.some((token) => symbol.startsWith(token))) return 6;
-  if (queryTokens.some((token) => name.includes(token))) return 7;
-  return 8;
+  if (queryTokens.some((token) => symbol === token)) return 1;
+  if (symbol.startsWith(query)) return 2;
+  if (symbol.includes(query)) return 3;
+  if (queryTokens.some((token) => symbol.startsWith(token))) return 4;
+  if (queryTokens.some((token) => symbol.includes(token))) return 5;
+  if (name.startsWith(query)) return 6;
+  if (name.includes(query)) return 7;
+  if (queryTokens.some((token) => name.includes(token))) return 8;
+  return 9;
 }
 
 function marketSymbolSearchTokens(query: string | undefined): string[] {

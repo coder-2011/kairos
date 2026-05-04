@@ -148,14 +148,15 @@ function relevance(
 ): number {
   if (!query) return 0;
   if (record.symbol === query) return 0;
-  if (record.symbol.startsWith(query)) return 1;
-  if (record.symbol.includes(query)) return 2;
-  if (record.name?.toUpperCase().startsWith(query)) return 3;
-  if (record.name?.toUpperCase().includes(query)) return 4;
-  if (queryTokens.some((token) => record.symbol === token)) return 5;
-  if (queryTokens.some((token) => record.symbol.startsWith(token))) return 6;
-  if (queryTokens.some((token) => record.name?.toUpperCase().includes(token))) return 7;
-  return 8;
+  if (queryTokens.some((token) => record.symbol === token)) return 1;
+  if (record.symbol.startsWith(query)) return 2;
+  if (record.symbol.includes(query)) return 3;
+  if (queryTokens.some((token) => record.symbol.startsWith(token))) return 4;
+  if (queryTokens.some((token) => record.symbol.includes(token))) return 5;
+  if (record.name?.toUpperCase().startsWith(query)) return 6;
+  if (record.name?.toUpperCase().includes(query)) return 7;
+  if (queryTokens.some((token) => record.name?.toUpperCase().includes(token))) return 8;
+  return 9;
 }
 
 function marketSymbolSearchTokens(query: string | undefined): string[] {

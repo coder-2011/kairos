@@ -195,6 +195,63 @@ describe("AlpacaTradingClient", () => {
     expect(requests[1].url).toContain("feed=iex");
   });
 
+  it("prioritizes exact symbol tokens in multi-word symbol searches", async () => {
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+
+      if (request.url.endsWith("/v2/assets?status=active&asset_class=us_equity")) {
+        return jsonResponse([
+          {
+            symbol: "YSPY",
+            name: "GraniteShares YieldBOOST SPY ETF",
+            exchange: "ARCA",
+            tradable: true,
+            status: "active",
+            asset_class: "us_equity",
+          },
+          {
+            symbol: "SPY",
+            name: "State Street SPDR S&P 500 ETF Trust",
+            exchange: "ARCA",
+            tradable: true,
+            status: "active",
+            asset_class: "us_equity",
+          },
+          {
+            symbol: "GSPY",
+            name: "Gotham Enhanced 500 ETF",
+            exchange: "ARCA",
+            tradable: true,
+            status: "active",
+            asset_class: "us_equity",
+          },
+        ]);
+      }
+
+      if (request.url.startsWith("https://data.alpaca.test/v2/stocks/snapshots")) {
+        return jsonResponse({});
+      }
+
+      throw new Error(`Unexpected URL ${request.url}`);
+    };
+
+    const client = new AlpacaTradingClient({
+      apiKey: "paper-key",
+      secretKey: "paper-secret",
+      baseUrl: "http://alpaca.test",
+      marketDataBaseUrl: "https://data.alpaca.test",
+      fetchImpl,
+      retryAttempts: 1,
+    });
+
+    const symbols = await client.listMarketSymbols({ query: "SPY ETF", limit: 3 });
+
+    expect(symbols[0]?.symbol).toBe("SPY");
+    expect(symbols.map((symbol) => symbol.symbol)).toEqual(
+      expect.arrayContaining(["SPY", "YSPY", "GSPY"]),
+    );
+  });
+
   it("provides heartbeat price, volume, and movement seeds from Alpaca snapshots", async () => {
     const client = {
       getStockSnapshots: async (symbols: string[]) => ({
