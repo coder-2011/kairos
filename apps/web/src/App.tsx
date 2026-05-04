@@ -3796,6 +3796,22 @@ function formatDateTime(value: string) {
   });
 }
 
+function elapsedMs(run: RunRecord): number {
+  return Math.max(0, Date.parse(run.updatedAt) - Date.parse(run.createdAt));
+}
+
+function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "-";
+  const seconds = Math.round(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
 function titleize(value: string) {
   return value
     .replace(/[._-]/g, " ")

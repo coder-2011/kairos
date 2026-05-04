@@ -1244,6 +1244,32 @@ select:focus:hover {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.run-lifecycle-panel {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.run-lifecycle-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.run-lifecycle-links {
+  color: var(--on-variant);
+  display: grid;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 14px;
+  overflow-wrap: anywhere;
+}
+
 .run-fact {
   background: var(--surface-lowest);
   border: 1px solid var(--outline-variant);
@@ -3361,6 +3387,10 @@ select:focus:hover {
   }
 
   .monitoring-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .run-lifecycle-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
