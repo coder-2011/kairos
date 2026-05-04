@@ -12,3 +12,4 @@
 - 2026-05-04: Deep Research streaming may finish without the browser receiving `assistant_final` even when the backend persisted the assistant message. The web client should recover by reloading persisted chat messages before showing a stream-completion error.
 - 2026-05-04: Local HTTP API tests must explicitly disable Supabase auth or provide the local request header when `.env.local` has `KAIROS_AUTH_ENABLED=true`; otherwise auth-enabled environments turn local E2E requests into 401s.
 - 2026-05-04: Bun's Vitest compatibility may not expose `vi.advanceTimersByTimeAsync`; scheduler tests should fall back to `vi.advanceTimersByTime` plus a microtask flush.
+- 2026-05-04: Debate final decisions can carry `sizing.orderType` and `sizing.limitPrice` for paper limit orders. The local API normalizes buy limit prices down and sell limit prices up to Alpaca-compatible precision before submitting `limit_price`.
