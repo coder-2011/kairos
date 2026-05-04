@@ -422,6 +422,26 @@ export function createGlobalToolRegistry(
                     ),
                   )
                   .join("\n");
+        const resultCitations =
+          response?.results
+            ?.filter((item) => item.url)
+            .map((item) => ({
+              title: item.title,
+              url: item.url,
+              source: item.author,
+            })) ?? [];
+        const groundingCitations =
+          response?.output?.grounding
+            ?.flatMap((entry) => entry.citations ?? [])
+            .filter((citation) => citation.url !== undefined)
+            .map((citation) => ({
+              title: citation.title,
+              url: citation.url,
+            })) ?? [];
+        const citationsByUrl = new Map<string, GlobalToolCitation>();
+        for (const citation of [...resultCitations, ...groundingCitations]) {
+          citationsByUrl.set(citation.url, citation);
+        }
         return {
           summary: compactText(
             summaryFromOutput && summaryFromOutput.length > 0
@@ -429,14 +449,7 @@ export function createGlobalToolRegistry(
               : "No deep research output text returned.",
             MAX_SUMMARY_TEXT,
           ),
-          citations:
-            response?.results
-              ?.filter((item) => item.url)
-              .map((item) => ({
-                title: item.title,
-                url: item.url,
-                source: item.author,
-              })) ?? [],
+          citations: [...citationsByUrl.values()],
           raw: response,
         };
       },
