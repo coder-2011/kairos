@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-05-04T00:41:16.132Z",
+  "passed": 8,
+  "failed": 2,
+  "failures": [
+    {
+      "feature": "07-Deep-research",
+      "severity": "med",
+      "observed": "click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.deep-research-controls .react-select__control, .deep-research-controls [role=\"combobox\"]').first()\u001b[22m\n\u001b[2m    - locator resolved to <input value=\"\" tabindex=\"0\" role=\"combobox\" inputmode=\"none\" aria-haspopup=\"true\" aria-readonly=\"true\" aria-expanded=\"false\" aria-autocomplete=\"list\" id=\"react-select-3-input\" class=\"css-1s80ejz-dummyInput-DummyInput\"/>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n",
+      "expected": "Deep research chat should render prompt composer and accept prompt",
+      "evidence": "data/runtime/QA/fail-07-Deep-research.png"
+    },
+    {
+      "feature": "10-Branch-delete",
+      "severity": "med",
+      "observed": "click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('The monitoring').first()\u001b[22m\n",
+      "expected": "Discarding branches should remove rows and return to empty-state if all deleted",
+      "evidence": "data/runtime/QA/fail-10-Branch-delete.png"
+    }
+  ],
+  "screenshots": [
+    "data/runtime/QA/step-01-Branches-empty-state-start.png",
+    "data/runtime/QA/pass-01-Branches-empty-state.png",
+    "data/runtime/QA/step-02-Create-The-monitoring-start.png",
+    "data/runtime/QA/pass-02-Create-The-monitoring.png",
+    "data/runtime/QA/step-03-Create-secondary-branch-start.png",
+    "data/runtime/QA/pass-03-Create-secondary-branch.png",
+    "data/runtime/QA/step-04-Heartbeat-and-stress-start.png",
+    "data/runtime/QA/pass-04-Heartbeat-and-stress.png",
+    "data/runtime/QA/step-05-Monitoring-interaction-start.png",
+    "data/runtime/QA/pass-05-Monitoring-interaction.png",
+    "data/runtime/QA/step-06-Router-send-start.png",
+    "data/runtime/QA/pass-06-Router-send.png",
+    "data/runtime/QA/step-07-Deep-research-start.png",
+    "data/runtime/QA/fail-07-Deep-research.png",
+    "data/runtime/QA/step-08-Run-deep-dive-start.png",
+    "data/runtime/QA/pass-08-Run-deep-dive.png",
+    "data/runtime/QA/step-09-Portfolio-theme-start.png",
+    "data/runtime/QA/pass-09-Portfolio-theme.png",
+    "data/runtime/QA/step-10-Branch-delete-start.png",
+    "data/runtime/QA/fail-10-Branch-delete.png",
+    "data/runtime/QA/final-state.png"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "runId": "e9a92cd4-b14b-427c-954f-26ef688f74e5",
+  "kind": "router",
+  "status": "succeeded",
+  "createdAt": "2026-05-04T00:40:13.017Z",
+  "updatedAt": "2026-05-04T00:40:14.957Z",
+  "startedAt": "2026-05-04T00:40:13.017Z",
+  "completedAt": "2026-05-04T00:40:14.951Z",
+  "input": {
+    "chatId": "27bc1fbd-b2a6-48f4-a81b-1c69fcefe144",
+    "messageId": "46c27a5f-2756-48f4-9102-608d6a5713ee",
+    "text": "Route a message for The monitoring and summarize branch actions.",
+    "attachments": []
+  },
+  "output": {
+    "branchIds": [],
+    "heartbeatRunIds": [],
+    "heartbeatFailures": [],
+    "response": "Thanks. I read it, but I did not send it to any branch. It does not match the current branch laws closely enough."
+  },
+  "lifecycle": {
+    "stage": "completed",
+    "lastEventAt": "2026-05-04T00:40:14.956Z",
+    "elapsedMs": 1939,
+    "currentOperation": "Run completed.",
+    "childRunIds": [],
+    "retryable": false,
+    "cancelable": false
+  }
+}

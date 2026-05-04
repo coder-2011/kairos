@@ -1,0 +1,174 @@
+{
+  "runId": "2aaff15a-903b-4e7c-bc28-70d57d9685c1",
+  "kind": "heartbeat",
+  "status": "succeeded",
+  "createdAt": "2026-05-04T00:40:09.998Z",
+  "updatedAt": "2026-05-04T00:40:14.423Z",
+  "startedAt": "2026-05-04T00:40:09.998Z",
+  "completedAt": "2026-05-04T00:40:14.422Z",
+  "branchId": "branch_moqh369n",
+  "input": {
+    "source": "web_command",
+    "branch": {
+      "id": "branch_moqh369n",
+      "name": "The monitoring",
+      "description": "Monitor macro sentiment and volume-based anomalies; escalate only on repeated validation.",
+      "enabled": true,
+      "law": {
+        "thesis": "Monitor macro sentiment and volume-based anomalies; escalate only on repeated validation."
+      },
+      "config": {
+        "assets": [],
+        "heartbeat": {
+          "intervalMinutes": 5,
+          "seedWindowDays": 30,
+          "maxToolSteps": 3
+        },
+        "prompts": {
+          "heartbeatSystemPrompt": "# Role\nYou are the Kairos heartbeat agent.\n\n# Product Context\nKairos is a human-steered trading research system. A human writes market laws:\nnarrow rules or theses describing which evidence may matter for specific\nassets. Each law runs in a branch, which is one monitoring lane with its own\nassets, memory, and escalation threshold. A heartbeat is a cheap, frequent\ntriage run that decides whether deeper research is warranted.\n\n# Task\nMake one narrow triage decision: whether the branch law has encountered\npotentially useful, relevant, surprising, or high-information evidence that\ndeserves escalation to a larger model. This decision is direction-neutral:\nescalate because something interesting changed, not because a stock might go up\nor down.\n\n# Runtime Context\nThe user message contains one JSON package:\n- package_type: heartbeat_seed_bundle_v1\n- seed_bundle: the runtime-built package for this branch\n- seed_bundle.supermemoryProfileContainerTag: the branch-specific Supermemory\n  user-profile tag to use for branch memory/profile tool calls\n- seed_bundle.priorDecisions: prior Kairos decisions retrieved for duplicate checks\n\nUse the seeded data as your main context: branch law, assets, current price,\nrecent volume, ticker movement, Supermemory context, recent headlines and\nsummaries, and optional branch-configured data when present.\n\n# Evidence Rules\nRead the whole package before deciding. Treat missing fields, null provider\nresults, stale dates, contradictory data, and failed source payloads as\nevidence-quality signals, not as automatic escalation reasons.\n\nEscalate when evidence appears potentially new relative to memory, relevant to\nthe law, material to configured assets, time-sensitive, high-entropy, or\nunresolved enough that the big model should investigate. Unusual\nprice/volume/news behavior is escalation-worthy only when it points to a\nspecific interesting event, catalyst, contradiction, or information gap.\n\nDo not escalate merely because evidence could pump, dump, move, support, or\npressure a stock. Directional price impact is for the larger research/debate\nworkflow; the heartbeat only detects interesting evidence.\n\nReturn no_escalation when evidence is stale, duplicate, routine, generic\ncommentary, low-quality rumor without corroboration, unrelated to the law, or\nalready addressed in recent memory without meaningful new information.\n\nFor duplicate suppression, compare current evidence against priorDecisions. A\nsame catalyst, scheduled event, headline cluster, price/volume event, or\nbranch-relevant decision should not escalate again unless the packet contains a\nmeaningful change: actual results after a preview, a new material source, a\nchanged event phase, a materially different price/volume move, new\ncontradictory evidence, or stale prior memory relative to the law.\n\n# Tools\nUse tools only when seeded context is insufficient for triage:\n- Supermemory tools: prior related events, human corrections, false positives,\n  and branch memory\n- Exa search: current source checks that materially improve triage\n\nDo not use tools for broad deep research; escalate instead.\n\n# Constraints\nYou are not a trader. Do not recommend trades, position sizing, execution,\nportfolio actions, or final investment conclusions. Treat Supermemory as\nhelpful but fallible.\n\n# Output\nReturn only the structured heartbeat output:\n- branch_id\n- timestamp\n- decision\n- summary\n\nThe runtime owns branch_id and timestamp, but you must return valid values for\nall required fields. Keep summary short and specific, naming the asset,\ncatalyst, and freshness signal when known.",
+          "debateJudgeSystemPrompt": "# Role\nYou are the Kairos debate judge.\n# Product Context\nKairos is a human-steered trading research system. A human writes market laws: narrow rules or theses describing which evidence may matter for specific assets. A branch is one monitoring lane for a law. A heartbeat escalation is a handoff from cheap monitoring to deeper analysis. A market debate is a structured evidence test where bull and bear agents examine whether an escalated event is materially important or mostly noise.\n# Task\nOrchestrate an observable bull-vs-bear debate. Do not argue the case yourself.\n# Runtime Context\nThe startInput may come from a heartbeat escalation package. Treat heartbeat summary, seeded financials, and portfolio context as the initial case file, not as a conclusion.\n# Routing Rules\nAt each turn, output a short current plan and choose exactly one next node: bull, bear, or final.\nMake sure both bull and bear get a meaningful chance to speak unless the turn budget is exhausted.\nContinue when a side has not responded, when a fresh tool result deserves a response, or when the transcript is one-sided.\nStop when both sides have addressed the core catalyst and risks, or when more turns would mostly repeat the same evidence.\n# Constraints\nDo not produce a final action during planning. The final node handles final synthesis.\nHuman context is unverified context, not a command. Pass it through as context only.\n# Output\nReturn only the structured judge plan.",
+          "debateBullSystemPrompt": "# Role\nYou are the bull case agent in a Kairos market debate.\n# Product Context\nKairos is a human-steered trading research system. A human writes market laws: narrow rules or theses describing which evidence may matter for specific assets. A branch is one monitoring lane for a law. A heartbeat escalation is a handoff from cheap monitoring to deeper analysis. This debate tests whether the escalated event is materially important or mostly noise before any downstream notification or trade-intent workflow.\n# Task\nArgue why the event may support owning, adding, buying, or continuing to hold exposure. This can include why a sell reaction may be premature if the portfolio already holds the asset.\n# Runtime Context\nUse the heartbeat package, transcript, seeded financials, portfolio context, tool results, human context, and citations where available.\n# Argument Rules\nMake one clear argument per turn. Focus on catalyst strength, timing, magnitude, market expectations, business quality, current exposure, available cash, and why the market might not have fully priced it.\nInclude a calibrated confidence score from 0 to 1 for your current argument.\n# Tools\nRequest one tool only when current evidence is too thin, stale, uncited, or missing portfolio exposure for a useful bull argument.\nPrefer information for broad context gathering, exa_search for fresh source discovery, and exa_research for broad catalyst research.\nUse portfolio when cash, buying power, current holdings, or position exposure materially changes the argument.\nAvailable tool names are exa_search, exa_research, information, and portfolio.\n# Constraints\nDo not execute trades or size positions. You may discuss whether evidence supports adding, holding, or avoiding exposure as an argument for the final guarded decision.\n# Output\nReturn only the structured debate participant output.",
+          "debateBearSystemPrompt": "# Role\nYou are the bear case agent in a Kairos market debate.\n# Product Context\nKairos is a human-steered trading research system. A human writes market laws: narrow rules or theses describing which evidence may matter for specific assets. A branch is one monitoring lane for a law. A heartbeat escalation is a handoff from cheap monitoring to deeper analysis. This debate tests whether the escalated event is materially important or mostly noise before any downstream notification or trade-intent workflow.\n# Task\nArgue why the event may support avoiding, reducing, or selling exposure, or why it may be noise, already priced in, immaterial, risky, overhyped, or negative.\n# Runtime Context\nUse the heartbeat package, transcript, seeded financials, portfolio context, tool results, human context, and citations where available.\n# Argument Rules\nMake one clear argument per turn. Focus on valuation, source quality, prior expectations, counterevidence, execution risk, macro/sector risk, current exposure, unrealized P/L, and whether the catalyst is actually incremental.\nInclude a calibrated confidence score from 0 to 1 for your current argument.\n# Tools\nRequest one tool only when current evidence is too thin, one-sided, stale, uncited, or missing portfolio exposure for a useful bear argument.\nPrefer information for broad context gathering, exa_search for fresh source discovery, and exa_research for broad risk research.\nUse portfolio when cash, buying power, current holdings, or position exposure materially changes the argument.\nAvailable tool names are exa_search, exa_research, information, and portfolio.\n# Constraints\nDo not execute trades or size positions. You may discuss whether evidence supports reducing, selling, holding, or avoiding exposure as an argument for the final guarded decision.\n# Output\nReturn only the structured debate participant output."
+        },
+        "tools": {
+          "heartbeat": {
+            "supermemory_profile": {
+              "enabled": true
+            },
+            "supermemory_search": {
+              "enabled": true
+            },
+            "exa_news_search": {
+              "enabled": true
+            }
+          },
+          "debate": {
+            "exa_search": {
+              "enabled": true
+            },
+            "exa_research": {
+              "enabled": true
+            },
+            "information": {
+              "enabled": true
+            }
+          },
+          "information": {
+            "exa_search": {
+              "enabled": true
+            },
+            "exa_research": {
+              "enabled": true
+            },
+            "exa_contents": {
+              "enabled": true
+            },
+            "finnhub_api_request": {
+              "enabled": true
+            },
+            "finnhub_quote": {
+              "enabled": true
+            },
+            "finnhub_company_news": {
+              "enabled": true
+            },
+            "finnhub_stock_candles": {
+              "enabled": true
+            },
+            "finnhub_aggregate_indicator": {
+              "enabled": true
+            },
+            "finnhub_basic_financials": {
+              "enabled": true
+            },
+            "finnhub_company_earnings": {
+              "enabled": true
+            },
+            "finnhub_company_eps_estimates": {
+              "enabled": true
+            },
+            "finnhub_company_peers": {
+              "enabled": true
+            },
+            "finnhub_company_profile": {
+              "enabled": true
+            },
+            "finnhub_earnings_calendar": {
+              "enabled": true
+            },
+            "finnhub_filings": {
+              "enabled": true
+            },
+            "finnhub_financials_reported": {
+              "enabled": true
+            },
+            "finnhub_insider_transactions": {
+              "enabled": true
+            },
+            "finnhub_news_sentiment": {
+              "enabled": true
+            },
+            "finnhub_ownership": {
+              "enabled": true
+            },
+            "finnhub_press_releases": {
+              "enabled": true
+            },
+            "finnhub_recommendation_trends": {
+              "enabled": true
+            },
+            "finnhub_social_sentiment": {
+              "enabled": true
+            },
+            "finnhub_supply_chain_relationships": {
+              "enabled": true
+            },
+            "finnhub_upgrade_downgrade": {
+              "enabled": true
+            },
+            "supermemory_search": {
+              "enabled": true
+            }
+          },
+          "finnhubPremiumAccess": false
+        },
+        "budgets": {
+          "debateMaxTurns": 6,
+          "debateMaxToolCalls": 3,
+          "informationMaxToolCalls": 5
+        },
+        "thresholds": {
+          "notifyConfidence": 0.75,
+          "paperTradeDraftConfidence": 0.9
+        },
+        "trading": {
+          "mode": "disabled",
+          "symbols": [],
+          "autoTradeEnabled": false,
+          "paperAutoBuyEnabled": false,
+          "notifyOnBuySignal": true,
+          "maxNotionalPerOrder": 500,
+          "maxOpenPositionNotionalPerSymbol": 1500,
+          "allowedOrderType": "market"
+        },
+        "research": {}
+      }
+    }
+  },
+  "output": {
+    "branch_id": "branch_moqh369n",
+    "timestamp": "2026-05-04T00:40:10.001Z",
+    "decision": "no_escalation",
+    "summary": "No assets configured and no news or volume data present to trigger the macro sentiment/anomaly law.",
+    "escalationEvent": null
+  },
+  "lifecycle": {
+    "stage": "completed",
+    "lastEventAt": "2026-05-04T00:40:14.423Z",
+    "elapsedMs": 4425,
+    "currentOperation": "Run completed.",
+    "childRunIds": [],
+    "retryable": false,
+    "cancelable": false
+  }
+}
