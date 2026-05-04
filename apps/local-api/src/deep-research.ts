@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, isStepCount, tool, type ToolSet } from "ai";
+import { generateText, stepCountIs, tool, type ToolSet } from "ai";
 import { z } from "zod";
 
 import { ExaApi } from "../../../src/api/exa.js";
 import { SupermemoryApi } from "../../../src/api/supermemory.js";
 import { createSupermemoryMemoryApi, getMemoryContainerTag } from "../../../src/global/index.js";
-import { createInformationTool } from "../../../src/agents/information/index.js";
+import { runInformationAgent } from "../../../src/agents/information/index.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
 import type { BranchRecord, JsonRecord, KairosLocalStore, RouterToolCallRecord } from "./store.js";
 
@@ -197,7 +197,7 @@ async function runDeepResearchMessage(
         }))
         .concat({ role: "user", content: userMessage.text ?? "" }),
       tools: createDeepResearchTools(context, toolCalls),
-      stopWhen: isStepCount(8),
+      stopWhen: stepCountIs(8),
       temperature: 0.2,
     });
     const assistantMessage = await store.createMessage({
@@ -252,7 +252,7 @@ function createDeepResearchTools(
   const finnhub = process.env.FINNHUB_API_KEY ? new FinnhubApi() : undefined;
 
   return {
-    supermemory_search_all: tracedTool(traces, {
+    supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
       description:
         "Search Supermemory across all accessible user memory when the user asks about preferences, prior work, historical context, or remembered facts.",
       inputSchema: z.object({
@@ -271,7 +271,7 @@ function createDeepResearchTools(
         });
       },
     }),
-    supermemory_branch_profiles: tracedTool(traces, {
+    supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
       description:
         "Load branch-scoped Supermemory profiles for all configured Kairos branches. Use this to understand all user-maintained profiles/laws.",
       inputSchema: z.object({
@@ -307,7 +307,7 @@ function createDeepResearchTools(
         return { profiles };
       },
     }),
-    exa_search: tracedTool(traces, {
+    exa_search: tracedTool(traces, "exa_search", {
       description: "Search current web/news sources with Exa.",
       inputSchema: z.object({
         query: z.string().min(1),
@@ -319,7 +319,7 @@ function createDeepResearchTools(
         return exa.search({ query, category, numResults });
       },
     }),
-    exa_research: tracedTool(traces, {
+    exa_research: tracedTool(traces, "exa_research", {
       description: "Ask Exa to synthesize an answer with citations.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
@@ -327,7 +327,7 @@ function createDeepResearchTools(
         return exa.answer({ query, text: true });
       },
     }),
-    exa_contents: tracedTool(traces, {
+    exa_contents: tracedTool(traces, "exa_contents", {
       description: "Read specific URLs through Exa contents.",
       inputSchema: z.object({
         urls: z.array(z.string().url()).min(1).max(5),
@@ -338,12 +338,12 @@ function createDeepResearchTools(
         return exa.contents({ urls, maxCharacters });
       },
     }),
-    information_agent: tracedTool(traces, {
+    information_agent: tracedTool(traces, "information_agent", {
       description:
         "Use the full Kairos information agent, including market data, Finnhub tools when configured, Exa, and Supermemory search.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
-        return createInformationTool({
+        return runInformationAgent(query, {
           exa,
           finnhub,
           memory: globalMemory,
@@ -351,16 +351,13 @@ function createDeepResearchTools(
           maxToolCalls: 8,
           finnhubPremiumAccess: true,
           allowDeterministicFallback: false,
-        }).execute?.({ query }, { toolCallId: randomUUID(), messages: [] }) ?? {
-          summary: "Information agent tool was unavailable.",
-          citations: [],
-        };
+        });
       },
     }),
   };
 }
 
-function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCallRecord[], config: {
+function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCallRecord[], name: string, config: {
   description: string;
   inputSchema: TInput;
   execute: (input: z.infer<TInput>) => Promise<TOutput>;
@@ -374,7 +371,7 @@ function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCall
         const output = await config.execute(input);
         traces.push({
           id: randomUUID(),
-          name: config.description.split(" ")[0].toLowerCase(),
+          name,
           status: "succeeded",
           summary: compactToolSummary(output),
           input: compactJson(input),
@@ -386,7 +383,7 @@ function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCall
         const message = error instanceof Error ? error.message : String(error);
         traces.push({
           id: randomUUID(),
-          name: config.description.split(" ")[0].toLowerCase(),
+          name,
           status: "failed",
           summary: message,
           input: compactJson(input),
@@ -396,7 +393,7 @@ function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCall
         throw error;
       }
     },
-  });
+  } as never);
 }
 
 function deepResearchSystemPrompt(): string {
@@ -448,7 +445,7 @@ async function mirrorDeepResearchConversation(
       metadata: {
         type: "deep_research_conversation",
         chat_id: chatId,
-        model: assistantMessage.model,
+        ...(assistantMessage.model ? { model: assistantMessage.model } : {}),
       },
     });
   } catch {
