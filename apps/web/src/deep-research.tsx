@@ -371,7 +371,7 @@ export function DeepResearchView() {
           </div>
         </div>
         <button
-          className="command-button primary deep-research-new"
+          className="command-button primary blue deep-research-new"
           onClick={() => void startChat()}
           type="button"
         >
@@ -421,7 +421,7 @@ export function DeepResearchView() {
             <p>Isolated chat workspace for market and product research.</p>
           </div>
           <div className="deep-research-controls">
-            <span className={`source-pill ${loadState === "offline" || modelState === "offline" ? "warning" : ""}`}>
+            <span className={`source-pill ${loadState === "offline" || modelState === "offline" ? "warning" : loadState === "api" && modelState === "api" ? "online-blue" : ""}`}>
               {loadState === "loading" || modelState === "loading"
                 ? "SYNCING"
                 : loadState === "api" && modelState === "api"
@@ -542,7 +542,7 @@ export function DeepResearchView() {
             <span className="material-symbols-outlined">add_photo_alternate</span>
           </button>
           <button
-            className="command-button primary"
+            className="command-button primary blue"
             disabled={(!draft.trim() && attachments.length === 0) || running || !selectedModel}
             onClick={() => void submit()}
             type="button"

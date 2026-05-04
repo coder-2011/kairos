@@ -891,6 +891,11 @@ export function App() {
 
   async function discardBranch(branchId: string) {
     const branch = branches.find((item) => item.id === branchId);
+    const confirmed = window.confirm(
+      `Discard branch "${branch?.name ?? branchId}"? This removes the branch configuration.`,
+    );
+    if (!confirmed) return;
+
     if (isLocalDraftBranch(branch)) {
       const nextBranches = branches.filter((item) => item.id !== branchId);
       setBranches(nextBranches);
@@ -898,11 +903,6 @@ export function App() {
       navigate("branches");
       return;
     }
-
-    const confirmed = window.confirm(
-      `Discard branch "${branch?.name ?? branchId}"? This removes the branch configuration.`,
-    );
-    if (!confirmed) return;
 
     try {
       await deleteBranch(branchId);
@@ -1107,7 +1107,7 @@ function SideNav({
       <div className="nav-list">
         {views.map((item) => (
           <button
-            className={`nav-item ${view === item.id ? "active" : ""}`}
+            className={`nav-item ${item.id === "router" || item.id === "deepResearch" ? "blue-nav" : ""} ${view === item.id ? "active" : ""}`}
             key={item.id}
             onClick={() => setView(item.id)}
             type="button"
@@ -1368,7 +1368,7 @@ function RouterView({
           title="ROUTER"
         />
         <button
-          className="command-button primary router-new-chat"
+          className="command-button primary blue router-new-chat"
           onClick={onNewChat}
           type="button"
         >
@@ -1418,7 +1418,7 @@ function RouterView({
           <div>
             <h1>Router Agent</h1>
           </div>
-          <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
+          <span className={`source-pill ${loadState === "offline" ? "warning" : loadState === "api" ? "online-blue" : ""}`}>
             {loadState === "loading"
               ? "SYNCING"
               : loadState === "api"
@@ -1464,7 +1464,7 @@ function RouterView({
             value={draft}
           />
           <button
-            className="command-button primary"
+            className="command-button primary blue"
             disabled={!draft.trim() || running || !selectedChatId}
             onClick={submit}
             type="button"
@@ -1639,7 +1639,7 @@ function MonitoringView({
         </div>
         <div className="monitoring-command-actions">
           <button
-            className="command-button primary compact"
+            className="command-button primary blue compact"
             disabled={!canPauseRun}
             onClick={() => {
               if (run) onCancelRun(run.id);
@@ -1911,7 +1911,7 @@ function MonitoringRunDetail({
 
       {run.lifecycle?.cancelable && (
         <button
-          className="command-button danger-outline"
+          className="command-button blue-outline"
           onClick={() => onCancelRun(run.id)}
           type="button"
         >
@@ -2207,7 +2207,7 @@ function PortfolioView({
             <h1>Portfolio</h1>
           </div>
           <div className="button-row">
-            <span className={`source-pill ${loadState === "offline" ? "warning" : ""}`}>
+            <span className={`source-pill ${loadState === "offline" ? "warning" : loadState === "api" ? "online-blue" : ""}`}>
               {loadState === "loading"
                 ? "SYNCING"
                 : loadState === "api"
@@ -2481,7 +2481,7 @@ function RunDeepDive({
               <RunLifecyclePanel run={selectedRun} />
               {selectedRun.lifecycle?.cancelable && (
                 <button
-                  className="command-button danger-outline"
+                  className="command-button blue-outline"
                   onClick={() => onCancelRun(selectedRun.id)}
                   type="button"
                 >
