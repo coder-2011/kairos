@@ -245,11 +245,6 @@ a {
   color: #ffffff;
 }
 
-.nav-item.blue-nav.active {
-  background: var(--blue);
-  color: #ffffff;
-}
-
 .operator-block {
   align-items: center;
   border-top: 1px solid #e2e8f0;
@@ -534,7 +529,6 @@ a {
   background: #d8d0c2;
 }
 
-.shell[data-theme="dark"] .nav-item.blue-nav.active,
 .shell[data-theme="dark"] .command-button.blue,
 .shell[data-theme="dark"] .command-button.primary.blue {
   background: var(--blue);
