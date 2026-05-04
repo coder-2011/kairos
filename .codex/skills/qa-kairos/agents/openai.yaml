@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA Kairos"
+  short_description: "Run destructive reset and end-to-end UI QA for Kairos."
+  default_prompt: "Use $qa-kairos to clear runs/chats/branches, create The monitoring branch, and run a full interactive UI QA pass while logging defects."
