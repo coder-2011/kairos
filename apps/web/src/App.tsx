@@ -3377,14 +3377,12 @@ function TradeSymbolDropdown({
   const [semanticError, setSemanticError] = useState("");
   const normalizedQuery = normalizeTickerInput(query);
   const activeCatalog = normalizedQuery
-    ? mergeTradeSymbolRecords(catalog, searchCatalog, semanticCatalog)
+    ? mergeTradeSymbolRecords(catalog, searchCatalog)
     : catalog;
   const activeLoadState = normalizedQuery ? searchLoadState : loadState;
-  const options = mergeTradeSymbolOptions(
-    mergeTradeSymbolRecords(semanticCatalog, activeCatalog),
-    assets,
-    selected,
-  );
+  const semanticOptions = mergeTradeSymbolOptions(semanticCatalog, [], selected);
+  const semanticOptionSymbols = semanticOptions.map((option) => option.symbol);
+  const options = mergeTradeSymbolOptions(activeCatalog, assets, selected);
   const optionSymbols = options.map((option) => option.symbol);
   const visibleOptions = options.filter((option) => {
     if (!normalizedQuery) return true;
@@ -3435,7 +3433,12 @@ function TradeSymbolDropdown({
     const next = checked
       ? [...selectedSet, symbol]
       : selected.filter((item) => item !== symbol);
-    onChange(normalizeSymbolSelection(next, mergeSymbolSelection(optionSymbols, [symbol])));
+    onChange(
+      normalizeSymbolSelection(
+        next,
+        mergeSymbolSelection(optionSymbols, semanticOptionSymbols, [symbol]),
+      ),
+    );
     requestAnimationFrame(() => {
       if (scrollContainer) scrollContainer.scrollTop = scrollTop;
     });
@@ -3479,6 +3482,7 @@ function TradeSymbolDropdown({
             value={semanticQuery}
           />
           <button
+            className="semantic-symbol-find"
             disabled={semanticLoadState === "loading" || semanticQuery.trim().length === 0}
             onClick={runSemanticSearch}
             type="button"
@@ -3491,6 +3495,27 @@ function TradeSymbolDropdown({
         )}
         {semanticError && (
           <span className="empty-option">{semanticError}</span>
+        )}
+        {semanticOptions.length > 0 && (
+          <div className="semantic-symbol-results">
+            {semanticOptions.map((option) => (
+              <label className="symbol-option" key={`semantic-${option.symbol}`}>
+                <input
+                  checked={selectedSet.has(option.symbol)}
+                  onChange={(event) => toggle(option.symbol, event.target.checked)}
+                  type="checkbox"
+                />
+                <span className="symbol-option-main">
+                  <b>{option.symbol}</b>
+                  <small>{option.name ?? option.exchange ?? "Related ticker"}</small>
+                </span>
+                <span className="symbol-option-meta">
+                  <b>{formatMoneyValue(option.price)}</b>
+                  <small>{formatPercentValue(option.dayChangePercent)}</small>
+                </span>
+              </label>
+            ))}
+          </div>
         )}
         <input
           className="multi-select-search"

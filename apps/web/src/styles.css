@@ -3639,9 +3639,36 @@ select:focus:hover {
   margin-bottom: 0;
 }
 
-.semantic-symbol-tool button {
+.semantic-symbol-find {
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  border-radius: var(--radius-sm);
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   min-height: 36px;
   padding: 0 12px;
+  text-transform: uppercase;
+}
+
+.semantic-symbol-find:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.semantic-symbol-find:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.semantic-symbol-results {
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
 }
 
 .multi-select-menu label {
