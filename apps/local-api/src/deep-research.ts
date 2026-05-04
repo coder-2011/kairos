@@ -375,13 +375,28 @@ async function runDeepResearchMessageStream(
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      try {
-        const sendEvent = (event: string, payload: unknown) => {
+      let controllerClosed = false;
+      const closeController = () => {
+        if (controllerClosed) return;
+        controllerClosed = true;
+        try {
+          controller.close();
+        } catch {
+          // The client may have disconnected before the final event is written.
+        }
+      };
+      const sendEvent = (event: string, payload: unknown) => {
+        if (controllerClosed) return;
+        try {
           controller.enqueue(encoder.encode(`event: ${event}\n`));
           controller.enqueue(encoder.encode(`id: ${randomUUID()}\n`));
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
+        } catch {
+          controllerClosed = true;
+        }
+      };
 
+      try {
         const result = streamText({
           model: createDeepResearchOpenRouterModel(model, reasoningEffort),
           system: deepResearchSystemPrompt(),
@@ -391,8 +406,10 @@ async function runDeepResearchMessageStream(
           temperature: 0.2,
         });
 
+        let assistantTextRaw = "";
         for await (const part of result.fullStream) {
           if (part.type === "text-delta" && part.text) {
+            assistantTextRaw += part.text;
             sendEvent("assistant_delta", { text: part.text });
           }
           if (part.type === "reasoning-delta" && part.text) {
@@ -408,9 +425,8 @@ async function runDeepResearchMessageStream(
           }
         }
 
-        const assistantTextRaw = (await result.text)?.trim();
-        const assistantText = assistantTextRaw?.length
-          ? assistantTextRaw
+        const assistantText = assistantTextRaw.trim().length
+          ? assistantTextRaw.trim()
           : `No direct answer was produced. I collected ${toolCalls.length} tool result${toolCalls.length === 1 ? "" : "s"} and no verified conclusion. Try a narrower query.`;
         const reasoning = extractDeepResearchReasoning({
           reasoning: assistantReasoning.length > 0 ? assistantReasoning : undefined,
@@ -432,13 +448,8 @@ async function runDeepResearchMessageStream(
           userMessage,
           assistantMessage,
         });
-        controller.close();
+        closeController();
       } catch (error) {
-        const sendErrorEvent = (event: string, payload: unknown) => {
-          controller.enqueue(encoder.encode(`event: ${event}\n`));
-          controller.enqueue(encoder.encode(`id: ${randomUUID()}\n`));
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        };
         const message = error instanceof Error ? error.message : "Unknown error.";
         const assistantMessage = await store.createMessage({
           chatId: chat.id,
@@ -449,13 +460,13 @@ async function runDeepResearchMessageStream(
           reasoningEffort,
           toolCalls,
         });
-        sendErrorEvent("assistant_error", {
+        sendEvent("assistant_error", {
           chat: await store.getChat(chat.id),
           userMessage,
           assistantMessage,
           message,
         });
-        controller.close();
+        closeController();
       }
     },
     cancel() {},
@@ -950,6 +961,16 @@ function compactToolSummary(output: unknown): string {
   if (typeof output === "string") return output.slice(0, 240);
   if (isJsonRecord(output) && typeof output.summary === "string") return output.summary.slice(0, 240);
   if (isJsonRecord(output) && typeof output.answer === "string") return output.answer.slice(0, 240);
+  if (isJsonRecord(output) && Array.isArray(output.results)) {
+    const total = typeof output.total === "number" ? output.total : output.results.length;
+    return total === 0
+      ? "No matching memory or source results found."
+      : `Found ${total} result${total === 1 ? "" : "s"}.`;
+  }
+  if (isJsonRecord(output) && Array.isArray(output.profiles)) {
+    const count = output.profiles.length;
+    return `Loaded ${count} branch profile${count === 1 ? "" : "s"}.`;
+  }
   if (
     isJsonRecord(output) &&
     isJsonRecord(output.output) &&
