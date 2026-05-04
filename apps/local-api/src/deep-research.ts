@@ -211,22 +211,25 @@ async function runDeepResearchMessage(
   });
   const previousMessages = await store.listMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
+  const modelMessages = [
+    ...previousMessages
+      .filter((message) => message.id !== userMessage.id)
+      .slice(-12)
+      .map((message) => ({
+        role: message.role,
+        content: message.text ?? "",
+      })),
+    {
+      role: "user" as const,
+      content: deepResearchUserContent(userMessage),
+    },
+  ];
 
   try {
     const result = await generateText({
       model: createDeepResearchOpenRouterModel(model),
       system: deepResearchSystemPrompt(),
-      messages: previousMessages
-        .filter((message) => message.id !== userMessage.id)
-        .slice(-12)
-        .map((message) => ({
-          role: message.role,
-          content: message.text ?? "",
-        }))
-        .concat({
-          role: "user",
-          content: deepResearchUserContent(userMessage),
-        }),
+      messages: modelMessages as never,
       tools: createDeepResearchTools(context, toolCalls),
       stopWhen: stepCountIs(8),
       temperature: 0.2,
