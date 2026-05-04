@@ -48,9 +48,9 @@ export function evaluateTradingThresholdPolicy(
   const tradeThreshold =
     input.tradingConfig?.tradeConfidenceThreshold ??
     branchConfig?.trading?.tradeConfidenceThreshold ??
+    input.branchConfig?.thresholds?.buyConfidence ??
     input.tradingConfig?.paperTradeConfidenceThreshold ??
     branchConfig?.trading?.paperTradeConfidenceThreshold ??
-    input.branchConfig?.thresholds?.buyConfidence ??
     input.branchConfig?.thresholds?.paperTradeDraftConfidence ??
     DEFAULT_PAPER_THRESHOLD;
   const tradingMode =
