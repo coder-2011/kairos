@@ -227,7 +227,7 @@ export type GlobalToolDependencies = {
     input: string,
     context?: GlobalToolContext,
   ) => Promise<GlobalToolResult>;
-  exa?: Pick<ExaApi, "search" | "answer" | "contents">;
+  exa?: Pick<ExaApi, "search" | "answer" | "deepResearch" | "contents">;
   finnhub?: Partial<
     Pick<
       FinnhubApi,
@@ -367,20 +367,47 @@ export function createGlobalToolRegistry(
     );
     registerTool(
       "exa_research",
-      async (input, context) => {
+      async (input, _context) => {
         if (deps.deepResearch) {
-          return deps.deepResearch(input, context);
+          return deps.deepResearch(input, _context);
         }
 
-        const response = await deps.exa?.answer({ query: input, text: true });
+        const response = await deps.exa?.deepResearch({
+          query: input,
+          type: "deep",
+          numResults: MAX_EXA_RESULTS,
+          contents: {
+            highlights: {
+              query: "source-backed material claims, numbers, dates, and guidance",
+            },
+            text: {
+              maxCharacters: 10_000,
+            },
+          },
+        });
+        const summaryFromOutput =
+          typeof response?.output?.content === "string"
+            ? response.output.content
+            : response?.results
+                .map((item) =>
+                  compactText(
+                    item.summary ??
+                      item.highlights?.join(" ") ??
+                      "",
+                    500,
+                  ),
+                )
+                .join("\n");
         return {
           summary: compactText(
-            response?.answer ?? "No research answer text returned.",
+            summaryFromOutput && summaryFromOutput.length > 0
+              ? summaryFromOutput
+              : "No deep research output text returned.",
             MAX_SUMMARY_TEXT,
           ),
           citations:
-            response?.citations
-              .filter((item) => item.url)
+            response?.results
+              ?.filter((item) => item.url)
               .map((item) => ({
                 title: item.title,
                 url: item.url,

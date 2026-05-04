@@ -596,7 +596,35 @@ function createDeepResearchTools(
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
-        return exa.answer({ query, text: true });
+        const result = await exa.deepResearch({
+          query,
+          type: "deep",
+          outputSchema: {
+            type: "text",
+            description: "market-relevant synthesis",
+          },
+          contents: {
+            highlights: {
+              query: "material facts, dates, numbers, and management quotes",
+              maxCharacters: 2000,
+            },
+            text: {
+              maxCharacters: 10_000,
+            },
+            summary: {
+              query:
+                "Summarize the highest-confidence material claims and uncertainty.",
+            },
+          },
+          numResults: 6,
+        });
+        return {
+          ...result,
+          output: {
+            ...result.output,
+            content: summarizeExaSearchOutput(result),
+          },
+        };
       },
     }),
     exa_contents: tracedTool(traces, "exa_contents", {
@@ -689,6 +717,20 @@ function normalizeExaCategory(
     | "people",
 ): "news" | "company" | "research paper" | "pdf" | "personal site" | "financial report" | "people" | undefined {
   return category;
+}
+
+function summarizeExaSearchOutput(result: Awaited<ReturnType<ExaApi["deepResearch"]>>) {
+  if (typeof result.output?.content === "string") {
+    const text = result.output.content.trim();
+    if (text.length > 0) {
+      return text;
+    }
+  }
+
+  const firstResult = result.results[0];
+  if (firstResult?.summary) return firstResult.summary;
+  if (firstResult?.highlights?.length) return firstResult.highlights.join("\n");
+  return "No synthesis output was produced for this deep research query.";
 }
 
 function deepResearchSystemPrompt(): string {
@@ -881,6 +923,13 @@ function compactToolSummary(output: unknown): string {
   if (typeof output === "string") return output.slice(0, 240);
   if (isJsonRecord(output) && typeof output.summary === "string") return output.summary.slice(0, 240);
   if (isJsonRecord(output) && typeof output.answer === "string") return output.answer.slice(0, 240);
+  if (
+    isJsonRecord(output) &&
+    isJsonRecord(output.output) &&
+    typeof output.output.content === "string"
+  ) {
+    return output.output.content.slice(0, 240);
+  }
   return "Tool completed.";
 }
 
