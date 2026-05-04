@@ -3479,14 +3479,20 @@ function TradeSymbolDropdown({
         <div className="symbol-search-stack">
           <input
             className="multi-select-search"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSemanticError("");
+            }}
             placeholder="Search Alpaca tradable assets: PLTR, Tesla, SPY, ETF"
             value={query}
           />
           <div className="semantic-symbol-tool">
             <input
               className="multi-select-search"
-              onChange={(event) => setSemanticQuery(event.target.value)}
+              onChange={(event) => {
+                setSemanticQuery(event.target.value);
+                setSemanticError("");
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -3539,7 +3545,7 @@ function TradeSymbolDropdown({
         {activeLoadState === "offline" && activeCatalog.length === 0 && (
           <span className="empty-option">Symbol lookup unavailable. Add tracked tickers manually.</span>
         )}
-        {visibleOptions.length === 0 ? (
+        {activeLoadState !== "loading" && activeLoadState !== "offline" && visibleOptions.length === 0 ? (
           <span className="empty-option">No matching symbols.</span>
         ) : (
           visibleOptions.map((option) => (
@@ -4579,7 +4585,6 @@ function mergeTradeSymbolOptions(
   assets: string[],
   selected: string[],
 ): TradeSymbolOption[] {
-  const selectedSet = new Set(selected.map(normalizeTickerInput));
   const options = new Map<string, TradeSymbolOption>();
   const order = new Map<string, number>();
 
@@ -4602,9 +4607,6 @@ function mergeTradeSymbolOptions(
   }
 
   return [...options.values()].sort((left, right) => {
-    const selectedDelta =
-      Number(selectedSet.has(right.symbol)) - Number(selectedSet.has(left.symbol));
-    if (selectedDelta !== 0) return selectedDelta;
     const tradableDelta = Number(right.tradable) - Number(left.tradable);
     if (tradableDelta !== 0) return tradableDelta;
     return (order.get(left.symbol) ?? 0) - (order.get(right.symbol) ?? 0);

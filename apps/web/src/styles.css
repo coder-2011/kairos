@@ -26,6 +26,10 @@
   --success: #15803d;
   --success-soft: #f0fdf4;
   --success-border: #bbf7d0;
+  --blue: #2563eb;
+  --blue-hover: #1d4ed8;
+  --blue-soft: #eff6ff;
+  --blue-border: #bfdbfe;
   --radius-sm: 4px;
   --radius-md: 6px;
   --mono: "Space Grotesk", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -61,6 +65,10 @@
   --success: #9bd79f;
   --success-soft: #17331e;
   --success-border: #31583a;
+  --blue: #60a5fa;
+  --blue-hover: #93c5fd;
+  --blue-soft: #172554;
+  --blue-border: #1d4ed8;
 }
 
 * {
@@ -234,6 +242,11 @@ a {
 
 .nav-item.active {
   background: #0f172a;
+  color: #ffffff;
+}
+
+.nav-item.blue-nav.active {
+  background: var(--blue);
   color: #ffffff;
 }
 
@@ -521,6 +534,21 @@ a {
   background: #d8d0c2;
 }
 
+.shell[data-theme="dark"] .nav-item.blue-nav.active,
+.shell[data-theme="dark"] .command-button.blue,
+.shell[data-theme="dark"] .command-button.primary.blue {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
+}
+
+.shell[data-theme="dark"] .command-button.blue:hover,
+.shell[data-theme="dark"] .command-button.primary.blue:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+  color: #10100f;
+}
+
 .shell[data-theme="dark"] .event-json,
 .shell[data-theme="dark"] .json-block {
   background: #090a09;
@@ -784,6 +812,12 @@ a {
   color: var(--on-error-container);
 }
 
+.source-pill.online-blue {
+  background: var(--blue-soft);
+  border-color: var(--blue-border);
+  color: var(--blue);
+}
+
 .divider {
   background: #e2e8f0;
   height: 16px;
@@ -827,6 +861,31 @@ a {
 
 .command-button.primary:hover {
   background: #1f2937;
+}
+
+.command-button.blue,
+.command-button.primary.blue {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
+}
+
+.command-button.blue:hover,
+.command-button.primary.blue:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+  color: #ffffff;
+}
+
+.command-button.blue-outline {
+  border-color: var(--blue-border);
+  color: var(--blue);
+}
+
+.command-button.blue-outline:hover {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
 .command-button.danger {
