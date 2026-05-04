@@ -559,6 +559,77 @@ a {
   z-index: 10;
 }
 
+.auth-guard {
+  align-items: center;
+  background: var(--background);
+  display: flex;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px;
+}
+
+.auth-card {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  max-width: 380px;
+  min-width: min(94vw, 360px);
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.auth-logo {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 999px;
+  color: var(--on-primary);
+  display: flex;
+  font-family: var(--mono);
+  font-weight: 900;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.auth-card h1 {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.07em;
+  margin: 0;
+}
+
+.auth-card p {
+  margin: 0;
+}
+
+.auth-subtitle {
+  color: var(--on-variant);
+  font-size: 12px;
+  margin-top: -6px !important;
+}
+
+.auth-user {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.auth-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
 .top-status {
   color: #0f172a;
   font-family: var(--mono);

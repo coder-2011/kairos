@@ -1010,6 +1010,69 @@ function SideNav({
   );
 }
 
+function AuthGate({
+  onSignIn,
+  onRetry,
+  onSignOut,
+  ready = false,
+  signedInUser,
+  status,
+  subtitle,
+}: {
+  onSignIn?: () => void;
+  onRetry?: () => void;
+  onSignOut?: () => void;
+  ready?: boolean;
+  signedInUser?: string;
+  status: string;
+  subtitle?: string;
+}) {
+  return (
+    <main className="auth-guard">
+      <section className="auth-card">
+        <div className="auth-logo">K</div>
+        <h1>KAIROS</h1>
+        <p>{status}</p>
+        {subtitle ? <p className="auth-subtitle">{subtitle}</p> : null}
+        {signedInUser ? <p className="auth-user">{signedInUser}</p> : null}
+
+        <div className="auth-actions">
+          {onSignIn ? (
+            <button
+              className="command-button primary"
+              onClick={() => void onSignIn()}
+              type="button"
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">
+                login
+              </span>
+              Continue with Google
+            </button>
+          ) : null}
+          {ready && onRetry ? (
+            <button
+              className="command-button compact"
+              onClick={() => void onRetry()}
+              type="button"
+            >
+              Retry
+            </button>
+          ) : null}
+          {onSignOut ? (
+            <button
+              className="command-button compact"
+              onClick={() => void onSignOut()}
+              type="button"
+            >
+              Sign Out
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function ThemeSwitch({
   mode,
   onChange,
