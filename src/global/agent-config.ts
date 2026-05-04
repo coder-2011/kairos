@@ -178,6 +178,7 @@ export const kairosBranchAgentConfigSchema = z
       .object({
         debateMaxTurns: z.number().int().positive().optional(),
         debateMaxToolCalls: z.number().int().min(0).optional(),
+        debateTimeoutMinutes: z.number().positive().optional(),
         informationMaxToolCalls: z.number().int().min(0).optional(),
       })
       .strict()
@@ -238,6 +239,7 @@ export type DebateAgentConfigSelection = {
   budgets?: {
     maxTurns?: number;
     maxToolCalls?: number;
+    timeoutMinutes?: number;
   };
 };
 
@@ -283,6 +285,7 @@ export function resolveDebateAgentConfig(
     budgets: {
       maxTurns: config?.budgets?.debateMaxTurns,
       maxToolCalls: config?.budgets?.debateMaxToolCalls,
+      timeoutMinutes: config?.budgets?.debateTimeoutMinutes,
     },
   };
 }

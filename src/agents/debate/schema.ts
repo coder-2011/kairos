@@ -129,7 +129,7 @@ export const debateBudgetsSchema = z
 
 export const defaultDebateBudgets = {
   maxTurns: 6,
-  maxToolCalls: 3,
+  maxToolCalls: 5,
 } as const;
 
 export type DebateStartInputFromSchema = z.infer<

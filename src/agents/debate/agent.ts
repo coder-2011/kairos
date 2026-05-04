@@ -164,50 +164,6 @@ function deterministicAgentOutput(
   };
 }
 
-function hasCompletedToolResultFor(
-  state: DebateState,
-  role: "bull" | "bear",
-): boolean {
-  return state.toolEvents.some(
-    (event) => event.requestedBy === role && event.status === "completed",
-  );
-}
-
-function hasToolImplementation(
-  state: DebateState,
-  deps: DebateGraphDependencies,
-  toolName: PendingToolRequest["toolName"],
-): boolean {
-  if (deps.enabledTools?.[toolName] === false) {
-    return false;
-  }
-
-  if (toolName === "portfolio" && state.startInput.portfolioContext) {
-    return true;
-  }
-
-  return Boolean(
-    deps.tools?.[toolName] ??
-      deps.globalTools?.[toolName as GlobalToolName],
-  );
-}
-
-function defaultInformationRequest(
-  role: "bull" | "bear",
-  state: DebateState,
-): PendingToolRequest {
-  const focus =
-    role === "bull"
-      ? "the strongest cited bull case, including possible positive catalysts and why the market may be underpricing them"
-      : "the strongest cited bear case, including risks, weak evidence, valuation pressure, customer concentration, and whether the catalyst may already be priced in";
-
-  return {
-    toolName: "information",
-    input: `Gather ${focus} for this escalated event:\n${state.startInput.summary}`,
-    requestedBy: role,
-  };
-}
-
 function deterministicFinalDecision(state: DebateState): DebateDecision {
   const citations = uniqueCitations(
     state.toolEvents.flatMap((event) => event.citations),
@@ -447,15 +403,9 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         : deterministicAgentOutput(role, state);
       await ensureDebateNotCanceled(deps);
       const output = debateAgentOutputSchema.parse(rawOutput);
-      const shouldForceSideEvidence =
-        state.budgets.toolCallsUsed < state.budgets.maxToolCalls &&
-        !hasCompletedToolResultFor(state, role) &&
-        hasToolImplementation(state, deps, "information");
       const requestedTool = output.toolRequest
         ? { ...output.toolRequest, requestedBy: role }
-        : shouldForceSideEvidence
-          ? defaultInformationRequest(role, state)
-          : null;
+        : null;
       const toolRequest =
         requestedTool && state.budgets.toolCallsUsed < state.budgets.maxToolCalls
           ? requestedTool

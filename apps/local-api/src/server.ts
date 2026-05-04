@@ -744,14 +744,35 @@ async function applyTradingPolicyToDebate(
       500;
     const requestedQty = decision.sizing?.qty;
     const requestedNotional = decision.sizing?.notional;
+    const maxOrderNotional = tradingConfig.maxNotionalPerOrder ?? tradingConfig.maxNotionalUsd;
+    const cappedNotional =
+      requestedNotional !== undefined && maxOrderNotional !== undefined
+        ? Math.min(requestedNotional, maxOrderNotional)
+        : requestedNotional;
+    const cappedQty =
+      tradeSide === "sell" && requestedQty !== undefined && currentPosition?.qty !== undefined
+        ? Math.min(requestedQty, currentPosition.qty)
+        : requestedQty;
     const intentQty =
-      requestedQty ??
-      (tradeSide === "sell" && requestedNotional === undefined
+      cappedQty ??
+      (tradeSide === "sell" && cappedNotional === undefined
         ? currentPosition?.qty
         : undefined);
     const intentNotional =
-      requestedNotional ??
-      (tradeSide === "buy" && requestedQty === undefined ? defaultNotional : undefined);
+      cappedNotional ??
+      (tradeSide === "buy" && cappedQty === undefined ? defaultNotional : undefined);
+    const sizingGuardrailNotes = [
+      requestedNotional !== undefined &&
+      cappedNotional !== undefined &&
+      cappedNotional < requestedNotional
+        ? `Judge notional ${requestedNotional} was capped to max per trade ${cappedNotional}.`
+        : undefined,
+      requestedQty !== undefined &&
+      cappedQty !== undefined &&
+      cappedQty < requestedQty
+        ? `Judge sell quantity ${requestedQty} was capped to held quantity ${cappedQty}.`
+        : undefined,
+    ].filter(Boolean);
     intent = await context.store.createTradeIntent({
       branchId: branch?.id,
       lawId: branch?.lawId,
@@ -773,10 +794,13 @@ async function applyTradingPolicyToDebate(
       risk: "Generated from a debate threshold crossing; review source quality, volatility, and position exposure.",
       timeHorizon: "Branch-defined event horizon.",
       positionSizingRationale:
-        decision.sizing?.rationale ??
-        (tradeSide === "buy"
-          ? `Judge omitted sizing; uses configured max order notional ${defaultNotional}.`
-          : `Judge omitted sizing; uses cached ${symbol} position quantity ${currentPosition?.qty}.`),
+        [
+          decision.sizing?.rationale ??
+          (tradeSide === "buy"
+            ? `Judge omitted sizing; uses configured max order notional ${defaultNotional}.`
+            : `Judge omitted sizing; uses cached ${symbol} position quantity ${currentPosition?.qty}.`),
+          ...sizingGuardrailNotes,
+        ].join(" "),
       invalidationCondition: "Evidence is stale, contradicted, immaterial, or already priced in.",
       exitCondition: "Manual review or future branch-specific exit law.",
       approvalsRequired:
@@ -943,7 +967,7 @@ async function executeDebateRun(
   };
   let result: DebateCreateResult;
   try {
-    const timeoutMs = debateTimeoutMs();
+    const timeoutMs = debateTimeoutMs(branch?.config);
     result = await withTimeout(
       context.createDebate({
         payload: runPayload,
@@ -1838,11 +1862,20 @@ async function isDebateActive(
   return run?.status === "running";
 }
 
-function debateTimeoutMs(): number {
+function debateTimeoutMs(config?: HeartbeatBranchConfig): number {
+  const configuredMinutes = config?.budgets?.debateTimeoutMinutes;
+  if (
+    typeof configuredMinutes === "number" &&
+    Number.isFinite(configuredMinutes) &&
+    configuredMinutes > 0
+  ) {
+    return Math.round(configuredMinutes * 60_000);
+  }
+
   const configured = Number(process.env.KAIROS_DEBATE_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0
     ? configured
-    : 120_000;
+    : 300_000;
 }
 
 function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider {
