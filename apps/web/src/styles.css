@@ -3787,6 +3787,16 @@ select:focus:hover {
   text-align: right;
 }
 
+.symbol-option-change.positive {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.symbol-option-change.negative {
+  color: var(--error);
+  font-weight: 700;
+}
+
 .empty-option {
   color: var(--on-variant);
   font-family: var(--mono);

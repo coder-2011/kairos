@@ -3078,6 +3078,9 @@ function BranchConfig({
               </option>
             ))}
           </datalist>
+          <p className="config-note">
+            Type any OpenRouter model ID, or choose one from the suggestions.
+          </p>
           {openRouterModels.length === 0 && (
             <p className="config-note">
               Model list unavailable.
@@ -3368,17 +3371,22 @@ function TradeSymbolDropdown({
 }) {
   const [query, setQuery] = useState("");
   const [searchCatalog, setSearchCatalog] = useState<TradeSymbolRecord[]>([]);
+  const [searchCatalogQuery, setSearchCatalogQuery] = useState("");
   const [searchLoadState, setSearchLoadState] = useState<LoadState>("api");
   const [semanticQuery, setSemanticQuery] = useState("");
   const [semanticCatalog, setSemanticCatalog] = useState<TradeSymbolRecord[]>([]);
   const [semanticLoadState, setSemanticLoadState] = useState<LoadState>("api");
   const [semanticError, setSemanticError] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const semanticInputRef = useRef<HTMLInputElement | null>(null);
+  const semanticRequestRef = useRef(0);
   const searchQuery = query.trim();
   const normalizedSearchQuery = searchQuery.toUpperCase();
   const searchTokens = symbolSearchTokens(searchQuery);
   const activeCatalog = searchQuery
-    ? mergeTradeSymbolRecords(catalog, searchCatalog)
+    ? searchCatalogQuery === searchQuery
+      ? mergeTradeSymbolRecords(searchCatalog, catalog)
+      : []
     : catalog;
   const activeLoadState = searchQuery ? searchLoadState : loadState;
   const semanticOptions = semanticCatalog.length > 0
@@ -3402,6 +3410,7 @@ function TradeSymbolDropdown({
   useEffect(() => {
     if (!searchQuery) {
       setSearchCatalog([]);
+      setSearchCatalogQuery("");
       setSearchLoadState("api");
       return;
     }
@@ -3412,12 +3421,14 @@ function TradeSymbolDropdown({
       .then((symbols) => {
         if (!cancelled) {
           setSearchCatalog(symbols);
+          setSearchCatalogQuery(searchQuery);
           setSearchLoadState("api");
         }
       })
       .catch(() => {
         if (!cancelled) {
           setSearchCatalog([]);
+          setSearchCatalogQuery("");
           setSearchLoadState("offline");
         }
       });
@@ -3453,17 +3464,22 @@ function TradeSymbolDropdown({
   }
 
   function runSemanticSearch() {
-    const text = semanticQuery.trim();
+    const text = (semanticInputRef.current?.value ?? semanticQuery).trim();
     if (!text) return;
 
+    const requestId = semanticRequestRef.current + 1;
+    semanticRequestRef.current = requestId;
     setSemanticLoadState("loading");
     setSemanticError("");
+    setSemanticCatalog([]);
     getSemanticTradeSymbols({ query: text, limit: 60 })
       .then((symbols) => {
+        if (semanticRequestRef.current !== requestId) return;
         setSemanticCatalog(symbols);
         setSemanticLoadState("api");
       })
       .catch((error) => {
+        if (semanticRequestRef.current !== requestId) return;
         setSemanticCatalog([]);
         setSemanticLoadState("offline");
         setSemanticError(
@@ -3480,7 +3496,11 @@ function TradeSymbolDropdown({
           <input
             className="multi-select-search"
             onChange={(event) => {
-              setQuery(event.target.value);
+              const nextQuery = event.target.value;
+              setQuery(nextQuery);
+              setSearchCatalog([]);
+              setSearchCatalogQuery("");
+              setSearchLoadState(nextQuery.trim() ? "loading" : "api");
               setSemanticError("");
             }}
             placeholder="Search Alpaca tradable assets: PLTR, Tesla, SPY, ETF"
@@ -3489,6 +3509,7 @@ function TradeSymbolDropdown({
           <div className="semantic-symbol-tool">
             <input
               className="multi-select-search"
+              ref={semanticInputRef}
               onChange={(event) => {
                 setSemanticQuery(event.target.value);
                 setSemanticError("");
@@ -3533,7 +3554,9 @@ function TradeSymbolDropdown({
                 </span>
                 <span className="symbol-option-meta">
                   <b>{formatMoneyValue(option.price)}</b>
-                  <small>{formatPercentValue(option.dayChangePercent)}</small>
+                  <small className={symbolChangeClassName(option.dayChangePercent)}>
+                    {formatPercentValue(option.dayChangePercent)}
+                  </small>
                 </span>
               </label>
             ))}
@@ -3561,7 +3584,9 @@ function TradeSymbolDropdown({
               </span>
               <span className="symbol-option-meta">
                 <b>{formatMoneyValue(option.price)}</b>
-                <small>{formatPercentValue(option.dayChangePercent)}</small>
+                <small className={symbolChangeClassName(option.dayChangePercent)}>
+                  {formatPercentValue(option.dayChangePercent)}
+                </small>
               </span>
             </label>
           ))
@@ -4367,6 +4392,21 @@ function formatPercentValue(value: unknown) {
   if (typeof numberValue !== "number" || !Number.isFinite(numberValue)) return "-";
   const sign = numberValue > 0 ? "+" : "";
   return `${sign}${numberValue.toFixed(2)}%`;
+}
+
+function symbolChangeClassName(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  if (typeof numberValue !== "number" || !Number.isFinite(numberValue) || numberValue === 0) {
+    return "symbol-option-change";
+  }
+
+  return `symbol-option-change ${numberValue > 0 ? "positive" : "negative"}`;
 }
 
 function formatTimestamp(value: unknown) {
