@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   BEAR_SYSTEM_PROMPT,
@@ -3375,6 +3375,7 @@ function TradeSymbolDropdown({
   const [semanticCatalog, setSemanticCatalog] = useState<TradeSymbolRecord[]>([]);
   const [semanticLoadState, setSemanticLoadState] = useState<LoadState>("api");
   const [semanticError, setSemanticError] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchQuery = query.trim();
   const normalizedSearchQuery = searchQuery.toUpperCase();
   const searchTokens = symbolSearchTokens(searchQuery);
@@ -3429,6 +3430,8 @@ function TradeSymbolDropdown({
   function toggle(symbol: string, checked: boolean) {
     const scrollContainer = document.querySelector(".config-canvas");
     const scrollTop = scrollContainer?.scrollTop ?? 0;
+    const menuScrollTop = menuRef.current?.scrollTop ?? 0;
+    const windowScroll = { x: window.scrollX, y: window.scrollY };
     const next = checked
       ? [...selectedSet, symbol]
       : selected.filter((item) => item !== symbol);
@@ -3438,8 +3441,14 @@ function TradeSymbolDropdown({
         mergeSymbolSelection(optionSymbols, semanticOptionSymbols, [symbol]),
       ),
     );
-    requestAnimationFrame(() => {
+    const restoreScroll = () => {
       if (scrollContainer) scrollContainer.scrollTop = scrollTop;
+      if (menuRef.current) menuRef.current.scrollTop = menuScrollTop;
+      window.scrollTo(windowScroll.x, windowScroll.y);
+    };
+    requestAnimationFrame(() => {
+      restoreScroll();
+      requestAnimationFrame(restoreScroll);
     });
   }
 
@@ -3466,28 +3475,38 @@ function TradeSymbolDropdown({
   return (
     <details className="multi-select">
       <summary>{summary}</summary>
-      <div className="multi-select-menu">
-        <div className="semantic-symbol-tool">
+      <div className="multi-select-menu" ref={menuRef}>
+        <div className="symbol-search-stack">
           <input
             className="multi-select-search"
-            onChange={(event) => setSemanticQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                runSemanticSearch();
-              }
-            }}
-            placeholder="Ask for a theme: obvious AI infrastructure, fintech, defense"
-            value={semanticQuery}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search Alpaca tradable assets: PLTR, Tesla, SPY, ETF"
+            value={query}
           />
-          <button
-            className="semantic-symbol-find"
-            disabled={semanticLoadState === "loading" || semanticQuery.trim().length === 0}
-            onClick={runSemanticSearch}
-            type="button"
-          >
-            Find
-          </button>
+          <div className="semantic-symbol-tool">
+            <input
+              className="multi-select-search"
+              onChange={(event) => setSemanticQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  runSemanticSearch();
+                }
+              }}
+              placeholder="Ask for a theme: obvious AI infrastructure, fintech, defense"
+              value={semanticQuery}
+            />
+            <button
+              className="semantic-symbol-find"
+              disabled={semanticLoadState === "loading" || semanticQuery.trim().length === 0}
+              onClick={runSemanticSearch}
+              type="button"
+            >
+              Find
+            </button>
+          </div>
+        </div>
+        <div className="semantic-symbol-tool">
         </div>
         {semanticLoadState === "loading" && (
           <span className="empty-option">Finding related symbols.</span>
@@ -3516,12 +3535,6 @@ function TradeSymbolDropdown({
             ))}
           </div>
         )}
-        <input
-          className="multi-select-search"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Alpaca tradable assets: PLTR, Tesla, SPY, ETF"
-          value={query}
-        />
         {activeLoadState === "loading" && (
           <span className="empty-option">Looking up symbols.</span>
         )}
