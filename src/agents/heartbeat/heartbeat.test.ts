@@ -423,11 +423,13 @@ describe("heartbeat scheduler", () => {
       await scheduler.runNow();
       expect(onResult).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
-      await vi.advanceTimersByTimeAsync(60_000);
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
       expect(onResult).toHaveBeenCalledTimes(2);
     } finally {
       scheduler.stop();
@@ -753,7 +755,7 @@ describe("API clients", () => {
       },
     });
 
-    const result = await api.search({ query: "PLTR latest", numResults: 3 });
+    const result = await api.search({ query: "PLTR latest", category: "news", numResults: 3 });
 
     expect(search).toHaveBeenCalledWith("PLTR latest", expect.objectContaining({
       type: "auto",
