@@ -234,8 +234,8 @@ export function DeepResearchView() {
               {loadState === "loading" || modelState === "loading"
                 ? "SYNCING"
                 : loadState === "api" && modelState === "api"
-                  ? "RESEARCH ONLINE"
-                  : "RESEARCH OFFLINE"}
+                  ? "ONLINE"
+                  : "OFFLINE"}
             </span>
             <ModelSelect
               model={activeModel}
