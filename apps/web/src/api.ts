@@ -49,6 +49,20 @@ export type RunLifecycle = {
   cancelable: boolean;
 };
 
+export type CapabilityPreflightCheck = {
+  id: string;
+  label: string;
+  status: "ready" | "warning" | "blocked";
+  detail: string;
+};
+
+export type CapabilityPreflight = {
+  branchId?: string;
+  checkedAt: string;
+  status: "ready" | "warning" | "blocked";
+  checks: CapabilityPreflightCheck[];
+};
+
 export type RunRecord = {
   id: string;
   kind: "heartbeat" | "debate" | "router";
@@ -221,10 +235,21 @@ export async function getRuns(): Promise<RunRecord[]> {
   return request<{ runs: RunRecord[] }>("/runs").then((response) => response.runs);
 }
 
+export async function getRun(runId: string): Promise<RunRecord> {
+  return request<{ run: RunRecord }>(`/runs/${runId}`).then((response) => response.run);
+}
+
 export async function getRunEvents(runId: string): Promise<RunEventRecord[]> {
   return request<{ events: RunEventRecord[] }>(`/runs/${runId}/events`).then(
     (response) => response.events,
   );
+}
+
+export async function cancelRun(runId: string): Promise<RunRecord> {
+  return request<{ run: RunRecord }>(`/runs/${runId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((response) => response.run);
 }
 
 export async function getOpenRouterModels(): Promise<{
@@ -238,6 +263,17 @@ export async function getOpenRouterModels(): Promise<{
     models: response.models,
     defaults: response.defaults ?? {},
   }));
+}
+
+export async function getCapabilityPreflight(
+  branchId?: string,
+): Promise<CapabilityPreflight> {
+  const params = new URLSearchParams();
+  if (branchId) params.set("branchId", branchId);
+  const query = params.toString();
+  return request<CapabilityPreflight>(
+    `/capabilities/preflight${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function getTradeSymbols(input: {
@@ -332,11 +368,13 @@ export async function triggerHeartbeat(
 
 export async function createDebate(input: {
   branchId?: string;
+  async?: boolean;
   escalation?: JsonRecord;
 }): Promise<RunRecord> {
   return request<{ run: RunRecord }>("/debates", {
     method: "POST",
     body: JSON.stringify({
+      async: input.async,
       escalation: input.escalation,
       input: {
         branchId: input.branchId ?? readStringField(input.escalation, "branchId"),

@@ -1270,6 +1270,120 @@ select:focus:hover {
   overflow-wrap: anywhere;
 }
 
+.truth-ledger,
+.capability-panel,
+.config-section,
+.advanced-config {
+  background: var(--surface-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.truth-ledger-grid,
+.capability-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.child-run-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.child-run-row,
+.capability-check {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  padding: 8px;
+}
+
+.child-run-row {
+  display: grid;
+  gap: 4px;
+}
+
+.child-run-row.failed,
+.capability-check.blocked {
+  border-color: var(--error);
+}
+
+.capability-check.warning {
+  border-color: var(--tertiary);
+}
+
+.child-run-row span,
+.child-run-row b,
+.capability-check b,
+.capability-check span {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.child-run-row b,
+.capability-check p {
+  color: var(--on-surface);
+  overflow-wrap: anywhere;
+}
+
+.capability-check span {
+  color: var(--on-variant);
+  display: block;
+  margin-top: 4px;
+}
+
+.capability-check p {
+  font-size: 12px;
+  line-height: 16px;
+  margin: 6px 0 0;
+}
+
+.capability-head {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.capability-head h2 {
+  font-size: 18px;
+  line-height: 22px;
+  margin: 0;
+}
+
+.capability-head span,
+.advanced-config > summary {
+  color: var(--on-variant);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.advanced-config > summary {
+  cursor: pointer;
+  margin: -4px 0 16px;
+}
+
+.checkbox-card.compact {
+  min-height: 0;
+}
+
+.config-note.danger {
+  color: var(--error);
+  margin-top: 8px;
+}
+
 .run-fact {
   background: var(--surface-lowest);
   border: 1px solid var(--outline-variant);
@@ -3392,6 +3506,11 @@ select:focus:hover {
 
   .run-lifecycle-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .truth-ledger-grid,
+  .capability-grid {
+    grid-template-columns: 1fr;
   }
 
   .monitoring-facts {

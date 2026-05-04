@@ -16,14 +16,17 @@ import type {
 } from "../../../src/global/agent-config.js";
 import {
   appendInterjection,
+  cancelRun,
   createBranch,
   createRouterChat,
   createDebate,
   deleteBranch,
   getBranches,
+  getCapabilityPreflight,
   getMessages,
   getOpenRouterModels,
   getPortfolio,
+  getRun,
   getRunEvents,
   getRuns,
   getRouterChats,
@@ -36,6 +39,7 @@ import {
   updateBranch,
   type AllowedOrderType,
   type BranchRecord,
+  type CapabilityPreflight,
   type JsonRecord,
   type MessageRecord,
   type ModelRoleDefaults,
@@ -225,6 +229,8 @@ export function App() {
   const [routerLoadState, setRouterLoadState] = useState<LoadState>("loading");
   const [routerRunning, setRouterRunning] = useState(false);
   const [lastRouterHeartbeatRuns, setLastRouterHeartbeatRuns] = useState<RunRecord[]>([]);
+  const [capabilityPreflight, setCapabilityPreflight] = useState<CapabilityPreflight>();
+  const [capabilityLoadState, setCapabilityLoadState] = useState<LoadState>("loading");
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -311,6 +317,32 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedBranch?.id) {
+      setCapabilityPreflight(undefined);
+      setCapabilityLoadState("offline");
+      return;
+    }
+
+    let cancelled = false;
+    setCapabilityLoadState("loading");
+    getCapabilityPreflight(selectedBranch.id)
+      .then((preflight) => {
+        if (cancelled) return;
+        setCapabilityPreflight(preflight);
+        setCapabilityLoadState("api");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCapabilityPreflight(undefined);
+        setCapabilityLoadState("offline");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranch?.id, selectedBranch?.updatedAt]);
+
+  useEffect(() => {
     let cancelled = false;
     getOpenRouterModels()
       .then((response) => {
@@ -372,6 +404,27 @@ export function App() {
       cancelled = true;
     };
   }, [loadState, selectedRun?.id]);
+
+  useEffect(() => {
+    if (!selectedRun?.id || selectedRun.status !== "running") return;
+
+    const interval = window.setInterval(() => {
+      void Promise.all([
+        getRun(selectedRun.id),
+        getRunEvents(selectedRun.id),
+      ]).then(([nextRun, nextEvents]) => {
+        setRuns((current) => [
+          nextRun,
+          ...current.filter((item) => item.id !== nextRun.id),
+        ]);
+        setEvents(nextEvents);
+      }).catch(() => {
+        setLoadState("offline");
+      });
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [selectedRun?.id, selectedRun?.status]);
 
   useEffect(() => {
     if (
@@ -540,6 +593,7 @@ export function App() {
   async function startDebate(branchId: string, escalation?: JsonRecord) {
     try {
       const run = await createDebate({
+        async: true,
         branchId,
         escalation,
       });
@@ -549,6 +603,18 @@ export function App() {
       setLoadState("api");
     } catch {
       navigate("monitoring");
+      setLoadState("offline");
+    }
+  }
+
+  async function cancelSelectedRun(runId: string) {
+    try {
+      const run = await cancelRun(runId);
+      setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
+      setLoadState("api");
+      const nextEvents = await getRunEvents(run.id);
+      setEvents(nextEvents);
+    } catch {
       setLoadState("offline");
     }
   }
@@ -572,6 +638,7 @@ export function App() {
     input: {
       config: WebBranchConfig;
       branchName: string;
+      enabled: boolean;
       lawText: string;
     },
   ) {
@@ -579,6 +646,7 @@ export function App() {
       const currentBranch = branches.find((branch) => branch.id === branchId);
       const branchInput = {
         name: input.branchName.trim() || currentBranch?.name || "Untitled Branch",
+        enabled: input.enabled,
         description: input.lawText,
         law: {
           ...currentBranch?.law,
@@ -589,7 +657,6 @@ export function App() {
       const branch = isLocalDraftBranch(currentBranch)
         ? await createBranch({
             id: branchId,
-            enabled: currentBranch?.enabled ?? true,
             ...branchInput,
           })
         : await updateBranch(branchId, branchInput);
@@ -696,6 +763,7 @@ export function App() {
             events={events}
             onInject={injectHumanContext}
             onSelectRun={(runId) => navigate("monitoring", { runId })}
+            onCancelRun={(runId) => void cancelSelectedRun(runId)}
             onStartDebateFromEscalation={(branchId, escalation) =>
               void startDebate(branchId, {
                 ...escalation,
@@ -720,6 +788,7 @@ export function App() {
             branches={branches}
             events={events}
             onSelectRun={(runId) => navigate("runDeepDive", { runId })}
+            onCancelRun={(runId) => void cancelSelectedRun(runId)}
             runs={runs}
             selectedRun={selectedRun}
           />
@@ -727,6 +796,8 @@ export function App() {
         {view === "config" && selectedBranch && (
           <BranchConfig
             branch={selectedBranch}
+            capabilityLoadState={capabilityLoadState}
+            capabilityPreflight={capabilityPreflight}
             modelDefaults={modelDefaults}
             openRouterModels={openRouterModels}
             tradeSymbolLoadState={tradeSymbolLoadState}
@@ -1123,6 +1194,7 @@ function RouterToolCall({ call }: { call: RouterToolCallRecord }) {
 function MonitoringView({
   branches,
   events,
+  onCancelRun,
   onSelectRun,
   onStartDebateFromEscalation,
   run,
@@ -1131,6 +1203,7 @@ function MonitoringView({
 }: {
   branches: BranchRecord[];
   events: RunEventRecord[];
+  onCancelRun: (runId: string) => void;
   onSelectRun: (runId: string) => void;
   run?: RunRecord;
   runs: RunRecord[];
@@ -1261,9 +1334,12 @@ function MonitoringView({
           {run && runSummary ? (
             <MonitoringRunDetail
               escalation={heartbeatEscalation}
+              events={events}
               eventCount={events.length}
               run={run}
+              runs={runs}
               summary={runSummary}
+              onCancelRun={onCancelRun}
               onStartDebate={onStartDebateFromEscalation}
             />
           ) : (
@@ -1359,15 +1435,21 @@ function MonitoringView({
 
 function MonitoringRunDetail({
   escalation,
+  events,
   eventCount,
   run,
+  runs,
   summary,
+  onCancelRun,
   onStartDebate,
 }: {
   escalation?: JsonRecord;
+  events: RunEventRecord[];
   eventCount: number;
   run: RunRecord;
+  runs: RunRecord[];
   summary: ReturnType<typeof summarizeRun>;
+  onCancelRun: (runId: string) => void;
   onStartDebate: (branchId: string, escalation: JsonRecord) => void;
 }) {
   const output = run.output ?? {};
@@ -1409,6 +1491,16 @@ function MonitoringRunDetail({
       </div>
 
       <RunLifecyclePanel run={run} />
+      {run.lifecycle?.cancelable && (
+        <button
+          className="command-button danger-outline"
+          onClick={() => onCancelRun(run.id)}
+          type="button"
+        >
+          <Icon name="cancel" /> CANCEL RUN
+        </button>
+      )}
+      <TruthLedgerPanel events={events} run={run} runs={runs} summary={summary} />
 
       <div className="monitoring-detail-grid">
         <section className="monitoring-detail-section">
@@ -1466,6 +1558,92 @@ function DetailRow({
       <b>{value}</b>
     </div>
   );
+}
+
+function TruthLedgerPanel({
+  events,
+  run,
+  runs,
+  summary,
+}: {
+  events: RunEventRecord[];
+  run: RunRecord;
+  runs: RunRecord[];
+  summary: ReturnType<typeof summarizeRun>;
+}) {
+  const childRunIds = run.lifecycle?.childRunIds ?? [];
+  const childRuns = childRunIds
+    .map((id) => runs.find((item) => item.id === id))
+    .filter((item): item is RunRecord => Boolean(item));
+  const failedEvents = events.filter((event) =>
+    event.type.includes("failed") || event.type === "run.failed",
+  );
+  const routerBranches = Array.isArray(run.output?.branchIds)
+    ? run.output.branchIds.filter((item): item is string => typeof item === "string")
+    : [];
+  const heartbeatFailures = Array.isArray(run.output?.heartbeatFailures)
+    ? run.output.heartbeatFailures.filter(isJsonRecord)
+    : [];
+  const affected = [
+    run.branchId ? summary.branchLabel : undefined,
+    routerBranches.length > 0 ? `${routerBranches.length} routed branches` : undefined,
+    childRuns.length > 0 ? `${childRuns.length} child runs` : undefined,
+  ].filter(Boolean).join(" / ") || "-";
+  const nextAction = nextActionForRun(run, failedEvents, childRuns);
+
+  return (
+    <section className="truth-ledger">
+      <div className="section-title">TRUTH LEDGER</div>
+      <div className="truth-ledger-grid">
+        <DetailRow label="What happened" value={summary.outcome} />
+        <DetailRow
+          label="What failed"
+          tone={failedEvents.length > 0 || run.status === "failed" ? "danger" : "default"}
+          value={
+            run.status === "failed"
+              ? readDisplay(run.output?.error, "Run failed.")
+              : failedEvents.length > 0
+                ? `${failedEvents.length} failure event${failedEvents.length === 1 ? "" : "s"}`
+                : "No failures recorded."
+          }
+        />
+        <DetailRow label="Affected" value={affected} />
+        <DetailRow label="What can I do" value={nextAction} />
+      </div>
+      {(heartbeatFailures.length > 0 || childRuns.length > 0) && (
+        <div className="child-run-list">
+          {heartbeatFailures.map((failure, index) => (
+            <div className="child-run-row failed" key={`failure-${index}`}>
+              <span>{readDisplay(failure.branchId, "Branch")}</span>
+              <b>{readDisplay(failure.error, "Heartbeat failed.")}</b>
+            </div>
+          ))}
+          {childRuns.map((childRun) => (
+            <div className={`child-run-row ${childRun.status}`} key={childRun.id}>
+              <span>{childRun.kind} {childRun.id.slice(0, 8)}</span>
+              <b>{summarizeRun(childRun).outcome}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function nextActionForRun(
+  run: RunRecord,
+  failedEvents: RunEventRecord[],
+  childRuns: RunRecord[],
+): string {
+  if (run.lifecycle?.cancelable) return "Cancel if this is stale, or wait for the next event.";
+  if (run.status === "failed") return "Inspect the failure, fix readiness/configuration, then retry.";
+  if (failedEvents.length > 0) return "Inspect failed child events before trusting this run.";
+  if (run.kind === "heartbeat" && getHeartbeatEscalation(run)) return "Start debate from the heartbeat packet.";
+  if (run.kind === "router" && childRuns.some((child) => child.status === "failed")) {
+    return "Open failed child heartbeats and fix branch/model readiness.";
+  }
+  if (run.kind === "debate") return "Review the final decision, transcript, and trading policy events.";
+  return "No immediate action required.";
 }
 
 function MonitoringSummaryBar({
@@ -1786,12 +1964,14 @@ function MessageCard({ message }: { message: MessageRecord }) {
 function RunDeepDive({
   branches,
   events,
+  onCancelRun,
   runs,
   selectedRun,
   onSelectRun,
 }: {
   branches: BranchRecord[];
   events: RunEventRecord[];
+  onCancelRun: (runId: string) => void;
   runs: RunRecord[];
   selectedRun?: RunRecord;
   onSelectRun: (runId: string) => void;
@@ -1861,6 +2041,15 @@ function RunDeepDive({
                 <RunFact label="Updated" value={formatDateTime(selectedRun.updatedAt)} />
               </div>
               <RunLifecyclePanel run={selectedRun} />
+              {selectedRun.lifecycle?.cancelable && (
+                <button
+                  className="command-button danger-outline"
+                  onClick={() => onCancelRun(selectedRun.id)}
+                  type="button"
+                >
+                  <Icon name="cancel" /> CANCEL RUN
+                </button>
+              )}
               <div className={`run-outcome ${selectedRun.status === "failed" ? "danger" : ""}`}>
                 <b>{selectedRunSummary.outcomeTitle}</b>
                 <p>{selectedRunSummary.outcome}</p>
@@ -2025,6 +2214,46 @@ function RunLifecyclePanel({ run }: { run: RunRecord }) {
   );
 }
 
+function CapabilityPreflightPanel({
+  loadState,
+  preflight,
+}: {
+  loadState: LoadState;
+  preflight?: CapabilityPreflight;
+}) {
+  const status = loadState === "loading"
+    ? "checking"
+    : preflight?.status ?? "offline";
+  const checks = preflight?.checks ?? [];
+
+  return (
+    <section className={`capability-panel ${status}`}>
+      <div className="capability-head">
+        <div>
+          <div className="section-title">ACTION READINESS</div>
+          <h2>{status === "ready" ? "Ready" : status === "warning" ? "Ready with warnings" : status === "blocked" ? "Blocked" : status}</h2>
+        </div>
+        <span>{preflight?.checkedAt ? formatDateTime(preflight.checkedAt) : "-"}</span>
+      </div>
+      <div className="capability-grid">
+        {loadState === "loading" ? (
+          <RunFact label="Preflight" value="checking" />
+        ) : checks.length === 0 ? (
+          <RunFact label="Preflight" tone="danger" value="unavailable" />
+        ) : (
+          checks.map((check) => (
+            <div className={`capability-check ${check.status}`} key={check.id}>
+              <b>{check.label}</b>
+              <span>{check.status}</span>
+              <p>{check.detail}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function summarizeRun(run: RunRecord, branch?: BranchRecord) {
   const output = run.output ?? {};
   const inputBranch = isJsonRecord(run.input.branch) ? run.input.branch : undefined;
@@ -2110,6 +2339,8 @@ function getRunFromApiError(error: unknown): RunRecord | undefined {
 
 function BranchConfig({
   branch,
+  capabilityLoadState,
+  capabilityPreflight,
   modelDefaults,
   openRouterModels,
   tradeSymbolLoadState,
@@ -2120,6 +2351,8 @@ function BranchConfig({
   onSave,
 }: {
   branch: BranchRecord;
+  capabilityLoadState: LoadState;
+  capabilityPreflight?: CapabilityPreflight;
   modelDefaults: ModelRoleDefaults;
   openRouterModels: OpenRouterModelRecord[];
   tradeSymbolLoadState: LoadState;
@@ -2130,6 +2363,7 @@ function BranchConfig({
   onSave: (input: {
     config: WebBranchConfig;
     branchName: string;
+    enabled: boolean;
     lawText: string;
   }) => void;
 }) {
@@ -2138,6 +2372,7 @@ function BranchConfig({
   );
   const [branchName, setBranchName] = useState(branch.name);
   const [lawText, setLawText] = useState(readLawText(branch));
+  const [enabled, setEnabled] = useState(branch.enabled);
   const [draftVersion, setDraftVersion] = useState(0);
 
   function resetDraft() {
@@ -2145,6 +2380,7 @@ function BranchConfig({
     setConfig(nextConfig);
     setBranchName(branch.name);
     setLawText(readLawText(branch));
+    setEnabled(branch.enabled);
     setDraftVersion((current) => current + 1);
   }
 
@@ -2185,6 +2421,26 @@ function BranchConfig({
       config.thresholds?.buyConfidence ??
       0.9) * 100,
   );
+  const toolCapableModelIds = new Set(openRouterModels.map((model) => model.id));
+  const heartbeatSelectedModel =
+    config.models?.heartbeat?.model ?? modelDefaults.heartbeat?.model ?? "";
+  const heartbeatToolsEnabled = heartbeatToolFields.some(
+    (tool) => config.tools?.heartbeat?.[tool.key]?.enabled ?? true,
+  );
+  const heartbeatModelWarning =
+    heartbeatSelectedModel &&
+    heartbeatToolsEnabled &&
+    !toolCapableModelIds.has(heartbeatSelectedModel)
+      ? `${heartbeatSelectedModel} is not in the current tool-capable model list. Heartbeat will run without tools unless you choose a listed model.`
+      : "";
+  const heartbeatBlocked = capabilityPreflight?.checks.some((check) =>
+    check.status === "blocked" &&
+    ["branch", "law", "openrouter_key"].includes(check.id)
+  ) ?? capabilityLoadState !== "api";
+  const debateBlocked = capabilityPreflight?.checks.some((check) =>
+    check.status === "blocked" &&
+    ["branch", "law", "openrouter_key"].includes(check.id)
+  ) ?? capabilityLoadState !== "api";
 
   return (
     <main className="config-canvas">
@@ -2193,10 +2449,10 @@ function BranchConfig({
           <h1>Branch Configuration</h1>
         </div>
         <div className="button-row">
-          <button className="command-button" onClick={onRunHeartbeat} type="button">
+          <button className="command-button" disabled={heartbeatBlocked} onClick={onRunHeartbeat} type="button">
             <Icon name="play_arrow" /> RUN HEARTBEAT CHECK
           </button>
-          <button className="command-button primary-outline" onClick={onEscalate} type="button">
+          <button className="command-button primary-outline" disabled={debateBlocked} onClick={onEscalate} type="button">
             <Icon name="forum" /> START MANUAL DEBATE
           </button>
           <button
@@ -2208,7 +2464,7 @@ function BranchConfig({
           </button>
           <button
             className="command-button primary"
-            onClick={() => onSave({ branchName, config, lawText })}
+            onClick={() => onSave({ branchName, config, enabled, lawText })}
             type="button"
           >
             SAVE CONFIGURATION
@@ -2216,40 +2472,124 @@ function BranchConfig({
         </div>
       </div>
       <div className="config-body" key={draftVersion}>
-        <FieldLabel label="Branch Name">
-          <input
-            onChange={(event) => setBranchName(event.target.value)}
-            placeholder="Name this monitoring branch."
-            value={branchName}
-          />
-        </FieldLabel>
-        <FieldLabel label="The Law (Primary Thesis)">
-          <textarea
-            onChange={(event) => setLawText(event.target.value)}
-            placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
-            value={lawText}
-          />
-        </FieldLabel>
-        <FieldLabel label="Tracked Tickers">
-          <input
-            onChange={(event) => {
-              const assets = parseAssetList(event.target.value);
-              setConfig((current) => ({
-                ...current,
-                assets,
-                trading: {
-                  ...current.trading,
-                  symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
-                  symbol:
-                    normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
-                    assets[0],
-                },
-              }));
-            }}
-            placeholder="PLTR, NVDA, CRWV"
-            value={branchAssets.join(", ")}
-          />
-        </FieldLabel>
+        <CapabilityPreflightPanel
+          loadState={capabilityLoadState}
+          preflight={capabilityPreflight}
+        />
+        <section className="config-section">
+          <div className="section-title">BASIC</div>
+          <div className="config-grid">
+            <FieldLabel label="Branch Name">
+              <input
+                onChange={(event) => setBranchName(event.target.value)}
+                placeholder="Name this monitoring branch."
+                value={branchName}
+              />
+            </FieldLabel>
+            <label className="checkbox-card compact">
+              <input
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <b>Branch enabled</b>
+                <small>Allows scheduled monitoring and router wakeups.</small>
+              </span>
+            </label>
+          </div>
+          <FieldLabel label="The Law (Primary Thesis)">
+            <textarea
+              onChange={(event) => setLawText(event.target.value)}
+              placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
+              value={lawText}
+            />
+          </FieldLabel>
+          <div className="config-grid">
+            <FieldLabel label="Tracked Tickers">
+              <input
+                onChange={(event) => {
+                  const assets = parseAssetList(event.target.value);
+                  setConfig((current) => ({
+                    ...current,
+                    assets,
+                    trading: {
+                      ...current.trading,
+                      symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
+                      symbol:
+                        normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
+                        assets[0],
+                    },
+                  }));
+                }}
+                placeholder="PLTR, NVDA, CRWV"
+                value={branchAssets.join(", ")}
+              />
+            </FieldLabel>
+            <FieldLabel label="Heartbeat Cadence">
+              <input
+                min="1"
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    heartbeat: {
+                      ...current.heartbeat,
+                      intervalMinutes: Number(event.target.value),
+                    },
+                  }))
+                }
+                type="number"
+                value={heartbeatInterval}
+              />
+            </FieldLabel>
+          </div>
+          <div className="threshold-wide">
+            <Slider
+              label="Escalation Notify Threshold"
+              onChange={(value) =>
+                setConfig((current) => ({
+                  ...current,
+                  thresholds: {
+                    ...current.thresholds,
+                    notifyConfidence: value / 100,
+                  },
+                }))
+              }
+              value={`${notifyConfidence}%`}
+            />
+            <label className="checkbox-card compact">
+              <input
+                checked={tradingEnabled}
+                onChange={(event) =>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      mode: event.target.checked ? "enabled" : "disabled",
+                      autoTradeEnabled: event.target.checked
+                        ? current.trading?.autoTradeEnabled ??
+                          current.trading?.paperAutoBuyEnabled ??
+                          false
+                        : false,
+                      paperAutoBuyEnabled: event.target.checked
+                        ? current.trading?.autoTradeEnabled ??
+                          current.trading?.paperAutoBuyEnabled ??
+                          false
+                        : false,
+                    },
+                  }))
+                }
+                type="checkbox"
+              />
+              <span>
+                <b>{tradingEnabled ? "Trading enabled" : "Trading disabled"}</b>
+                <small>Default boundary remains guarded intents and paper execution.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+        <details className="advanced-config" open>
+          <summary>Advanced</summary>
         <div>
           <div className="field-label">AGENT SYSTEM PROMPTS</div>
           <div className="prompt-grid">
@@ -2508,6 +2848,11 @@ function BranchConfig({
           {openRouterModels.length === 0 && (
             <p className="config-note">
               Model list unavailable.
+            </p>
+          )}
+          {heartbeatModelWarning && (
+            <p className="config-note danger">
+              {heartbeatModelWarning}
             </p>
           )}
         </div>
@@ -2805,6 +3150,7 @@ function BranchConfig({
             />
           </div>
         </div>
+        </details>
       </div>
     </main>
   );
