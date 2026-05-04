@@ -288,21 +288,21 @@ export async function runDeepResearchQuery(
 
 async function runDeepResearchMessage(
   context: DeepResearchContext,
-  store: DeepResearchFileStore,
+  store: DeepResearchStore,
   chat: DeepResearchChatRecord,
   input: z.infer<typeof messageCreateSchema>,
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
   const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
-  const userMessage = await store.createMessage({
+  const userMessage = await store.createDeepResearchMessage({
     chatId: chat.id,
     role: "user",
     text: input.text.trim(),
     attachments: input.attachments,
     chatTitle,
   });
-  const previousMessages = await store.listMessages(chat.id);
+  const previousMessages = await store.listDeepResearchMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
   const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
   const modelMessages = [
@@ -336,7 +336,7 @@ async function runDeepResearchMessage(
     });
     const assistantText = result.text?.trim();
     const reasoning = extractDeepResearchReasoning(result);
-    const assistantMessage = await store.createMessage({
+    const assistantMessage = await store.createDeepResearchMessage({
       chatId: chat.id,
       role: "assistant",
       text: assistantText?.length
@@ -350,14 +350,14 @@ async function runDeepResearchMessage(
 
     await mirrorDeepResearchConversation(chat.id, userMessage, assistantMessage);
     return json({
-      chat: await store.getChat(chat.id),
+      chat: await store.getDeepResearchChat(chat.id),
       userMessage,
       assistantMessage,
       toolCalls,
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
-    const assistantMessage = await store.createMessage({
+    const assistantMessage = await store.createDeepResearchMessage({
       chatId: chat.id,
       role: "assistant",
       text: `Deep Research failed: ${message}`,
@@ -372,14 +372,14 @@ async function runDeepResearchMessage(
 
 async function runDeepResearchMessageStream(
   context: DeepResearchContext,
-  store: DeepResearchFileStore,
+  store: DeepResearchStore,
   chat: DeepResearchChatRecord,
   input: z.infer<typeof messageCreateSchema>,
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
   const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
-  const userMessage = await store.createMessage({
+  const userMessage = await store.createDeepResearchMessage({
     chatId: chat.id,
     role: "user",
     text: input.text.trim(),
@@ -387,7 +387,7 @@ async function runDeepResearchMessageStream(
     chatTitle,
   });
 
-  const previousMessages = await store.listMessages(chat.id);
+  const previousMessages = await store.listDeepResearchMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
   const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
   let assistantReasoning = "";
@@ -471,7 +471,7 @@ async function runDeepResearchMessageStream(
           reasoning: assistantReasoning.length > 0 ? assistantReasoning : undefined,
         });
 
-        const assistantMessage = await store.createMessage({
+        const assistantMessage = await store.createDeepResearchMessage({
           chatId: chat.id,
           role: "assistant",
           text: assistantText,
@@ -483,7 +483,7 @@ async function runDeepResearchMessageStream(
 
         await mirrorDeepResearchConversation(chat.id, userMessage, assistantMessage);
         sendEvent("assistant_final", {
-          chat: await store.getChat(chat.id),
+          chat: await store.getDeepResearchChat(chat.id),
           userMessage,
           assistantMessage,
         });
@@ -501,7 +501,7 @@ async function runDeepResearchMessageStream(
               temperature: 0.2,
             });
             const fallbackText = fallback.text?.trim() || assistantTextRaw.trim();
-            const assistantMessage = await store.createMessage({
+            const assistantMessage = await store.createDeepResearchMessage({
               chatId: chat.id,
               role: "assistant",
               text: fallbackText.length
@@ -518,7 +518,7 @@ async function runDeepResearchMessageStream(
 
             await mirrorDeepResearchConversation(chat.id, userMessage, assistantMessage);
             sendEvent("assistant_final", {
-              chat: await store.getChat(chat.id),
+              chat: await store.getDeepResearchChat(chat.id),
               userMessage,
               assistantMessage,
             });
@@ -532,7 +532,7 @@ async function runDeepResearchMessageStream(
         const userFacingMessage = isClosedControllerError(error)
           ? "The live research stream closed before a final answer was produced. Retry the question or narrow it to one company, component, or supply-chain layer."
           : message;
-        const assistantMessage = await store.createMessage({
+        const assistantMessage = await store.createDeepResearchMessage({
           chatId: chat.id,
           role: "assistant",
           text: `Deep Research failed: ${userFacingMessage}`,
@@ -542,7 +542,7 @@ async function runDeepResearchMessageStream(
           toolCalls,
         });
         sendEvent("assistant_error", {
-          chat: await store.getChat(chat.id),
+          chat: await store.getDeepResearchChat(chat.id),
           userMessage,
           assistantMessage,
           message: userFacingMessage,
@@ -1074,132 +1074,6 @@ async function mirrorDeepResearchConversation(
     });
   } catch {
     // Memory writes should not block the local chat transcript.
-  }
-}
-
-class DeepResearchFileStore {
-  private readonly rootDir =
-    process.env.KAIROS_DEEP_RESEARCH_DATA_DIR ??
-    join(process.cwd(), "data", "runtime", "deep-research");
-
-  async listChats(): Promise<DeepResearchChatRecord[]> {
-    const fileNames = await this.listJsonFiles(join(this.rootDir, "chats"));
-    const chats = await Promise.all(
-      fileNames.map((fileName) =>
-        this.readJson<DeepResearchChatRecord>(join(this.rootDir, "chats", fileName)),
-      ),
-    );
-    return chats
-      .filter((chat): chat is DeepResearchChatRecord => Boolean(chat))
-      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  }
-
-  async createChat(input: { id?: string; title?: string } = {}): Promise<DeepResearchChatRecord> {
-    const now = new Date().toISOString();
-    const chat = {
-      id: input.id ?? randomUUID(),
-      title: input.title,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.writeJson(this.chatPath(chat.id), chat);
-    return chat;
-  }
-
-  async getChat(id: string): Promise<DeepResearchChatRecord | undefined> {
-    return this.readJson<DeepResearchChatRecord>(this.chatPath(id));
-  }
-
-  async deleteChat(id: string): Promise<boolean> {
-    const chat = await this.getChat(id);
-    if (!chat) return false;
-    await Promise.all([
-      rm(this.chatPath(id), { force: true }),
-      rm(this.messagesPath(id), { force: true }),
-    ]);
-    return true;
-  }
-
-  async listMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
-    try {
-      const text = await readFile(this.messagesPath(chatId), "utf8");
-      return text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as DeepResearchMessageRecord);
-    } catch (error) {
-      if (isNotFoundError(error)) return [];
-      throw error;
-    }
-  }
-
-  async createMessage(input: {
-    chatId: string;
-    role: "user" | "assistant";
-    text?: string;
-    chatTitle?: string;
-    model?: string;
-    reasoning?: string;
-    reasoningEffort?: KairosReasoningEffort;
-    attachments?: DeepResearchImageAttachment[];
-    toolCalls?: RouterToolCallRecord[];
-  }): Promise<DeepResearchMessageRecord> {
-    const message = {
-      id: randomUUID(),
-      chatId: input.chatId,
-      role: input.role,
-      text: input.text,
-      model: input.model,
-      reasoning: input.reasoning,
-      reasoningEffort: input.reasoningEffort,
-      attachments: input.attachments,
-      toolCalls: input.toolCalls,
-      createdAt: new Date().toISOString(),
-    };
-    await mkdir(dirname(this.messagesPath(input.chatId)), { recursive: true });
-    await writeFile(this.messagesPath(input.chatId), `${JSON.stringify(message)}\n`, { flag: "a" });
-    const chat = await this.getChat(input.chatId);
-    if (chat) {
-      const nextTitle = chat.title ??
-        input.chatTitle ??
-        (input.role === "user" ? buildTitle(input.text ?? "") : undefined);
-      await this.writeJson(this.chatPath(input.chatId), {
-        ...chat,
-        ...(nextTitle ? { title: nextTitle } : {}),
-        updatedAt: message.createdAt,
-      });
-    }
-    return message;
-  }
-
-  private chatPath(chatId: string): string {
-    return join(this.rootDir, "chats", `${encodeFileSegment(chatId)}.json`);
-  }
-
-  private messagesPath(chatId: string): string {
-    return join(this.rootDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
-  }
-
-  private async listJsonFiles(dir: string): Promise<string[]> {
-    try {
-      return (await readdir(dir)).filter((fileName) => fileName.endsWith(".json"));
-    } catch (error) {
-      if (isNotFoundError(error)) return [];
-      throw error;
-    }
-  }
-
-  private async readJson<T>(path: string): Promise<T | undefined> {
-    try {
-      return JSON.parse(await readFile(path, "utf8")) as T;
-    } catch (error) {
-      if (isNotFoundError(error)) return undefined;
-      throw error;
-    }
-  }
-
-  private async writeJson(path: string, value: unknown): Promise<void> {
-    await mkdir(dirname(path), { recursive: true });
-    const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await rename(tmpPath, path);
   }
 }
 

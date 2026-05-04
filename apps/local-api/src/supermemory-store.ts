@@ -16,9 +16,13 @@ import type {
   AppendRunEventInput,
   BranchRecord,
   CreateBranchInput,
+  CreateDeepResearchChatInput,
+  CreateDeepResearchMessageInput,
   CreateRunInput,
   CreateRouterChatInput,
   CreateRouterMessageInput,
+  DeepResearchChatRecord,
+  DeepResearchMessageRecord,
   KairosLocalStore,
   RouterChatRecord,
   RouterMessageRecord,
@@ -237,6 +241,34 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       customId: `kairos:router_message:${message.id}`,
     });
     return message;
+  }
+
+  listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
+    return this.store.listDeepResearchChats();
+  }
+
+  createDeepResearchChat(
+    input?: CreateDeepResearchChatInput,
+  ): Promise<DeepResearchChatRecord> {
+    return this.store.createDeepResearchChat(input);
+  }
+
+  getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
+    return this.store.getDeepResearchChat(id);
+  }
+
+  deleteDeepResearchChat(id: string): Promise<boolean> {
+    return this.store.deleteDeepResearchChat(id);
+  }
+
+  listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
+    return this.store.listDeepResearchMessages(chatId);
+  }
+
+  createDeepResearchMessage(
+    input: CreateDeepResearchMessageInput,
+  ): Promise<DeepResearchMessageRecord> {
+    return this.store.createDeepResearchMessage(input);
   }
 
   listMessages(): Promise<TradingMessage[]> {
