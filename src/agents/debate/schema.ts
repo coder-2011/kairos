@@ -18,6 +18,18 @@ export const debateDecisionActionSchema = z.enum([
   "no_action",
 ]);
 
+export const debateDecisionSizingSchema = z
+  .object({
+    qty: z.number().positive().optional(),
+    notional: z.number().positive().optional(),
+    rationale: z.string().min(1),
+  })
+  .strict()
+  .refine((sizing) => sizing.qty !== undefined || sizing.notional !== undefined, {
+    message: "Sizing requires qty or notional.",
+    path: ["qty"],
+  });
+
 export const debateStartInputSchema = z
   .object({
     summary: z.string().min(1),
@@ -47,7 +59,17 @@ export const debateDecisionSchema = z
     summary: z.string().min(1),
     action: debateDecisionActionSchema,
     confidence: z.number().min(0).max(1),
+    sizing: debateDecisionSizingSchema.optional(),
     citations: z.array(citationSchema),
+  })
+  .refine((decision) => {
+    if (decision.action === "buy" || decision.action === "sell") {
+      return decision.sizing !== undefined;
+    }
+    return decision.sizing === undefined;
+  }, {
+    message: "Buy and sell decisions require sizing; non-trade actions must not include sizing.",
+    path: ["sizing"],
   })
   .strict();
 

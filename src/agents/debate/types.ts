@@ -46,6 +46,11 @@ export type DebateDecision = {
   summary: string;
   action: "buy" | "sell" | "watch" | "research" | "no_action";
   confidence: number;
+  sizing?: {
+    qty?: number;
+    notional?: number;
+    rationale: string;
+  };
   citations: Citation[];
 };
 

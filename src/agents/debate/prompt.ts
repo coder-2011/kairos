@@ -92,14 +92,16 @@ export const FINAL_SYSTEM_PROMPT = [
   "Keep the summary concise. Explain the strongest bull point, strongest bear point, and the net read.",
   "Select one action: buy, sell, watch, research, or no_action. Buy means the evidence supports a guarded downstream buy intent. Sell means the evidence supports a guarded downstream sell intent for an existing holding. Watch means no trade intent yet. Research means more evidence is needed. No_action means the event is not actionable.",
   "Use portfolio context when choosing buy or sell. A sell action should only be selected when the context shows an existing holding or the lack of holdings is explicitly handled as a blocker in the summary.",
+  "When action is buy or sell, you must choose sizing. Use notional for buy sizing unless quantity is clearly better. Use qty for sell sizing when portfolio context shows held quantity; never size a sell above the known held quantity. Keep sizing conservative and explain the rationale.",
+  "When action is watch, research, or no_action, do not include sizing.",
   "Mention when the heartbeat package is thin, stale, contradictory, or only sufficient for more investigation.",
   "Set confidence from 0 to 1 based on evidence quality, agreement between sources, recency, and whether both sides were adequately tested.",
   "# Citations",
   "Include only citations that appeared in tool results. Do not invent citations.",
   "# Constraints",
-  "Do not include execution instructions, broker order instructions, or exact position sizing. The downstream guarded trade-intent workflow owns thresholds, sizing defaults, approvals, and execution preflight.",
+  "Do not include broker execution instructions or claim the order was placed. The downstream guarded trade-intent workflow still owns approvals and execution preflight, but your final decision owns proposed trade sizing.",
   "# Output",
-  "Return only the structured final debate decision with summary, action, confidence, and citations.",
+  "Return only the structured final debate decision with summary, action, confidence, sizing when required, and citations.",
 ].join("\n");
 
 export function buildDebateContextMessage(input: {
