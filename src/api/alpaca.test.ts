@@ -252,6 +252,44 @@ describe("AlpacaTradingClient", () => {
     );
   });
 
+  it("returns all active tradable symbols without snapshots when quote enrichment is disabled", async () => {
+    const requests: Request[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+
+      if (request.url.endsWith("/v2/assets?status=active&asset_class=us_equity")) {
+        return jsonResponse(
+          Array.from({ length: 1200 }, (_, index) => ({
+            symbol: `T${index}`,
+            name: `Ticker ${index}`,
+            exchange: "NASDAQ",
+            tradable: true,
+            status: "active",
+            asset_class: "us_equity",
+          })),
+        );
+      }
+
+      throw new Error(`Unexpected URL ${request.url}`);
+    };
+
+    const client = new AlpacaTradingClient({
+      apiKey: "paper-key",
+      secretKey: "paper-secret",
+      baseUrl: "http://alpaca.test",
+      marketDataBaseUrl: "https://data.alpaca.test",
+      fetchImpl,
+      retryAttempts: 1,
+    });
+
+    const symbols = await client.listMarketSymbols({ includeQuotes: false });
+
+    expect(symbols).toHaveLength(1200);
+    expect(symbols[0]).toMatchObject({ symbol: "T0", source: "alpaca" });
+    expect(requests).toHaveLength(1);
+  });
+
   it("provides heartbeat price, volume, and movement seeds from Alpaca snapshots", async () => {
     const client = {
       getStockSnapshots: async (symbols: string[]) => ({
