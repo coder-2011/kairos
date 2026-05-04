@@ -62,7 +62,6 @@ export type ExaSearchRequest = {
     | "news"
     | "company"
     | "research paper"
-    | "pdf"
     | "personal site"
     | "financial report"
     | "people";
@@ -163,6 +162,8 @@ export type ExaSdkClient = {
 export class ExaApi {
   private readonly client: ExaSdkClient;
   private readonly retryAttempts: number;
+  private readonly apiKey: string;
+  private readonly useSdkSearch: boolean;
 
   constructor(config: ExaConfig = {}) {
     const apiKey = config.apiKey ?? process.env.EXA_API_KEY;
@@ -172,13 +173,21 @@ export class ExaApi {
 
     this.client = config.client ?? new Exa(apiKey) as ExaSdkClient;
     this.retryAttempts = config.retryAttempts ?? 3;
+    this.apiKey = apiKey ?? "";
+    this.useSdkSearch = Boolean(config.client);
   }
 
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
     const category = normalizeExaCategory(request.category);
     const normalizedRequest = buildSearchRequest(request, category);
     const data = await withRetry(
-      () => this.client.search(request.query, normalizedRequest),
+      () =>
+        this.useSdkSearch
+          ? this.client.search(request.query, normalizedRequest)
+          : this.requestJson("/search", {
+          query: request.query,
+          ...normalizedRequest,
+        }),
       { attempts: this.retryAttempts },
     );
 
@@ -233,12 +242,45 @@ export class ExaApi {
       results: "contents" in data ? data.contents : data.results,
     };
   }
+
+  private async requestJson<T>(path: "/search", request: Record<string, unknown>): Promise<T> {
+    const response = await fetch(`https://api.exa.ai${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.apiKey,
+      },
+      body: JSON.stringify(request),
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      const truncated = responseText.slice(0, 1200);
+      throw new Error(
+        `Exa API ${path} returned ${response.status}: ${truncated}`,
+      );
+    }
+
+    try {
+      return JSON.parse(responseText) as T;
+    } catch (error) {
+      throw new Error(
+        `Exa API ${path} returned non-JSON response: ${error instanceof Error ? error.message : String(error)}. ` +
+          `Body preview: ${responseText.slice(0, 1200)}`,
+      );
+    }
+  }
 }
 
 function buildSearchRequest(
   request: ExaSearchRequest,
   category?: ExaSearchRequest["category"],
 ): Record<string, unknown> {
+  const normalizedIncludeDomains = category === "people"
+    ? sanitizePeopleIncludeDomains(request.includeDomains)
+    : request.includeDomains;
+  const supportsRestrictedFilters = category !== "company" && category !== "people";
+
   const defaultContents: ExaSearchContents = {
     highlights: {
       query: "market-moving facts, dates, numbers, and management quotes",
@@ -255,12 +297,12 @@ function buildSearchRequest(
     stream: request.stream,
     ...(category ? { category } : {}),
     userLocation: request.userLocation,
-    includeDomains: request.includeDomains,
-    excludeDomains: request.excludeDomains,
-    startPublishedDate: request.startPublishedDate,
-    endPublishedDate: request.endPublishedDate,
-    startCrawlDate: request.startCrawlDate,
-    endCrawlDate: request.endCrawlDate,
+    includeDomains: normalizedIncludeDomains,
+    excludeDomains: supportsRestrictedFilters ? request.excludeDomains : undefined,
+    startPublishedDate: supportsRestrictedFilters ? request.startPublishedDate : undefined,
+    endPublishedDate: supportsRestrictedFilters ? request.endPublishedDate : undefined,
+    startCrawlDate: supportsRestrictedFilters ? request.startCrawlDate : undefined,
+    endCrawlDate: supportsRestrictedFilters ? request.endCrawlDate : undefined,
     moderation: request.moderation,
     additionalQueries: request.additionalQueries,
     systemPrompt: request.systemPrompt,
@@ -307,4 +349,9 @@ function normalizeExaCategory(
   if (!category) return undefined;
   if (category === "github" || category === "tweet") return undefined;
   return category;
+}
+
+function sanitizePeopleIncludeDomains(includeDomains?: string[]): string[] | undefined {
+  if (!includeDomains?.length) return includeDomains;
+  return includeDomains.filter((domain) => domain.endsWith("linkedin.com"));
 }
