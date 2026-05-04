@@ -46,17 +46,12 @@ export async function preflightOrder(
   config: TradingConfig = {},
 ): Promise<PaperOrderPreflightResult> {
   const reasons: string[] = [];
-  const notional = estimatedNotional(intent);
 
   if (intent.mode !== "paper") {
     reasons.push("Only broker-backed trade intents can be submitted.");
   }
   if (config.allowedSymbols && !config.allowedSymbols.includes(intent.symbol)) {
     reasons.push(`${intent.symbol} is not in the configured allowedSymbols list.`);
-  }
-  const maxOrderNotional = config.maxNotionalPerOrder ?? config.maxNotionalUsd;
-  if (maxOrderNotional !== undefined && notional > maxOrderNotional) {
-    reasons.push(`Intent exceeds configured max order notional ${maxOrderNotional}.`);
   }
   if (config.allowedOrderType !== undefined && intent.orderType !== config.allowedOrderType) {
     reasons.push(`Intent order type ${intent.orderType} does not match configured allowedOrderType ${config.allowedOrderType}.`);
@@ -67,6 +62,12 @@ export async function preflightOrder(
     broker.getAsset(intent.symbol),
     broker.getPortfolioSnapshot(),
   ]);
+  const position = findPortfolioPosition(portfolio, intent.symbol);
+  const notional = estimatedNotional(intent, position?.currentPrice);
+  const maxOrderNotional = config.maxNotionalPerOrder ?? config.maxNotionalUsd;
+  if (maxOrderNotional !== undefined && notional > maxOrderNotional) {
+    reasons.push(`Intent exceeds configured max order notional ${maxOrderNotional}.`);
+  }
 
   if (clock.is_open !== true && config.allowQueuedOrdersWhenMarketClosed !== true) {
     reasons.push(clock.next_open
@@ -84,7 +85,6 @@ export async function preflightOrder(
     }
     const maxPositionNotional = config.maxOpenPositionNotionalPerSymbol;
     if (maxPositionNotional !== undefined) {
-      const position = findPortfolioPosition(portfolio, intent.symbol);
       const currentPositionNotional = estimatedPositionNotional(position);
       if (currentPositionNotional + notional > maxPositionNotional) {
         reasons.push(
@@ -94,7 +94,6 @@ export async function preflightOrder(
     }
   }
   if (intent.side === "sell") {
-    const position = findPortfolioPosition(portfolio, intent.symbol);
     const heldQty = position?.qty ?? 0;
     const requestedQty = estimatedSellQuantity(intent, position?.currentPrice);
     if (heldQty <= 0) {
@@ -173,10 +172,16 @@ export async function submitOrder(
 
 export const submitPaperOrder = submitOrder;
 
-function estimatedNotional(intent: TradeIntent): number {
+function estimatedNotional(
+  intent: TradeIntent,
+  currentPrice: number | undefined,
+): number {
   if (intent.notional !== undefined) return intent.notional;
   if (intent.qty !== undefined && intent.limitPrice !== undefined) {
     return intent.qty * intent.limitPrice;
+  }
+  if (intent.qty !== undefined && currentPrice !== undefined && currentPrice > 0) {
+    return intent.qty * currentPrice;
   }
   return 0;
 }

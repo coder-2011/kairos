@@ -58,6 +58,39 @@ describe("preflightPaperOrder", () => {
     );
   });
 
+  it("uses current price to enforce max holding for qty-based buys", async () => {
+    const result = await preflightPaperOrder(
+      createMockBroker({
+        portfolio: {
+          ...basePortfolioSnapshot(),
+          positions: [{ symbol: "PLTR", qty: 10, marketValue: 250, currentPrice: 25 }],
+        },
+      }),
+      createIntent({ qty: 12, notional: undefined }),
+      { maxOpenPositionNotionalPerSymbol: 500 },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.reasons).toContain(
+      "Intent would exceed configured max open position notional 500 for PLTR.",
+    );
+  });
+
+  it("uses current price to verify notional-based sells against held quantity", async () => {
+    const result = await preflightPaperOrder(
+      createMockBroker({
+        portfolio: {
+          ...basePortfolioSnapshot(),
+          positions: [{ symbol: "PLTR", qty: 10, marketValue: 250, currentPrice: 25 }],
+        },
+      }),
+      createIntent({ side: "sell", notional: 300 }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.reasons).toContain("Sell quantity 12 exceeds known PLTR position 10.");
+  });
+
 });
 
 function createIntent(overrides: Partial<CreateTradeIntentInput> = {}) {
