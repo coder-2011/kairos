@@ -810,20 +810,24 @@ function createDeepResearchTools(
       },
     }),
     exa_search: tracedTool(traces, "exa_search", {
-      description: "Search current public web and news sources. Use this for public companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent facts.",
+      description: "Search current public web and news sources. Use this for public companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent facts. When the user gives a date window, include startPublishedDate and endPublishedDate in YYYY-MM-DD format.",
       inputSchema: z.object({
         query: z.string().min(1),
         category: z
           .enum(["news", "company", "research paper", "personal site", "financial report", "people"])
           .optional(),
         numResults: z.number().int().min(1).max(10).optional(),
+        startPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        endPublishedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }),
-      execute: async ({ query, category, numResults }) => {
+      execute: async ({ query, category, numResults, startPublishedDate, endPublishedDate }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
         return exa.search({
           query,
           category: normalizeExaCategory(category),
           numResults,
+          startPublishedDate,
+          endPublishedDate,
         });
       },
     }),
@@ -983,9 +987,11 @@ function summarizeExaSearchOutput(result: Awaited<ReturnType<ExaApi["deepResearc
   return "No synthesis output was produced for this deep research query.";
 }
 
-function deepResearchSystemPrompt(): string {
+function deepResearchSystemPrompt(now: Date = new Date()): string {
+  const today = now.toISOString().slice(0, 10);
   return [
     "You are Kairos Deep Research, an isolated research agent for market, product, technical, and memory-backed investigation.",
+    `Current date: ${today}. Resolve relative date windows, such as "last 30 days", from this date. Do not infer the current date from search results.`,
     "Every run receives a Kairos memory preflight when Supermemory is configured. Treat that memory as important user/project context and use it to steer follow-up research.",
     "Use Supermemory again with targeted queries when prior user context, remembered companies, saved notes, laws, branches, or past decisions could change the answer.",
     "For public-market, public-company, supply-chain, technical ecosystem, product, current-event, or investment-research questions, use public source tools first: exa_research, exa_search, exa_contents, and information_agent.",
