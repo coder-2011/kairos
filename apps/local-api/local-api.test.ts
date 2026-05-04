@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createLocalApi,
   createLocalApiHandler,
@@ -16,6 +16,7 @@ import type { TradingSmsNotifier } from "../../src/notifications/index.js";
 import type { SupermemoryMirror, SupermemoryMirrorRecord } from "../../src/global/index.js";
 
 const baseUrl = "http://kairos.local";
+const originalAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
 
 function marketSymbol(symbol: string, name: string) {
   return {
@@ -28,6 +29,18 @@ function marketSymbol(symbol: string, name: string) {
 }
 
 describe("local API handler", () => {
+  beforeEach(() => {
+    process.env.KAIROS_AUTH_ENABLED = "false";
+  });
+
+  afterEach(() => {
+    if (originalAuthEnabled === undefined) {
+      delete process.env.KAIROS_AUTH_ENABLED;
+    } else {
+      process.env.KAIROS_AUTH_ENABLED = originalAuthEnabled;
+    }
+  });
+
   it("responds to health checks", async () => {
     const { requestJson } = makeClient();
 
