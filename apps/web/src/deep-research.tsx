@@ -126,6 +126,8 @@ export function DeepResearchView() {
     const submittedAttachments = attachments;
     const submittedReasoningEffort =
       reasoningEffort === "auto" ? undefined : reasoningEffort;
+    let pendingUserMessageId = "";
+    let pendingAssistantMessageId = "";
     setRunning(true);
     setError("");
     try {
@@ -144,6 +146,7 @@ export function DeepResearchView() {
         text: submittedText,
         attachments: submittedAttachments,
       };
+      pendingUserMessageId = pendingUserMessage.id;
       setMessages((current) => [...current, pendingUserMessage]);
 
       const pendingAssistantMessage: DeepResearchMessageRecord = {
@@ -157,6 +160,7 @@ export function DeepResearchView() {
         reasoning: "",
         toolCalls: [],
       };
+      pendingAssistantMessageId = pendingAssistantMessage.id;
       let assistantDraftText = "";
       let assistantDraftReasoning = "";
       setMessages((current) => [...current, pendingAssistantMessage]);
@@ -274,8 +278,8 @@ export function DeepResearchView() {
       setMessages((current) =>
         current.filter(
           (message) =>
-            message.id !== pendingUserMessage.id &&
-            message.id !== pendingAssistantMessage.id,
+            message.id !== pendingUserMessageId &&
+            message.id !== pendingAssistantMessageId,
         ),
       );
       setError(sendError instanceof Error ? sendError.message : "Deep Research failed.");
@@ -381,7 +385,16 @@ export function DeepResearchView() {
             </div>
           ) : (
             messages.map((message) => (
-              <DeepResearchMessage message={message} key={message.id} />
+              <DeepResearchMessage
+                isProcessing={
+                  running &&
+                  message.role === "assistant" &&
+                  message.id.startsWith("pending-assistant-") &&
+                  !message.text?.trim()
+                }
+                message={message}
+                key={message.id}
+              />
             ))
           )}
         </div>
@@ -394,7 +407,7 @@ export function DeepResearchView() {
         )}
 
         <footer
-          className={`deep-research-composer ${dragActive ? "drag-active" : ""}`}
+          className={`deep-research-composer ${dragActive ? "drag-active" : ""} ${running ? "processing" : ""}`}
           onDragEnter={(event) => {
             event.preventDefault();
             setDragActive(true);
@@ -638,7 +651,13 @@ const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> 
   }),
 } as const;
 
-function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }) {
+function DeepResearchMessage({
+  isProcessing = false,
+  message,
+}: {
+  isProcessing?: boolean;
+  message: DeepResearchMessageRecord;
+}) {
   const hasWorkflow =
     message.role === "assistant" &&
     ((typeof message.reasoning === "string" && message.reasoning.trim()) ||
@@ -659,7 +678,7 @@ function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }
         <b>{message.role === "user" ? "YOU" : "DEEP RESEARCH"}</b>
         <span>{assistantMeta}</span>
       </div>
-      <p>{message.text}</p>
+      {isProcessing ? <DeepResearchProcessing /> : <p>{message.text}</p>}
       {message.attachments && message.attachments.length > 0 && (
         <div className="deep-message-images">
           {message.attachments.map((attachment) => (
@@ -701,6 +720,20 @@ function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }
         </div>
       ) : null}
     </article>
+  );
+}
+
+function DeepResearchProcessing() {
+  return (
+    <div className="deep-research-processing" role="status" aria-live="polite">
+      <div className="deep-research-processing-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+      <span>Researching sources and building an answer</span>
+    </div>
   );
 }
 
