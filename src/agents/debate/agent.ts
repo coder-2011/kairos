@@ -231,6 +231,12 @@ function summarizePortfolioContext(
   const positions = Array.isArray(portfolioContext.positions)
     ? portfolioContext.positions
     : [];
+  const recentTradeIntents = Array.isArray(portfolioContext.recentTradeIntents)
+    ? portfolioContext.recentTradeIntents
+    : [];
+  const recentBrokerOrders = Array.isArray(portfolioContext.recentBrokerOrders)
+    ? portfolioContext.recentBrokerOrders
+    : [];
   const accountParts = [
     formatNumberField("cash", account?.cash),
     formatNumberField("buyingPower", account?.buyingPower),
@@ -250,6 +256,33 @@ function summarizePortfolioContext(
       .filter(Boolean)
       .join(" ");
   });
+  const tradeIntentLines = recentTradeIntents.slice(0, 8).map((intent) => {
+    const record = readRecord(intent);
+    return [
+      record?.symbol,
+      record?.side,
+      record?.status,
+      formatNumberField("confidence", record?.confidence),
+      formatNumberField("notional", record?.notional),
+      record?.createdAt,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
+  const brokerOrderLines = recentBrokerOrders.slice(0, 8).map((order) => {
+    const record = readRecord(order);
+    return [
+      record?.symbol,
+      record?.side,
+      record?.status,
+      record?.type,
+      formatNumberField("qty", record?.qty),
+      formatNumberField("notional", record?.notional),
+      record?.submittedAt ?? record?.createdAt,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
   const capturedAt =
     typeof portfolioContext.capturedAt === "string"
       ? `capturedAt=${portfolioContext.capturedAt}`
@@ -262,6 +295,12 @@ function summarizePortfolioContext(
     positionLines.length > 0
       ? `positions\n${positionLines.join("\n")}`
       : "positions none reported",
+    tradeIntentLines.length > 0
+      ? `recent trade intents\n${tradeIntentLines.join("\n")}`
+      : "recent trade intents none reported",
+    brokerOrderLines.length > 0
+      ? `recent broker orders\n${brokerOrderLines.join("\n")}`
+      : "recent broker orders none reported",
   ]
     .filter(Boolean)
     .join("\n");

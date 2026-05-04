@@ -839,9 +839,15 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
         ? escalation.branchId
         : undefined;
   const branch = branchId ? await context.store.getBranch(branchId) : undefined;
-  const portfolioContext = compactPortfolioContext(
-    await context.store.latestPortfolioSnapshot(),
-  );
+  const [portfolioSnapshot, tradeIntents, brokerOrders] = await Promise.all([
+    context.store.latestPortfolioSnapshot(),
+    context.store.listTradeIntents(),
+    context.store.listBrokerOrders(),
+  ]);
+  const portfolioContext = compactPortfolioContext(portfolioSnapshot, {
+    brokerOrders,
+    tradeIntents,
+  });
   const humanInterjections = mergeHumanInterjections(
     readHumanInterjections(payload.humanInterjections),
     sourceRunId
@@ -2512,6 +2518,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
   const escalation = readJsonRecord(input.payload.escalation);
   const branch = input.branch;
   const assets = branch?.config?.assets ?? [];
+  const researchInstruction = branch?.config?.research?.exaInstruction?.trim() || undefined;
   const summary = [
     firstNonEmptyString(
       readString(input.payload.summary),
@@ -2522,6 +2529,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
     branch ? `Branch: ${branch.name} (${branch.id})` : undefined,
     branch?.description ? `Branch description: ${branch.description}` : undefined,
     assets.length > 0 ? `Assets: ${assets.join(", ")}` : undefined,
+    researchInstruction ? `Search and deep research instruction: ${researchInstruction}` : undefined,
   ].filter(Boolean).join("\n");
 
   return {
@@ -2531,6 +2539,7 @@ function createLocalDebateStartInput(input: DebateCreateInput): DebateStartInput
       lawId: branch?.lawId,
       law: branch?.law,
       assets,
+      researchInstruction,
       escalation: escalation ?? null,
       input: input.payload,
     },
@@ -2665,36 +2674,91 @@ function heartbeatEnabledTools(
 
 function compactPortfolioContext(
   snapshot: PortfolioSnapshot | undefined,
+  history: {
+    brokerOrders?: unknown[];
+    tradeIntents?: unknown[];
+  } = {},
 ): JsonRecord | undefined {
-  if (!snapshot) return undefined;
+  const recentTradeIntents = (history.tradeIntents ?? [])
+    .slice(0, 8)
+    .map((intent) =>
+      compactRecordFields(intent, [
+        "id",
+        "symbol",
+        "side",
+        "status",
+        "confidence",
+        "notional",
+        "qty",
+        "orderType",
+        "createdAt",
+        "updatedAt",
+      ]),
+    );
+  const recentBrokerOrders = (history.brokerOrders ?? [])
+    .slice(0, 8)
+    .map((order) =>
+      compactRecordFields(order, [
+        "id",
+        "symbol",
+        "side",
+        "status",
+        "type",
+        "qty",
+        "notional",
+        "createdAt",
+        "submittedAt",
+      ]),
+    );
+
+  if (!snapshot && recentTradeIntents.length === 0 && recentBrokerOrders.length === 0) {
+    return undefined;
+  }
 
   return {
-    capturedAt: snapshot.capturedAt,
-    provider: snapshot.provider,
-    environment: snapshot.environment,
-    account: {
-      status: snapshot.account.status,
-      cash: snapshot.account.cash,
-      buyingPower: snapshot.account.buyingPower,
-      portfolioValue: snapshot.account.portfolioValue,
-      equity: snapshot.account.equity,
-      unrealizedPl: snapshot.account.unrealizedPl,
-      daytradeCount: snapshot.account.daytradeCount,
-      patternDayTrader: snapshot.account.patternDayTrader,
-      tradingBlocked: snapshot.account.tradingBlocked,
-      accountBlocked: snapshot.account.accountBlocked,
-    },
-    positions: snapshot.positions.map((position) => ({
-      symbol: position.symbol,
-      qty: position.qty,
-      marketValue: position.marketValue,
-      costBasis: position.costBasis,
-      unrealizedPl: position.unrealizedPl,
-      unrealizedPlpc: position.unrealizedPlpc,
-      currentPrice: position.currentPrice,
-      side: position.side,
-    })),
+    ...(snapshot
+      ? {
+          capturedAt: snapshot.capturedAt,
+          provider: snapshot.provider,
+          environment: snapshot.environment,
+          account: {
+            status: snapshot.account.status,
+            cash: snapshot.account.cash,
+            buyingPower: snapshot.account.buyingPower,
+            portfolioValue: snapshot.account.portfolioValue,
+            equity: snapshot.account.equity,
+            unrealizedPl: snapshot.account.unrealizedPl,
+            daytradeCount: snapshot.account.daytradeCount,
+            patternDayTrader: snapshot.account.patternDayTrader,
+            tradingBlocked: snapshot.account.tradingBlocked,
+            accountBlocked: snapshot.account.accountBlocked,
+          },
+          positions: snapshot.positions.map((position) => ({
+            symbol: position.symbol,
+            qty: position.qty,
+            marketValue: position.marketValue,
+            costBasis: position.costBasis,
+            unrealizedPl: position.unrealizedPl,
+            unrealizedPlpc: position.unrealizedPlpc,
+            currentPrice: position.currentPrice,
+            side: position.side,
+          })),
+        }
+      : {}),
+    recentTradeIntents,
+    recentBrokerOrders,
   };
+}
+
+function compactRecordFields(record: unknown, fields: string[]): JsonRecord {
+  const source = readJsonRecord(record) ?? {};
+  return Object.fromEntries(
+    fields.flatMap((field) =>
+      source[field] === undefined || source[field] === null
+        ? []
+        : [[field, source[field]]],
+    ),
+  );
 }
 
 function findPortfolioPosition(
