@@ -185,16 +185,16 @@ const informationToolFields: Array<{
 }));
 
 const heartbeatToolFields: Array<{ label: string; key: HeartbeatToolName; purpose: string }> = [
-  { label: "Supermemory Profile", key: "supermemory_profile", purpose: "Retrieves branch-specific user profile context and durable preferences." },
-  { label: "Supermemory Search", key: "supermemory_search", purpose: "Searches branch memory for prior observations and duplicate context." },
-  { label: "Exa News Search", key: "exa_news_search", purpose: "Finds recent web/news evidence relevant to the branch law." },
+  { label: "Recent News Search", key: "exa_news_search", purpose: "Lets the heartbeat check fresh web/news evidence before deciding whether to escalate." },
+  { label: "Memory Search", key: "supermemory_search", purpose: "Searches prior branch observations, human corrections, and false-positive history." },
+  { label: "Memory Profile", key: "supermemory_profile", purpose: "Reads durable branch/user preferences, recurring thesis context, and watchlist notes." },
 ];
 
 const debateToolFields: Array<{ label: string; key: DebateConfigToolName; purpose: string }> = [
   { label: "Exa Search", key: "exa_search", purpose: "Lets debate agents search current web evidence." },
   { label: "Deep Research", key: "exa_research", purpose: "Runs deeper Exa research for higher-effort evidence gathering." },
   { label: "Information Agent", key: "information", purpose: "Delegates targeted source and market-data lookup to the information workflow." },
-  { label: "Portfolio", key: "portfolio", purpose: "Injects current paper portfolio context into debate reasoning." },
+  { label: "Portfolio Context", key: "portfolio", purpose: "Gives debate agents current paper account, cash, buying power, positions, and cached trade context when available." },
 ];
 
 const allowedOrderTypeOptions: AllowedOrderType[] = ["market", "limit"];
@@ -2793,10 +2793,6 @@ function BranchConfig({
         </div>
       </div>
       <div className="config-body" key={draftVersion}>
-        <CapabilityPreflightPanel
-          loadState={capabilityLoadState}
-          preflight={capabilityPreflight}
-        />
         <div className="config-grid">
           <FieldLabel label="Branch Name">
             <input
@@ -2878,7 +2874,10 @@ function BranchConfig({
           <div className="trading-grid">
             <div className="trading-section full">
               <div className="field-label">Mode</div>
-              <FieldLabel label="Action">
+              <FieldLabel
+                hint="Enable Trading creates paper trade intents. Notify records/sends a human notification. Both does both. Auto-submit orders stay off."
+                label="Action"
+              >
                 <select
                   onChange={(event) => {
                     const nextMode = event.target.value as TradingActionMode;
@@ -2909,7 +2908,10 @@ function BranchConfig({
             <div className="trading-section full">
               <div className="field-label">Execution</div>
               <div className="trading-fields-row">
-                <FieldLabel label="Symbols">
+                <FieldLabel
+                  hint="US listed equities and ETFs from Nasdaq Trader listed-symbol files, including Nasdaq and other US exchanges, with Yahoo quote enrichment."
+                  label="Symbols"
+                >
                   <TradeSymbolDropdown
                     assets={branchAssets}
                     catalog={tradeSymbols}
@@ -3076,156 +3078,174 @@ function BranchConfig({
             </p>
           )}
         </div>
-        <div className="config-grid">
-          <FieldLabel label="Information Agent Tools">
-            <div className="tool-picker">
-              {informationToolFields.map((tool) => (
-                <label key={tool.key}>
-                  <input
-                    checked={config.tools?.information?.[tool.key]?.enabled ?? true}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          information: {
-                            ...current.tools?.information,
-                            [tool.key]: {
-                              ...current.tools?.information?.[tool.key],
-                              enabled: event.target.checked,
+        <section>
+          <div className="field-label">TOOL ACCESS</div>
+          <p className="section-note">
+            Enabled means the agent may call the tool. Required means a tool failure should fail the run instead of silently degrading.
+          </p>
+          <div className="config-grid">
+            <FieldLabel label="Heartbeat Tools">
+              <div className="tool-picker">
+                {heartbeatToolFields.map((tool) => (
+                  <label key={tool.key}>
+                    <input
+                      checked={config.tools?.heartbeat?.[tool.key]?.enabled ?? true}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            heartbeat: {
+                              ...current.tools?.heartbeat,
+                              [tool.key]: {
+                                ...current.tools?.heartbeat?.[tool.key],
+                                enabled: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>{toolAccessLabel(tool)}</span>
-                  <input
-                    checked={config.tools?.information?.[tool.key]?.required ?? false}
-                    disabled={config.tools?.information?.[tool.key]?.enabled === false}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          information: {
-                            ...current.tools?.information,
-                            [tool.key]: {
-                              ...current.tools?.information?.[tool.key],
-                              required: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span className="tool-copy">
+                      <b>{tool.label}</b>
+                      <small>{tool.purpose}</small>
+                    </span>
+                    <input
+                      checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
+                      disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            heartbeat: {
+                              ...current.tools?.heartbeat,
+                              [tool.key]: {
+                                ...current.tools?.heartbeat?.[tool.key],
+                                required: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <em>Required</em>
-                </label>
-              ))}
-            </div>
-          </FieldLabel>
-          <FieldLabel label="Debate Tools">
-            <div className="tool-picker">
-              {debateToolFields.map((tool) => (
-                <label key={tool.key}>
-                  <input
-                    checked={config.tools?.debate?.[tool.key]?.enabled ?? true}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          debate: {
-                            ...current.tools?.debate,
-                            [tool.key]: {
-                              ...current.tools?.debate?.[tool.key],
-                              enabled: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <em>Required</em>
+                  </label>
+                ))}
+              </div>
+            </FieldLabel>
+            <FieldLabel label="Debate Tools">
+              <div className="tool-picker">
+                {debateToolFields.map((tool) => (
+                  <label key={tool.key}>
+                    <input
+                      checked={config.tools?.debate?.[tool.key]?.enabled ?? true}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            debate: {
+                              ...current.tools?.debate,
+                              [tool.key]: {
+                                ...current.tools?.debate?.[tool.key],
+                                enabled: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>{tool.label}</span>
-                  <input
-                    checked={config.tools?.debate?.[tool.key]?.required ?? false}
-                    disabled={config.tools?.debate?.[tool.key]?.enabled === false}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          debate: {
-                            ...current.tools?.debate,
-                            [tool.key]: {
-                              ...current.tools?.debate?.[tool.key],
-                              required: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span className="tool-copy">
+                      <b>{tool.label}</b>
+                      <small>{tool.purpose}</small>
+                    </span>
+                    <input
+                      checked={config.tools?.debate?.[tool.key]?.required ?? false}
+                      disabled={config.tools?.debate?.[tool.key]?.enabled === false}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            debate: {
+                              ...current.tools?.debate,
+                              [tool.key]: {
+                                ...current.tools?.debate?.[tool.key],
+                                required: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <em>Required</em>
-                </label>
-              ))}
-            </div>
-          </FieldLabel>
-          <FieldLabel label="Heartbeat Tools">
-            <div className="tool-picker">
-              {heartbeatToolFields.map((tool) => (
-                <label key={tool.key}>
-                  <input
-                    checked={config.tools?.heartbeat?.[tool.key]?.enabled ?? true}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          heartbeat: {
-                            ...current.tools?.heartbeat,
-                            [tool.key]: {
-                              ...current.tools?.heartbeat?.[tool.key],
-                              enabled: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <em>Required</em>
+                  </label>
+                ))}
+              </div>
+            </FieldLabel>
+            <FieldLabel label="Information Agent Tools">
+              <div className="tool-picker tall">
+                {informationToolFields.map((tool) => (
+                  <label key={tool.key}>
+                    <input
+                      checked={config.tools?.information?.[tool.key]?.enabled ?? true}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            information: {
+                              ...current.tools?.information,
+                              [tool.key]: {
+                                ...current.tools?.information?.[tool.key],
+                                enabled: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>{tool.label}</span>
-                  <input
-                    checked={config.tools?.heartbeat?.[tool.key]?.required ?? false}
-                    disabled={config.tools?.heartbeat?.[tool.key]?.enabled === false}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        tools: {
-                          ...current.tools,
-                          heartbeat: {
-                            ...current.tools?.heartbeat,
-                            [tool.key]: {
-                              ...current.tools?.heartbeat?.[tool.key],
-                              required: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span className="tool-copy">
+                      <b>{toolAccessLabel(tool)}</b>
+                      <small>{tool.purpose}</small>
+                    </span>
+                    <input
+                      checked={config.tools?.information?.[tool.key]?.required ?? false}
+                      disabled={config.tools?.information?.[tool.key]?.enabled === false}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          tools: {
+                            ...current.tools,
+                            information: {
+                              ...current.tools?.information,
+                              [tool.key]: {
+                                ...current.tools?.information?.[tool.key],
+                                required: event.target.checked,
+                              },
                             },
                           },
-                        },
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <em>Required</em>
-                </label>
-              ))}
-            </div>
-          </FieldLabel>
-        </div>
-        <FieldLabel label="Search & Deep Research Instruction">
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <em>Required</em>
+                  </label>
+                ))}
+              </div>
+            </FieldLabel>
+          </div>
+        </section>
+        <FieldLabel
+          hint="Saved on this branch and injected into debate context. Use it for source preferences, query angles, ignored topics, required evidence, and how deep research should frame this branch."
+          label="Search & Deep Research Instruction"
+        >
           <textarea
             onChange={(event) =>
               setConfig((current) => ({
@@ -3236,7 +3256,7 @@ function BranchConfig({
                 },
               }))
             }
-            placeholder="Research notes for this branch."
+            placeholder="Example: prioritize primary filings and customer evidence; ignore generic AI hype; compare against NVDA/AMD capex sensitivity; look for contradiction before escalation."
             value={config.research?.exaInstruction ?? ""}
           />
         </FieldLabel>
@@ -3458,9 +3478,9 @@ function TradeSymbolDropdown({
         <input
           className="multi-select-search"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Nasdaq symbols"
-          value={query}
-        />
+        placeholder="Search US listed symbols"
+        value={query}
+      />
         {activeLoadState === "loading" && (
           <span className="empty-option">Looking up symbols.</span>
         )}
@@ -3786,35 +3806,19 @@ function PaneHeader({
 
 function FieldLabel({
   label,
-  info,
+  hint,
   children,
 }: {
   label: string;
-  info?: string;
+  hint?: string;
   children: ReactNode;
 }) {
   return (
     <label className="field">
-      <InfoLabel info={info} label={label} />
+      <span className="field-label">{label}</span>
+      {hint && <small className="field-hint">{hint}</small>}
       {children}
     </label>
-  );
-}
-
-function InfoLabel({ label, info }: { label: string; info?: string }) {
-  return (
-    <span className="field-label info-label">
-      {label}
-      {info && <InfoIcon label={info} />}
-    </span>
-  );
-}
-
-function InfoIcon({ label }: { label: string }) {
-  return (
-    <span className="info-icon" aria-label={label} role="img" tabIndex={0}>
-      <Icon name="info" />
-    </span>
   );
 }
 
@@ -3838,19 +3842,17 @@ function Metric({
 function Slider({
   label,
   value,
-  info,
   onChange,
 }: {
   label: string;
   value: string;
-  info?: string;
   onChange?: (value: number) => void;
 }) {
   const numericValue = Number(value.replace("%", ""));
   return (
     <div className="slider-block">
       <div>
-        <InfoLabel info={info} label={label} />
+        <span>{label}</span>
         <b>{value}</b>
       </div>
       <input
