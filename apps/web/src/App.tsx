@@ -4398,7 +4398,7 @@ function inferAssetsFromLawText(
 
   return [...new Set(candidates)].filter((symbol) => {
     if (!symbol || commonWords.has(symbol)) return false;
-    return catalog.size === 0 || catalog.has(symbol);
+    return catalog.size === 0 || catalog.has(symbol) || /^[A-Z][A-Z0-9.-]{1,5}$/.test(symbol);
   });
 }
 
