@@ -592,7 +592,7 @@ function createDeepResearchTools(
   return {
     supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
       description:
-        "Search memory for relevant prior context and observations.",
+        "Search the user's saved Kairos memory only for prior conversations, preferences, private notes, laws, branches, or past decisions. Do not use this for public facts, market research, company discovery, or current events.",
       inputSchema: z.object({
         query: z.string().min(1),
         limit: z.number().int().min(1).max(12).optional(),
@@ -610,7 +610,7 @@ function createDeepResearchTools(
     }),
     supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
       description:
-        "Load branch summaries to keep the investigation aligned to active laws.",
+        "Load useful Kairos branch/law profiles only when the user asks about existing branches, laws, monitoring setup, or wants research aligned to saved Kairos context. Do not use this for general public-market research.",
       inputSchema: z.object({
         query: z.string().min(1),
         limitBranches: z.number().int().min(1).max(20).optional(),
@@ -641,11 +641,17 @@ function createDeepResearchTools(
             }
           }),
         );
-        return { profiles };
+        const informativeProfiles = profiles
+          .filter(isInformativeBranchProfile)
+          .map(compactBranchProfile);
+        return {
+          profiles: informativeProfiles,
+          omittedEmptyProfiles: profiles.length - informativeProfiles.length,
+        };
       },
     }),
     exa_search: tracedTool(traces, "exa_search", {
-      description: "Search current web and news sources.",
+      description: "Search current public web and news sources. Use this for public companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent facts.",
       inputSchema: z.object({
         query: z.string().min(1),
         category: z
@@ -663,7 +669,7 @@ function createDeepResearchTools(
       },
     }),
     exa_research: tracedTool(traces, "exa_research", {
-      description: "Run a deeper research pass for a source-backed answer.",
+      description: "Run a deeper public web research pass for source-backed answers. Prefer this for broad market maps, overlooked public companies, supply-chain questions, technical ecosystems, and cited synthesis.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
@@ -821,9 +827,11 @@ function summarizeExaSearchOutput(result: Awaited<ReturnType<ExaApi["deepResearc
 function deepResearchSystemPrompt(): string {
   return [
     "You are Kairos Deep Research, an isolated research agent for market, product, technical, and memory-backed investigation.",
-    "Use tools aggressively when facts could be stale, source-dependent, or memory-dependent.",
-    "Supermemory is available across all accessible user memory. Search it before answering questions about user preferences, prior context, laws, branches, or past decisions.",
-    "For market claims, separate evidence, belief update, and conclusion. Cite URLs and memory/tool evidence when available.",
+    "For public-market, public-company, supply-chain, technical ecosystem, product, current-event, or investment-research questions, use public source tools first: exa_research, exa_search, exa_contents, and information_agent.",
+    "Use Supermemory only when the user asks about prior conversations, private notes, preferences, saved Kairos laws, saved branches, or past decisions. Do not search memory just because it is available.",
+    "Use branch profiles only when saved Kairos branch/law context is directly relevant to the user's request.",
+    "If a memory or branch-profile tool returns no substantive content, ignore it and continue with source-backed public research.",
+    "For market claims, separate evidence, belief update, and conclusion. Cite URLs when public source tools provide them, and clearly mark uncertainty.",
     "Do not place live trades, submit broker orders, or claim execution authority.",
   ].join("\n");
 }
@@ -1026,6 +1034,56 @@ function compactToolSummary(output: unknown): string {
     return output.output.content.slice(0, 240);
   }
   return "Tool completed.";
+}
+
+function isInformativeBranchProfile(profile: unknown): boolean {
+  return collectBranchProfileSnippets(profile).length > 0;
+}
+
+function compactBranchProfile(profile: unknown): JsonRecord {
+  if (!isJsonRecord(profile)) return {};
+  const compact: JsonRecord = {
+    branchId: profile.branchId,
+    name: profile.name,
+    snippets: collectBranchProfileSnippets(profile).slice(0, 8),
+  };
+  if (typeof profile.error === "string") compact.error = profile.error;
+  return compact;
+}
+
+function collectBranchProfileSnippets(profileRecord: unknown): string[] {
+  if (!isJsonRecord(profileRecord)) return [];
+  const profile = profileRecord.profile;
+  if (!isJsonRecord(profile)) return [];
+  const snippets: string[] = [];
+  const profileContent = profile.profile;
+  if (isJsonRecord(profileContent)) {
+    for (const key of ["static", "dynamic"]) {
+      const values = profileContent[key];
+      if (Array.isArray(values)) {
+        for (const value of values) {
+          if (typeof value === "string") snippets.push(value);
+        }
+      }
+    }
+  }
+
+  const searchResults = profile.searchResults;
+  if (isJsonRecord(searchResults) && Array.isArray(searchResults.results)) {
+    for (const result of searchResults.results) {
+      if (isJsonRecord(result) && typeof result.memory === "string") {
+        snippets.push(result.memory);
+      }
+    }
+  }
+
+  return [...new Set(snippets.map((snippet) => snippet.trim()).filter(Boolean))]
+    .filter((snippet) => !isLowValueBranchProfileSnippet(snippet));
+}
+
+function isLowValueBranchProfileSnippet(snippet: string): boolean {
+  return /^Kairos branch\.branch\.created:/i.test(snippet) ||
+    /^branch\.created\b/i.test(snippet);
 }
 
 function extractDeepResearchReasoning(result: { reasoning?: unknown } | undefined): string | undefined {
