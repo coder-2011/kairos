@@ -106,6 +106,15 @@ function routeHash(route: AppRoute): string {
   return `#/${route.view}`;
 }
 
+function scrollActiveViewToTop() {
+  window.requestAnimationFrame(() => {
+    const activeView = document.querySelector<HTMLElement>(
+      ".config-canvas, .canvas, .router-canvas, .portfolio-canvas, .run-deep-dive, .split-canvas",
+    );
+    activeView?.scrollTo({ top: 0, left: 0 });
+  });
+}
+
 const routeViews: View[] = ["branches", "router", "deepResearch", "monitoring", "portfolio", "runDeepDive", "config"];
 
 const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }> = [
@@ -282,6 +291,7 @@ export function App() {
     if (window.location.hash !== nextHash) {
       window.history.pushState(null, "", nextHash);
     }
+    scrollActiveViewToTop();
   }
 
   const userLabel = authSession?.user
@@ -3386,16 +3396,13 @@ function TradeSymbolDropdown({
       option.name?.toUpperCase().includes(normalizedQuery)
     );
   });
-  const canAddQuery =
-    normalizedQuery.length > 0 &&
-    !options.some((option) => option.symbol === normalizedQuery);
   const selectedSet = new Set(selected);
   const summary =
     selected.length === 0
       ? "No trade symbols selected"
       : selected.length === 1
         ? selected[0]
-        : `${selected.length} symbols selected`;
+        : selected.join(", ");
 
   useEffect(() => {
     if (!normalizedQuery) {
@@ -3439,29 +3446,16 @@ function TradeSymbolDropdown({
         <input
           className="multi-select-search"
           onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search US listed symbols"
-        value={query}
-      />
+          placeholder="Search Alpaca tradable assets: PLTR, Tesla, SPY, ETF"
+          value={query}
+        />
         {activeLoadState === "loading" && (
           <span className="empty-option">Looking up symbols.</span>
         )}
         {activeLoadState === "offline" && activeCatalog.length === 0 && (
           <span className="empty-option">Symbol lookup unavailable. Add tracked tickers manually.</span>
         )}
-        {canAddQuery && (
-          <label className="symbol-option">
-            <input
-              checked={selectedSet.has(normalizedQuery)}
-              onChange={(event) => toggle(normalizedQuery, event.target.checked)}
-              type="checkbox"
-            />
-            <span className="symbol-option-main">
-              <b>{normalizedQuery}</b>
-              <small>Add custom ticker</small>
-            </span>
-          </label>
-        )}
-        {visibleOptions.length === 0 && !canAddQuery ? (
+        {visibleOptions.length === 0 ? (
           <span className="empty-option">No matching symbols.</span>
         ) : (
           visibleOptions.map((option) => (
