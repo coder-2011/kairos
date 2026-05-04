@@ -43,6 +43,7 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  reasoning?: string;
   reasoningEffort?: KairosReasoningEffort;
   attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
@@ -241,10 +242,12 @@ async function runDeepResearchMessage(
       stopWhen: stepCountIs(8),
       temperature: 0.2,
     });
+    const reasoning = extractDeepResearchReasoning(result);
     const assistantMessage = await store.createMessage({
       chatId: chat.id,
       role: "assistant",
       text: result.text,
+      reasoning,
       model,
       reasoningEffort,
       toolCalls,
@@ -259,10 +262,11 @@ async function runDeepResearchMessage(
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
-    const assistantMessage = await store.createMessage({
+  const assistantMessage = await store.createMessage({
       chatId: chat.id,
       role: "assistant",
       text: `Deep Research failed: ${message}`,
+      reasoning: `FAILED: ${message}`,
       model,
       reasoningEffort,
       toolCalls,
@@ -586,6 +590,7 @@ class DeepResearchFileStore {
     text?: string;
     chatTitle?: string;
     model?: string;
+    reasoning?: string;
     reasoningEffort?: KairosReasoningEffort;
     attachments?: DeepResearchImageAttachment[];
     toolCalls?: RouterToolCallRecord[];
@@ -596,6 +601,7 @@ class DeepResearchFileStore {
       role: input.role,
       text: input.text,
       model: input.model,
+      reasoning: input.reasoning,
       reasoningEffort: input.reasoningEffort,
       attachments: input.attachments,
       toolCalls: input.toolCalls,
@@ -665,6 +671,51 @@ function compactToolSummary(output: unknown): string {
   if (isJsonRecord(output) && typeof output.summary === "string") return output.summary.slice(0, 240);
   if (isJsonRecord(output) && typeof output.answer === "string") return output.answer.slice(0, 240);
   return "Tool completed.";
+}
+
+function extractDeepResearchReasoning(result: { reasoning?: unknown } | undefined): string | undefined {
+  return compactReasoningLines((result?.reasoning as unknown) ?? undefined);
+}
+
+function compactReasoningLines(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed.slice(0, 8000) : undefined;
+  }
+
+  if (Array.isArray(value)) {
+    const lines = value
+      .map((entry) =>
+        typeof entry === "string"
+          ? entry.trim()
+          : isJsonRecord(entry) && typeof entry.text === "string"
+            ? entry.text.trim()
+            : isJsonRecord(entry) && typeof entry.summary === "string"
+              ? entry.summary.trim()
+              : JSON.stringify(entry),
+      )
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.length > 0 ? lines.join("\n") : undefined;
+  }
+
+  if (isJsonRecord(value)) {
+    if (typeof value.reasoning === "string") {
+      const text = value.reasoning.trim();
+      if (text.length > 0) return text.slice(0, 8000);
+    }
+    if (Array.isArray(value.steps)) {
+      return compactReasoningLines(value.steps);
+    }
+    try {
+      const compact = JSON.stringify(value, null, 2);
+      return compact.length > 0 ? compact.slice(0, 8000) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
 }
 
 function compactJson(value: unknown): JsonRecord | undefined {

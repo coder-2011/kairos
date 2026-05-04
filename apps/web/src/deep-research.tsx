@@ -122,6 +122,8 @@ export function DeepResearchView() {
     let chatId = selectedChatId;
     const submittedText = draft.trim();
     const submittedAttachments = attachments;
+    const submittedReasoningEffort =
+      reasoningEffort === "auto" ? undefined : reasoningEffort;
     setRunning(true);
     setError("");
     try {
@@ -132,17 +134,28 @@ export function DeepResearchView() {
         setSelectedChatId(chat.id);
       }
 
+      const pendingUserMessage: DeepResearchMessageRecord = {
+        id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        chatId,
+        role: "user",
+        createdAt: new Date().toISOString(),
+        text: submittedText,
+        attachments: submittedAttachments,
+      };
+      setMessages((current) => [...current, pendingUserMessage]);
+
       const result = await sendDeepResearchMessage({
         chatId,
         text: submittedText,
         model: selectedModel,
-        reasoningEffort: reasoningEffort === "auto" ? undefined : reasoningEffort,
+        reasoningEffort: submittedReasoningEffort,
         attachments: submittedAttachments,
       });
+
       setDraft("");
       setAttachments([]);
       setMessages((current) => [
-        ...current,
+        ...current.filter((message) => message.id !== pendingUserMessage.id),
         result.userMessage,
         result.assistantMessage,
       ]);
@@ -520,11 +533,25 @@ const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> 
 } as const;
 
 function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }) {
+  const hasWorkflow =
+    message.role === "assistant" &&
+    ((typeof message.reasoning === "string" && message.reasoning.trim()) ||
+      (message.toolCalls?.length ?? 0) > 0);
+  const assistantMeta =
+    message.role === "assistant"
+      ? [
+          message.model,
+          message.reasoningEffort ? `${message.reasoningEffort} effort` : undefined,
+        ]
+          .filter(Boolean)
+          .join(" • ") || formatChatTimestamp(message.createdAt)
+      : formatChatTimestamp(message.createdAt);
+
   return (
     <article className={`deep-research-message ${message.role}`}>
       <div className="deep-research-message-head">
         <b>{message.role === "user" ? "YOU" : "DEEP RESEARCH"}</b>
-        <span>{message.model ?? formatChatTimestamp(message.createdAt)}</span>
+        <span>{assistantMeta}</span>
       </div>
       <p>{message.text}</p>
       {message.attachments && message.attachments.length > 0 && (
@@ -534,18 +561,47 @@ function DeepResearchMessage({ message }: { message: DeepResearchMessageRecord }
           ))}
         </div>
       )}
-      {message.toolCalls && message.toolCalls.length > 0 && (
+      {hasWorkflow ? (
+        <details className="deep-research-workflow" open>
+          <summary className="deep-research-workflow-summary">
+            <span>
+              <span className="material-symbols-outlined">visibility</span>
+              Workflow
+            </span>
+            <b>details</b>
+          </summary>
+          <div className="deep-research-workflow-content">
+            {typeof message.reasoning === "string" &&
+              message.reasoning.trim().length > 0 && (
+                <div className="deep-research-reasoning">
+                  <div className="deep-research-workflow-label">Thinking</div>
+                  <pre>{message.reasoning.trim()}</pre>
+                </div>
+              )}
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="deep-tool-list">
+                {message.toolCalls.map((call) => (
+                  <DeepToolCall call={call} key={call.id} />
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
+      ) : message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0 ? (
         <div className="deep-tool-list">
           {message.toolCalls.map((call) => (
             <DeepToolCall call={call} key={call.id} />
           ))}
         </div>
-      )}
+      ) : null}
     </article>
   );
 }
 
 function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
+  const hasPayload =
+    call.input !== undefined || call.output !== undefined || call.error !== undefined;
+
   return (
     <details className={`deep-tool-call ${call.status}`}>
       <summary>
@@ -553,13 +609,40 @@ function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
           <span className="material-symbols-outlined">
             {call.status === "failed" ? "warning" : "build"}
           </span>
-          {humanize(call.name)}
+          {humanizeDeepResearchToolName(call.name)}
         </span>
         <b>{call.status}</b>
       </summary>
       <p>{call.summary}</p>
+      {hasPayload && (
+        <pre>
+          {JSON.stringify(
+            {
+              input: call.input,
+              output: call.output,
+              error: call.error,
+            },
+            null,
+            2,
+          )}
+        </pre>
+      )}
     </details>
   );
+}
+
+function humanizeDeepResearchToolName(value: string): string {
+  const labels: Record<string, string> = {
+    supermemory_search_all: "Memory Search",
+    supermemory_branch_profiles: "Branch Profiles",
+    exa_search: "Source Search",
+    exa_research: "Source Research",
+    exa_contents: "Source Content Reader",
+    information_agent: "Information Agent",
+  };
+
+  if (labels[value]) return labels[value];
+  return humanize(value);
 }
 
 function buildTitle(text: string | undefined): string {

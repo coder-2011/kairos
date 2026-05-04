@@ -1463,7 +1463,13 @@ function MonitoringView({
   const branchBreakdowns = createBranchRunBreakdowns(branches, runs);
   const monitoringStats = createMonitoringStats(runs, branchBreakdowns);
   const transcriptEvents = events.filter(
-    (event) => event.type.startsWith("debate.") || event.type.startsWith("human."),
+    (event) => event.type.startsWith("debate.")
+      || event.type.startsWith("human.")
+      || event.type.startsWith("participant.")
+      || event.type.startsWith("model.")
+      || event.type.startsWith("tool.call.")
+      || event.type.startsWith("tool.")
+      || event.type.startsWith("run."),
   );
   const monitoringPayload = {
     run,
@@ -3619,8 +3625,7 @@ function SettingsPanel({ branch }: { branch: BranchRecord }) {
 }
 
 function EventRecordCard({ event }: { event: RunEventRecord }) {
-  const actor =
-    event.type.startsWith("human.") ? "HUMAN" : event.type.split(".")[0].toUpperCase();
+  const actor = eventActor(event);
   const summary = eventSummary(event);
   const isFailure = event.type.includes("failed") || Boolean(event.payload.error);
 
@@ -3643,6 +3648,53 @@ function EventRecordCard({ event }: { event: RunEventRecord }) {
 }
 
 function eventSummary(event: RunEventRecord): string {
+  if (event.type === "debate.message" && isJsonRecord(event.payload)) {
+    const messageType = readDisplay(event.payload.messageType, "message");
+    const argument = readDisplay(event.payload.argument, "");
+    const summary = readDisplay(event.payload.summary, "");
+    return compactValue(
+      argument.length > 0
+        ? argument
+        : summary.length > 0
+          ? summary
+          : `${messageType} from ${readDisplay(event.payload.agentName, "agent")}`,
+      `DEBATE ${messageType}`,
+    );
+  }
+
+  if (event.type === "participant.responded" && isJsonRecord(event.payload)) {
+    const role = readDisplay(event.payload.role, "participant");
+    const argumentLength = readDisplay(event.payload.argumentLength, "0");
+    const confidence = readDisplay(event.payload.confidence, "");
+    return compactValue(
+      `Role=${role}, arguments=${argumentLength} chars` + (confidence ? `, confidence=${confidence}` : ""),
+      `Response from ${role}`,
+    );
+  }
+
+  if (event.type.startsWith("model.call.") && isJsonRecord(event.payload)) {
+    const role = readDisplay(event.payload.role, "model");
+    return compactValue(
+      `${role} model call ${event.type.includes("completed") ? "completed" : "started"}`,
+      `${titleize(event.type)} (${role})`,
+    );
+  }
+
+  if (event.type.startsWith("tool.call.") && isJsonRecord(event.payload)) {
+    const toolName = readDisplay(event.payload.toolName, "tool");
+    const requestedBy = readDisplay(event.payload.requestedBy, "");
+    return compactValue(
+      `Tool ${toolName} ${event.type.includes("completed") ? "completed" : "started"}` +
+        (requestedBy ? ` for ${requestedBy}` : ""),
+      `${titleize(event.type)} (${toolName})`,
+    );
+  }
+
+  if (event.type.startsWith("run.")) {
+    const status = readDisplay(event.payload.status, "");
+    return compactValue(status || event.payload.reason, titleize(event.type));
+  }
+
   return compactValue(
     event.payload.summary ??
       event.payload.message ??
@@ -3651,6 +3703,22 @@ function eventSummary(event: RunEventRecord): string {
       event.payload.status,
     titleize(event.type),
   );
+}
+
+function eventActor(event: RunEventRecord): string {
+  if (event.type.startsWith("human.")) {
+    return "HUMAN";
+  }
+
+  if (event.type === "participant.responded" && isJsonRecord(event.payload)) {
+    return String(event.payload.role ?? "participant").toUpperCase();
+  }
+
+  if (event.type === "debate.message" && isJsonRecord(event.payload)) {
+    return String(event.payload.agentName ?? "debate").toUpperCase();
+  }
+
+  return event.type.split(".")[0].toUpperCase();
 }
 
 function TimelineEvent({
