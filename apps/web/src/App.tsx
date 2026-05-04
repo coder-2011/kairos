@@ -3021,21 +3021,22 @@ function BranchConfig({
                 <span>
                   <b>{field.label}</b>
                 </span>
-                <input
-                  list="openrouter-models"
-                  onChange={(event) =>
+                <ModelPicker
+                  models={openRouterModels}
+                  onChange={(model) =>
                     setConfig((current) => ({
                       ...current,
                       models: {
                         ...current.models,
                         [field.key]: {
                           ...current.models?.[field.key],
-                          model: event.target.value || undefined,
+                          model: model || undefined,
                         },
                       },
                     }))
                   }
                   placeholder={modelDefaults[field.key]?.model ?? "Model"}
+                  roleLabel={field.label}
                   value={config.models?.[field.key]?.model ?? modelDefaults[field.key]?.model ?? ""}
                 />
                 <select
@@ -3071,13 +3072,6 @@ function BranchConfig({
               </div>
             ))}
           </div>
-          <datalist id="openrouter-models">
-            {openRouterModels.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </datalist>
           <p className="config-note">
             Type any OpenRouter model ID, or choose one from the suggestions.
           </p>
@@ -3353,6 +3347,107 @@ function BranchConfig({
         </div>
       </div>
     </main>
+  );
+}
+
+function ModelPicker({
+  models,
+  onChange,
+  placeholder,
+  roleLabel,
+  value,
+}: {
+  models: OpenRouterModelRecord[];
+  onChange: (model: string) => void;
+  placeholder: string;
+  roleLabel: string;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const listboxId = `openrouter-models-${roleLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleModels = models
+    .filter((model) => {
+      if (!normalizedQuery) return true;
+      return `${model.id} ${model.name}`.toLowerCase().includes(normalizedQuery);
+    })
+    .slice(0, 40);
+
+  function choose(model: OpenRouterModelRecord) {
+    onChange(model.id);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div
+      className="model-picker"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+          setQuery("");
+        }
+      }}
+    >
+      <div className="model-picker-control">
+        <input
+          aria-controls={listboxId}
+          aria-expanded={open}
+          aria-label={`${roleLabel} OpenRouter model`}
+          autoComplete="off"
+          onChange={(event) => {
+            onChange(event.target.value);
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            setQuery("");
+            setOpen(true);
+          }}
+          placeholder={placeholder}
+          role="combobox"
+          value={value}
+        />
+        <button
+          aria-label={`Show ${roleLabel} OpenRouter models`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setQuery("");
+            setOpen((current) => !current);
+          }}
+          type="button"
+        >
+          <Icon name={open ? "keyboard_arrow_up" : "keyboard_arrow_down"} />
+        </button>
+      </div>
+      {open && (
+        <div className="model-picker-list" id={listboxId} role="listbox">
+          {visibleModels.length > 0 ? (
+            visibleModels.map((model) => (
+              <button
+                aria-selected={model.id === value}
+                className={model.id === value ? "selected" : undefined}
+                key={model.id}
+                onClick={() => choose(model)}
+                role="option"
+                type="button"
+              >
+                <span>
+                  <b>{model.name}</b>
+                  <small>{model.id}</small>
+                </span>
+                <small>{formatModelMeta(model)}</small>
+              </button>
+            ))
+          ) : (
+            <span className="model-picker-empty">
+              {models.length === 0 ? "Model list unavailable." : "No matching OpenRouter models."}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4392,6 +4487,20 @@ function formatPercentValue(value: unknown) {
   if (typeof numberValue !== "number" || !Number.isFinite(numberValue)) return "-";
   const sign = numberValue > 0 ? "+" : "";
   return `${sign}${numberValue.toFixed(2)}%`;
+}
+
+function formatModelMeta(model: OpenRouterModelRecord) {
+  const parts: string[] = [];
+  if (typeof model.contextLength === "number" && Number.isFinite(model.contextLength)) {
+    parts.push(`${new Intl.NumberFormat("en-US", { notation: "compact" }).format(model.contextLength)} ctx`);
+  }
+  if (model.supportedParameters.includes("tools")) {
+    parts.push("tools");
+  }
+  if (model.inputModalities.length > 0) {
+    parts.push(model.inputModalities.join("+"));
+  }
+  return parts.join(" / ") || "OpenRouter";
 }
 
 function symbolChangeClassName(value: unknown) {
