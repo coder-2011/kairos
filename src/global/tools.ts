@@ -372,32 +372,56 @@ export function createGlobalToolRegistry(
           return deps.deepResearch(input, _context);
         }
 
-        const response = await deps.exa?.deepResearch({
-          query: input,
-          type: "deep",
-          numResults: MAX_EXA_RESULTS,
-          contents: {
-            highlights: {
-              query: "source-backed material claims, numbers, dates, and guidance",
+        const response = deps.exa?.deepResearch
+          ? await deps.exa.deepResearch({
+            query: input,
+            numResults: MAX_EXA_RESULTS,
+            contents: {
+              highlights: {
+                query: "source-backed material claims, numbers, dates, and guidance",
+              },
+              text: {
+                maxCharacters: 10_000,
+              },
             },
-            text: {
-              maxCharacters: 10_000,
-            },
-          },
-        });
+          })
+          : deps.exa?.search
+            ? await deps.exa.search({
+              query: input,
+              type: "deep",
+              numResults: MAX_EXA_RESULTS,
+              outputSchema: {
+                type: "text",
+                description: "concise source-backed synthesis",
+              },
+              contents: {
+                highlights: {
+                  query: "source-backed material claims, numbers, dates, and guidance",
+                },
+                text: {
+                  maxCharacters: 10_000,
+                },
+              },
+            })
+            : undefined;
+        if (!response) {
+          return toolFailureResult("exa_research", new Error("Exa client is not configured."), "Enable EXA tool access in environment.");
+        }
         const summaryFromOutput =
           typeof response?.output?.content === "string"
             ? response.output.content
-            : response?.results
-                .map((item) =>
-                  compactText(
-                    item.summary ??
-                      item.highlights?.join(" ") ??
-                      "",
-                    500,
-                  ),
-                )
-                .join("\n");
+            : response?.output?.content
+              ? JSON.stringify(response.output.content)
+              : response?.results
+                  .map((item) =>
+                    compactText(
+                      item.summary ??
+                        item.highlights?.join(" ") ??
+                        "",
+                      500,
+                    ),
+                  )
+                  .join("\n");
         return {
           summary: compactText(
             summaryFromOutput && summaryFromOutput.length > 0

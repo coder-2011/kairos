@@ -65,7 +65,8 @@ export type StructuredInformationModelProvider = {
   withStructuredOutput: <T>(schema: unknown) => StructuredInformationModel<T>;
 };
 
-export type InformationExaClient = Pick<ExaApi, "search" | "answer" | "contents">;
+export type InformationExaClient = Pick<ExaApi, "search" | "answer" | "contents"> &
+  Partial<Pick<ExaApi, "deepResearch">>;
 export type InformationFinnhubClient = Partial<
   Pick<
     FinnhubApi,

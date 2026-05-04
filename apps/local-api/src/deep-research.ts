@@ -578,7 +578,7 @@ function createDeepResearchTools(
       inputSchema: z.object({
         query: z.string().min(1),
         category: z
-          .enum(["news", "company", "research paper", "pdf", "personal site", "financial report", "people"])
+          .enum(["news", "company", "research paper", "personal site", "financial report", "people"])
           .optional(),
         numResults: z.number().int().min(1).max(10).optional(),
       }),
@@ -598,7 +598,6 @@ function createDeepResearchTools(
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
         const result = await exa.deepResearch({
           query,
-          type: "deep",
           outputSchema: {
             type: "text",
             description: "market-relevant synthesis",
@@ -711,17 +710,22 @@ function normalizeExaCategory(
     | "news"
     | "company"
     | "research paper"
-    | "pdf"
     | "personal site"
     | "financial report"
     | "people",
-): "news" | "company" | "research paper" | "pdf" | "personal site" | "financial report" | "people" | undefined {
+): "news" | "company" | "research paper" | "personal site" | "financial report" | "people" | undefined {
   return category;
 }
 
 function summarizeExaSearchOutput(result: Awaited<ReturnType<ExaApi["deepResearch"]>>) {
   if (typeof result.output?.content === "string") {
     const text = result.output.content.trim();
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  if (result.output?.content && typeof result.output.content === "object") {
+    const text = JSON.stringify(result.output.content).trim();
     if (text.length > 0) {
       return text;
     }
