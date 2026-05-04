@@ -20,6 +20,7 @@ import {
   getSupabaseSession,
   isSupabaseAuthEnabled,
   isSupabaseAuthConfigured,
+  isAuthorizedEmail,
   onSupabaseAuthStateChange,
   signInWithGoogle,
   signOutFromGoogle,
@@ -245,7 +246,9 @@ export function App() {
   const [authStatus, setAuthStatus] = useState<"initializing" | "ready">("initializing");
   const [authError, setAuthError] = useState("");
   const authEnabled = isSupabaseAuthEnabled;
-  const hasActiveSession = authEnabled ? Boolean(authSession) : true;
+  const hasActiveSession = authEnabled
+    ? Boolean(authSession && isAuthorizedEmail(authSession.user?.email))
+    : true;
 
   const selectedBranch =
     branches.find((branch) => branch.id === selectedBranchId) ?? branches[0];
@@ -291,6 +294,19 @@ export function App() {
 
         const session = await getSupabaseSession();
         if (cancelled) return;
+        const sessionEmail = session?.user?.email;
+        if (
+          session &&
+          sessionEmail &&
+          !isAuthorizedEmail(sessionEmail)
+        ) {
+          setAuthError("This Google account is not authorized for Kairos.");
+          await signOutFromGoogle();
+          setAuthSession(null);
+          return;
+        }
+
+        setAuthError("");
         setAuthSession(session);
       } catch (error) {
         if (!cancelled) {
@@ -313,6 +329,21 @@ export function App() {
 
     const authChange = onSupabaseAuthStateChange((nextSession) => {
       if (!cancelled) {
+        const nextSessionEmail = nextSession?.user?.email;
+        if (
+          nextSession &&
+          nextSessionEmail &&
+          !isAuthorizedEmail(nextSessionEmail)
+        ) {
+          setAuthError("This Google account is not authorized for Kairos.");
+          setAuthSession(null);
+          void signOutFromGoogle();
+          return;
+        }
+
+        if (!nextSession) {
+          setAuthError("");
+        }
         setAuthSession(nextSession);
       }
     });

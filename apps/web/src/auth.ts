@@ -6,6 +6,9 @@ const SUPABASE_REDIRECT_URL = import.meta.env.VITE_SUPABASE_REDIRECT_URL?.trim()
 const SUPABASE_AUTH_ENABLED = parseAuthEnabledFlag(
   import.meta.env.VITE_KAIROS_AUTH_ENABLED,
 );
+const AUTHORIZED_EMAILS = parseAuthorizedEmails(
+  import.meta.env.VITE_KAIROS_ALLOWED_EMAILS,
+);
 const isAuthEnabled = SUPABASE_AUTH_ENABLED ?? true;
 
 const isConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
@@ -24,6 +27,8 @@ const supabaseClient = isConfigured
 export type KairosSession = Session | null;
 export const isSupabaseAuthConfigured = isConfigured;
 export const isSupabaseAuthEnabled = isAuthEnabled;
+export const isAuthorizedEmail = (email: string | null | undefined): boolean =>
+  isAllowedEmail(email);
 
 export function getSupabaseSession(): Promise<KairosSession> {
   if (!supabaseClient) {
@@ -90,6 +95,15 @@ export async function signOutFromGoogle(): Promise<void> {
   }
 }
 
+const FALLBACK_ALLOWED_EMAILS = [
+  "naman.chetwani@gmail.com",
+  "sanjay.chetwani@gmail.com",
+];
+
+const AUTHORIZED_EMAIL_SET = new Set(
+  AUTHORIZED_EMAILS.length > 0 ? AUTHORIZED_EMAILS : FALLBACK_ALLOWED_EMAILS,
+);
+
 function parseAuthEnabledFlag(value: unknown): boolean | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -105,4 +119,23 @@ function parseAuthEnabledFlag(value: unknown): boolean | undefined {
   }
 
   return undefined;
+}
+
+function parseAuthorizedEmails(value: unknown): string[] {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((candidate) => candidate.trim().toLowerCase())
+    .filter((candidate) => candidate.length > 0);
+}
+
+function isAllowedEmail(email: string | null | undefined): boolean {
+  if (typeof email !== "string" || email.length === 0) {
+    return false;
+  }
+
+  return AUTHORIZED_EMAIL_SET.has(email.trim().toLowerCase());
 }
