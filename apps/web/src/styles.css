@@ -3626,13 +3626,27 @@ select:focus:hover {
   margin-bottom: 6px;
 }
 
-.semantic-symbol-tool {
+.symbol-search-stack {
+  background: var(--surface-lowest);
   border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.symbol-search-stack .multi-select-search {
+  margin-bottom: 0;
+}
+
+.semantic-symbol-tool {
   display: grid;
   gap: 6px;
   grid-template-columns: minmax(0, 1fr) auto;
-  margin-bottom: 6px;
-  padding-bottom: 6px;
 }
 
 .semantic-symbol-tool .multi-select-search {

@@ -3506,8 +3506,6 @@ function TradeSymbolDropdown({
             </button>
           </div>
         </div>
-        <div className="semantic-symbol-tool">
-        </div>
         {semanticLoadState === "loading" && (
           <span className="empty-option">Finding related symbols.</span>
         )}
