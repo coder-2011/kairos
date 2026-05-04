@@ -748,7 +748,10 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     status: "running",
     branchId,
     input: runPayload,
-    metadata: { source: "runtime" },
+    metadata: {
+      source: "runtime",
+      ...(sourceRunId ? { parentRunId: sourceRunId } : {}),
+    },
   });
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
@@ -757,19 +760,32 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
 
   let result: DebateCreateResult;
   try {
-    result = await context.createDebate({
-      payload: runPayload,
-      branch,
-    });
+    const timeoutMs = debateTimeoutMs();
+    result = await withTimeout(
+      context.createDebate({
+        payload: runPayload,
+        branch,
+        onProgress: (event) => context.store.appendRunEvent(run.id, event),
+      }),
+      timeoutMs,
+      `Debate workflow timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
     const failed = await context.store.updateRun(run.id, {
       status: "failed",
-      output: { error: message },
+      output: {
+        error: message,
+        interrupted: message.toLowerCase().includes("timed out"),
+      },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "debate.failed",
+      payload: { error: message },
     });
     await context.store.appendRunEvent(run.id, {
       type: "run.failed",
-      payload: { error: message },
+      payload: { error: message, interrupted: message.toLowerCase().includes("timed out") },
     });
     return json({ run: failed, error: "run_failed", message }, 500);
   }
@@ -799,6 +815,33 @@ async function appendInterjection(context: LocalApiContext, runId: string, body:
     },
   });
   return json({ event }, 201);
+}
+
+async function cancelRun(context: LocalApiContext, runId: string): Promise<Response> {
+  const run = await context.store.getRun(runId);
+  if (!run) return json({ error: "not_found", message: "Run not found." }, 404);
+  if (run.status !== "running" && run.status !== "pending") {
+    return json({
+      run,
+      canceled: false,
+      message: "Only pending or running runs can be canceled.",
+    }, 409);
+  }
+
+  const canceled = await context.store.updateRun(runId, {
+    status: "canceled",
+    output: {
+      ...(run.output ?? {}),
+      canceled: true,
+      error: "Run canceled by user.",
+    },
+  });
+  await context.store.appendRunEvent(runId, {
+    type: "run.canceled",
+    payload: { reason: "user_requested" },
+  });
+
+  return json({ run: canceled, canceled: true });
 }
 
 async function createRouterMessage(
