@@ -165,6 +165,7 @@ export type DebateGraphDependencies = {
   supermemoryMirror?: SupermemoryMirror;
   runId?: string;
   isCanceled?: () => boolean | Promise<boolean>;
+  loadHumanInterjections?: () => Promise<HumanInterjection[]> | HumanInterjection[];
   /**
    * Production default is false. Enable only for tests, fixtures,
    * or UI demos where deterministic debate behavior is explicitly desired.

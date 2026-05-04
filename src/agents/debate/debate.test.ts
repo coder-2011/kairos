@@ -66,6 +66,16 @@ function firstSystemPrompt(invoke: ReturnType<typeof vi.fn>): unknown {
   return (input[0] as { content?: unknown } | undefined)?.content;
 }
 
+function firstHumanPrompt(invoke: ReturnType<typeof vi.fn>): string {
+  const input = invoke.mock.calls[0]?.[0];
+
+  if (!Array.isArray(input)) {
+    return "";
+  }
+
+  return String((input[1] as { content?: unknown } | undefined)?.content ?? "");
+}
+
 describe("debate agent", () => {
   it("runs the deterministic LangGraph debate with a tool call and final decision", async () => {
     const information = vi.fn(async () => ({
@@ -368,6 +378,50 @@ describe("debate agent", () => {
         summary: "Human thinks the source may be promotional.",
       },
     ]);
+  });
+
+  it("loads human interjections that arrive during the debate before final synthesis", async () => {
+    const judge = queuedStructuredModel<JudgePlan>([
+      { plan: "Human context arrived; synthesize.", nextNode: "final" },
+    ]);
+    const final = queuedStructuredModel<DebateDecision>([
+      {
+        summary: "Final considered human context.",
+        action: "watch",
+        confidence: 0.6,
+        citations: [],
+      },
+    ]);
+
+    const result = await runDebateAgent(
+      {
+        debateId: "debate-live-human-1",
+        startInput,
+      },
+      {
+        models: {
+          judge: judge.model,
+          final: final.model,
+        },
+        now: () => fixedNow,
+        loadHumanInterjections: () => [
+          {
+            timestamp: "2026-05-03T12:02:00.000Z",
+            summary: "Human says to verify whether the source is primary.",
+          },
+        ],
+      },
+    );
+
+    expect(result.humanInterjections).toEqual([
+      {
+        timestamp: "2026-05-03T12:02:00.000Z",
+        summary: "Human says to verify whether the source is primary.",
+      },
+    ]);
+    expect(firstHumanPrompt(final.invoke)).toContain(
+      "Human says to verify whether the source is primary.",
+    );
   });
 
   it("streams LangGraph node updates for observability", async () => {

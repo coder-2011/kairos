@@ -91,6 +91,40 @@ function buildModelInput(state: DebateState, systemPrompt: string): unknown[] {
   ];
 }
 
+async function refreshHumanInterjections(
+  state: DebateState,
+  deps: DebateGraphDependencies,
+): Promise<{
+  state: DebateState;
+  additions: HumanInterjection[];
+}> {
+  if (!deps.loadHumanInterjections) {
+    return { state, additions: [] };
+  }
+
+  const loaded = (await Promise.resolve(deps.loadHumanInterjections()))
+    .map((item) => humanInterjectionSchema.parse(item));
+  const seen = new Set(
+    state.humanInterjections.map((item) => `${item.timestamp}\n${item.summary}`),
+  );
+  const additions = loaded.filter((item) => {
+    const key = `${item.timestamp}\n${item.summary}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return additions.length === 0
+    ? { state, additions }
+    : {
+        state: {
+          ...state,
+          humanInterjections: state.humanInterjections.concat(additions),
+        },
+        additions,
+      };
+}
+
 async function invokeStructured<T>(
   model: { withStructuredOutput: <U>(schema: unknown) => { invoke: (input: unknown) => Promise<U> } },
   schema: unknown,
@@ -314,6 +348,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
   ): Promise<{
     currentPlan: JudgePlan;
     messages: DebateMessage[];
+    humanInterjections: HumanInterjection[];
     pendingToolRequest: null;
     updatedAt: string;
   }> => {
@@ -333,13 +368,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       requireDeterministicFallback(deps, "judge");
     }
     await ensureDebateNotCanceled(deps);
+    const refreshed = await refreshHumanInterjections(state, deps);
+    const modelState = refreshed.state;
     const rawPlan = deps.models?.judge
       ? await invokeStructured<JudgePlan>(
           deps.models.judge,
           judgePlanSchema,
-          buildModelInput(state, prompts.judgeSystemPrompt),
+          buildModelInput(modelState, prompts.judgeSystemPrompt),
         )
-      : deterministicJudgePlan(state);
+      : deterministicJudgePlan(modelState);
     await ensureDebateNotCanceled(deps);
     const plan = judgePlanSchema.parse(rawPlan);
     await observe(deps.observer, {
@@ -363,6 +400,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           argument: plan.plan,
         },
       ],
+      humanInterjections: refreshed.additions,
       pendingToolRequest: null,
       updatedAt: isoNow(deps),
     };
@@ -374,6 +412,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       state: DebateState,
     ): Promise<{
       messages: DebateMessage[];
+      humanInterjections: HumanInterjection[];
       pendingToolRequest: PendingToolRequest | null;
       budgets: DebateBudgetState;
       updatedAt: string;
@@ -394,13 +433,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
         requireDeterministicFallback(deps, role);
       }
       await ensureDebateNotCanceled(deps);
+      const refreshed = await refreshHumanInterjections(state, deps);
+      const modelState = refreshed.state;
       const rawOutput = deps.models?.[role]
         ? await invokeStructured<DebateAgentOutput>(
             deps.models[role],
             debateAgentOutputSchema,
-            buildModelInput(state, systemPrompt),
+            buildModelInput(modelState, systemPrompt),
           )
-        : deterministicAgentOutput(role, state);
+        : deterministicAgentOutput(role, modelState);
       await ensureDebateNotCanceled(deps);
       const output = debateAgentOutputSchema.parse(rawOutput);
       const requestedTool = output.toolRequest
@@ -432,6 +473,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
             confidence: output.confidence,
           },
         ],
+        humanInterjections: refreshed.additions,
         pendingToolRequest: toolRequest,
         budgets: {
           ...state.budgets,
@@ -619,6 +661,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     state: DebateState,
   ): Promise<{
     messages: DebateMessage[];
+    humanInterjections: HumanInterjection[];
     finalDecision: DebateDecision;
     status: "completed";
     updatedAt: string;
@@ -639,13 +682,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
       requireDeterministicFallback(deps, "final");
     }
     await ensureDebateNotCanceled(deps);
+    const refreshed = await refreshHumanInterjections(state, deps);
+    const modelState = refreshed.state;
     const rawDecision = deps.models?.final
       ? await invokeStructured<DebateDecision>(
           deps.models.final,
           debateDecisionSchema,
-          buildModelInput(state, prompts.finalSystemPrompt),
+          buildModelInput(modelState, prompts.finalSystemPrompt),
         )
-      : deterministicFinalDecision(state);
+      : deterministicFinalDecision(modelState);
     await ensureDebateNotCanceled(deps);
     const parsedDecision = debateDecisionSchema.parse(rawDecision);
     const decision = {
@@ -674,6 +719,7 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           confidence: decision.confidence,
         },
       ],
+      humanInterjections: refreshed.additions,
       finalDecision: decision,
       status: "completed",
       updatedAt: isoNow(deps),
