@@ -26,6 +26,7 @@ export type MarketSymbolRecord = {
 export type MarketSymbolQuery = {
   query?: string;
   limit?: number;
+  includeQuotes?: boolean;
 };
 
 export type MarketSymbolDirectoryProviderOptions = {
@@ -93,24 +94,29 @@ export function createMarketSymbolDirectoryProvider(
   ): Promise<MarketSymbolRecord[]> {
     const query = input.query?.trim().toUpperCase();
     const queryTokens = marketSymbolSearchTokens(query);
-    const limit = Math.max(1, Math.min(input.limit ?? 500, 5000));
+    const limit =
+      input.limit === undefined
+        ? undefined
+        : Math.max(1, Math.min(input.limit, 25_000));
     const directory = await loadDirectory();
-    const filtered = directory
+    const filteredDirectory = directory
       .filter((record) => {
         if (!query) return true;
         return matchesMarketSymbolRecord(record, query, queryTokens);
       })
       .sort((left, right) =>
         relevance(left, query, queryTokens) - relevance(right, query, queryTokens),
-      )
-      .slice(0, limit);
-    const quotes = await fetchYahooQuotes(
-      fetchImpl,
-      filtered.map((record) => record.symbol),
-      quoteCache,
-      quoteTtlMs,
-      quoteBatchSize,
-    );
+      );
+    const filtered = limit === undefined ? filteredDirectory : filteredDirectory.slice(0, limit);
+    const quotes = input.includeQuotes === false
+      ? new Map<string, Partial<MarketSymbolRecord>>()
+      : await fetchYahooQuotes(
+          fetchImpl,
+          filtered.map((record) => record.symbol),
+          quoteCache,
+          quoteTtlMs,
+          quoteBatchSize,
+        );
 
     return filtered.map((record) => ({
       ...record,

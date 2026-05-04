@@ -522,7 +522,7 @@ export function App() {
     }
 
     setTradeSymbolLoadState("loading");
-    getTradeSymbols({ limit: 500 })
+    getTradeSymbols({ includeQuotes: false })
       .then((symbols) => {
         if (!cancelled) {
           setTradeSymbols(symbols);

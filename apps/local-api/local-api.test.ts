@@ -510,6 +510,26 @@ describe("local API handler", () => {
     });
   });
 
+  it("loads the uncapped ticker directory without quote enrichment by default", async () => {
+    const allSymbols = Array.from({ length: 1200 }, (_, index) =>
+      marketSymbol(`T${index}`, `Ticker ${index}`),
+    );
+    const { requestJson } = makeClient({
+      marketSymbolProvider: {
+        async listMarketSymbols(input) {
+          expect(input).toEqual({ includeQuotes: false });
+          return allSymbols;
+        },
+      },
+    });
+
+    const response = await requestJson("GET", "/market/symbols");
+
+    expect(response.status).toBe(200);
+    expect(response.body.count).toBe(1200);
+    expect(response.body.symbols).toHaveLength(1200);
+  });
+
   it("finds semantically related market symbols for branch creation", async () => {
     const { requestJson } = makeClient({
       marketSymbolProvider: {

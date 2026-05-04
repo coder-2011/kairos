@@ -66,7 +66,7 @@ export type CapabilityPreflight = {
 
 export type RunRecord = {
   id: string;
-  kind: "heartbeat" | "debate" | "router";
+  kind: "heartbeat" | "debate" | "router" | "deep_research" | "broker_sync";
   status: "pending" | "running" | "succeeded" | "failed" | "canceled";
   branchId?: string;
   createdAt: string;
@@ -280,14 +280,16 @@ export async function getCapabilityPreflight(
 export async function getTradeSymbols(input: {
   query?: string;
   limit?: number;
+  includeQuotes?: boolean;
 } = {}): Promise<TradeSymbolRecord[]> {
   const params = new URLSearchParams();
   if (input.query) params.set("query", input.query);
-  params.set("limit", String(input.limit ?? 500));
+  if (input.limit !== undefined) params.set("limit", String(input.limit));
+  if (input.includeQuotes === false) params.set("quotes", "false");
   return request<{
     symbols: TradeSymbolRecord[];
     error?: string;
-  }>(`/market/symbols?${params.toString()}`).then((response) => response.symbols);
+  }>(`/market/symbols${params.size > 0 ? `?${params.toString()}` : ""}`).then((response) => response.symbols);
 }
 
 export async function getSemanticTradeSymbols(input: {

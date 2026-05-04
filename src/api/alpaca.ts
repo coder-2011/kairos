@@ -114,6 +114,7 @@ export type AlpacaMarketSymbol = {
 export type AlpacaMarketSymbolQuery = {
   query?: string;
   limit?: number;
+  includeQuotes?: boolean;
 };
 
 export class AlpacaTradingClient {
@@ -217,9 +218,12 @@ export class AlpacaTradingClient {
   ): Promise<AlpacaMarketSymbol[]> {
     const query = input.query?.trim().toUpperCase();
     const queryTokens = marketSymbolSearchTokens(query);
-    const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
+    const limit =
+      input.limit === undefined
+        ? undefined
+        : Math.max(1, Math.min(input.limit, 10_000));
     const assets = await this.listActiveEquityAssets();
-    const filtered = assets
+    const filteredAssets = assets
       .filter((asset) => {
         const symbol = stringValue(asset.symbol);
         if (!symbol) return false;
@@ -230,11 +234,13 @@ export class AlpacaTradingClient {
       .sort((left, right) =>
         symbolRelevance(left, query, queryTokens) -
         symbolRelevance(right, query, queryTokens),
-      )
-      .slice(0, limit);
-    const snapshots = await this.getStockSnapshots(
-      filtered.map((asset) => stringValue(asset.symbol)).filter(Boolean) as string[],
-    );
+      );
+    const filtered = limit === undefined ? filteredAssets : filteredAssets.slice(0, limit);
+    const snapshots = input.includeQuotes === false
+      ? {}
+      : await this.getStockSnapshots(
+          filtered.map((asset) => stringValue(asset.symbol)).filter(Boolean) as string[],
+        );
 
     return filtered.map((asset) =>
       toMarketSymbol(asset, snapshots[stringValue(asset.symbol) ?? ""]),

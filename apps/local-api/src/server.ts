@@ -2591,13 +2591,21 @@ async function listMarketSymbols(
   params: URLSearchParams,
 ): Promise<Response> {
   const query = params.get("query") ?? undefined;
-  const limit = parsePositiveInteger(params.get("limit")) ?? 500;
+  const limit = parsePositiveInteger(params.get("limit"));
+  const quotes = params.get("quotes");
+  const includeQuotes =
+    quotes === "false"
+      ? false
+      : quotes === "true"
+        ? true
+        : query !== undefined || limit !== undefined;
 
   try {
     const symbols = await withTimeout(
       getMarketSymbolProvider(context).listMarketSymbols({
         query,
-        limit,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(includeQuotes === false ? { includeQuotes } : {}),
       }),
       15000,
       "Market symbol directory provider timed out.",
