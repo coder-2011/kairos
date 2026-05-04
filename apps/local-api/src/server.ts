@@ -83,6 +83,7 @@ import { createSupermemoryMirroredStore } from "./supermemory-store.js";
 import {
   handleDeepResearchRequest,
   runDeepResearchQuery,
+  type DeepResearchContext,
 } from "./deep-research.js";
 
 export type LocalApiDependencies = {
@@ -131,6 +132,7 @@ type HeartbeatRunResult = {
 type DebateCreateInput = {
   payload: JsonRecord;
   branch?: BranchRecord;
+  deepResearchContext?: DeepResearchContext;
   onProgress?: (event: AppendRunEventInput) => Promise<void> | void;
   isCanceled?: () => boolean;
 };
@@ -921,6 +923,7 @@ async function executeDebateRun(
       context.createDebate({
         payload: runPayload,
         branch,
+        deepResearchContext: context,
         isCanceled: () => cancelState?.canceled ?? false,
         onProgress,
       }),
@@ -2255,7 +2258,10 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
       : undefined,
     finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
     deepResearch: async (toolInput) => {
-      const result = await runDeepResearchQuery(context, {
+      if (!input.deepResearchContext) {
+        throw new Error("Deep Research context is required for debate research tools.");
+      }
+      const result = await runDeepResearchQuery(input.deepResearchContext, {
         text: toolInput,
       });
       return {

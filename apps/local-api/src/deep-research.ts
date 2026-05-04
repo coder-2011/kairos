@@ -237,14 +237,14 @@ export async function runDeepResearchQuery(
   toolCalls: RouterToolCallRecord[];
 }> {
   const model = resolveDeepResearchModel(input.model);
-  const reasoningEffort = input.reasoningEffort;
+  const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const toolCalls: RouterToolCallRecord[] = [];
 
   const result = await generateText({
     model: createDeepResearchOpenRouterModel(model, reasoningEffort),
     system: deepResearchSystemPrompt(),
     messages: [{ role: "user", content: input.text }],
-    tools: createDeepResearchTools(context, toolCalls),
+    tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
     temperature: 0.2,
   });
 
@@ -268,7 +268,7 @@ async function runDeepResearchMessage(
   input: z.infer<typeof messageCreateSchema>,
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
-  const reasoningEffort = input.reasoningEffort;
+  const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
   const userMessage = await store.createMessage({
     chatId: chat.id,
@@ -298,7 +298,7 @@ async function runDeepResearchMessage(
       model: createDeepResearchOpenRouterModel(model, reasoningEffort),
       system: deepResearchSystemPrompt(),
       messages: modelMessages as never,
-      tools: createDeepResearchTools(context, toolCalls),
+      tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
       stopWhen: stepCountIs(8),
       temperature: 0.2,
     });
@@ -345,7 +345,7 @@ async function runDeepResearchMessageStream(
   input: z.infer<typeof messageCreateSchema>,
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
-  const reasoningEffort = input.reasoningEffort;
+  const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
   const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
   const userMessage = await store.createMessage({
     chatId: chat.id,
@@ -386,7 +386,7 @@ async function runDeepResearchMessageStream(
           model: createDeepResearchOpenRouterModel(model, reasoningEffort),
           system: deepResearchSystemPrompt(),
           messages: modelMessages as never,
-          tools: createDeepResearchTools(context, toolCalls),
+          tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
           stopWhen: stepCountIs(8),
           temperature: 0.2,
         });
@@ -434,6 +434,11 @@ async function runDeepResearchMessageStream(
         });
         controller.close();
       } catch (error) {
+        const sendErrorEvent = (event: string, payload: unknown) => {
+          controller.enqueue(encoder.encode(`event: ${event}\n`));
+          controller.enqueue(encoder.encode(`id: ${randomUUID()}\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
         const message = error instanceof Error ? error.message : "Unknown error.";
         const assistantMessage = await store.createMessage({
           chatId: chat.id,
@@ -444,7 +449,7 @@ async function runDeepResearchMessageStream(
           reasoningEffort,
           toolCalls,
         });
-        sendEvent("assistant_error", {
+        sendErrorEvent("assistant_error", {
           chat: await store.getChat(chat.id),
           userMessage,
           assistantMessage,
@@ -485,6 +490,13 @@ function createDeepResearchOpenRouterModel(
   });
 }
 
+function resolveDeepResearchReasoningEffort(
+  model: string,
+  reasoningEffort?: KairosReasoningEffort,
+): KairosReasoningEffort | undefined {
+  return reasoningEffort ?? DEEP_RESEARCH_MODELS.find((item) => item.id === model)?.reasoningEffort;
+}
+
 function deepResearchUserContent(message: DeepResearchMessageRecord) {
   const parts: Array<
     | { type: "text"; text: string }
@@ -512,6 +524,7 @@ function dataUrlToBase64(dataUrl: string): string {
 function createDeepResearchTools(
   context: DeepResearchContext,
   traces: RouterToolCallRecord[],
+  options: { reasoningEffort?: KairosReasoningEffort } = {},
 ): ToolSet {
   const exa = process.env.EXA_API_KEY ? new ExaApi() : undefined;
   const supermemory = process.env.SUPERMEMORY_API_KEY ? new SupermemoryApi() : undefined;
@@ -641,13 +654,23 @@ function createDeepResearchTools(
       description: "Run a broader investigation pass using available system context.",
       inputSchema: z.object({ query: z.string().min(1) }),
       execute: async ({ query }) => {
+        const modelOverrides = options.reasoningEffort
+          ? {
+            informationPlanner: { reasoningEffort: options.reasoningEffort },
+            informationSynthesis: { reasoningEffort: options.reasoningEffort },
+          }
+          : undefined;
         return runInformationAgent(query, {
           exa,
           finnhub,
           memory: globalMemory,
           supermemory: globalMemory,
-          plannerModel: structuredModelProvider(createOpenRouterChatModelForRole("informationPlanner")),
-          synthesisModel: structuredModelProvider(createOpenRouterChatModelForRole("informationSynthesis")),
+          plannerModel: structuredModelProvider(createOpenRouterChatModelForRole("informationPlanner", {
+            modelOverrides,
+          })),
+          synthesisModel: structuredModelProvider(createOpenRouterChatModelForRole("informationSynthesis", {
+            modelOverrides,
+          })),
           maxToolCalls: 8,
           finnhubPremiumAccess: true,
           allowDeterministicFallback: false,
