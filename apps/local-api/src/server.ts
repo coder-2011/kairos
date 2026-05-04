@@ -4,12 +4,9 @@ import { Readable } from "node:stream";
 import { z } from "zod";
 import {
   createAlpacaTradingClient,
+  type AlpacaMarketSymbol,
+  type AlpacaMarketSymbolQuery,
 } from "../../../src/api/alpaca.js";
-import {
-  createMarketSymbolDirectoryProvider,
-  type MarketSymbolQuery,
-  type MarketSymbolRecord,
-} from "../../../src/api/market-symbols.js";
 import { ExaApi } from "../../../src/api/exa.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
 import {
@@ -154,7 +151,7 @@ type RouterUrlRetrieveInput = {
 };
 
 type MarketSymbolProvider = {
-  listMarketSymbols: (input: MarketSymbolQuery) => Promise<MarketSymbolRecord[]>;
+  listMarketSymbols: (input: AlpacaMarketSymbolQuery) => Promise<AlpacaMarketSymbol[]>;
 };
 
 type RouterSourceExtractionResult = {
@@ -1758,7 +1755,7 @@ async function listMarketSymbols(
     return json({
       symbols,
       count: symbols.length,
-      source: "nasdaq_trader_yahoo",
+      source: "alpaca_assets",
       cacheTags: marketSymbolCacheTags(query),
     });
   } catch (error) {
@@ -1837,7 +1834,7 @@ function getMarketSymbolProvider(context: LocalApiContext): MarketSymbolProvider
 }
 
 function lazyMarketSymbolProvider(): MarketSymbolProvider {
-  return createMarketSymbolDirectoryProvider();
+  return createAlpacaTradingClient();
 }
 
 async function runConfiguredHeartbeat(input: HeartbeatTriggerInput): Promise<HeartbeatRunResult> {

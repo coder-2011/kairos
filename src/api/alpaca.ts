@@ -222,12 +222,14 @@ export class AlpacaTradingClient {
       .filter((asset) => {
         const symbol = stringValue(asset.symbol);
         if (!symbol) return false;
+        if (asset.tradable !== true) return false;
         if (!query) return true;
         return (
           symbol.toUpperCase().includes(query) ||
           stringValue(asset.name)?.toUpperCase().includes(query)
         );
       })
+      .sort((left, right) => symbolRelevance(left, query) - symbolRelevance(right, query))
       .slice(0, limit);
     const snapshots = await this.getStockSnapshots(
       filtered.map((asset) => stringValue(asset.symbol)).filter(Boolean) as string[],
@@ -252,7 +254,7 @@ export class AlpacaTradingClient {
     ]);
 
     return assets
-      .filter((asset): asset is AlpacaAsset => Boolean(asset?.symbol))
+      .filter((asset): asset is AlpacaAsset => Boolean(asset?.symbol) && asset.tradable === true)
       .map((asset) => toMarketSymbol(asset, snapshots[stringValue(asset.symbol) ?? ""]));
   }
 
@@ -471,6 +473,18 @@ function boolValue(value: unknown): boolean | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function symbolRelevance(asset: AlpacaAsset, query: string | undefined): number {
+  const symbol = stringValue(asset.symbol)?.toUpperCase() ?? "";
+  const name = stringValue(asset.name)?.toUpperCase() ?? "";
+  if (!query) return 0;
+  if (symbol === query) return 0;
+  if (symbol.startsWith(query)) return 1;
+  if (symbol.includes(query)) return 2;
+  if (name.startsWith(query)) return 3;
+  if (name.includes(query)) return 4;
+  return 5;
 }
 
 function normalizeOrderStatus(value: unknown): BrokerOrderStatus {
