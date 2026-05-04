@@ -23,7 +23,15 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
+};
+
+export type DeepResearchImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
 };
 
 const apiBaseUrl =
@@ -62,6 +70,7 @@ export async function sendDeepResearchMessage(input: {
   chatId: string;
   text: string;
   model: string;
+  attachments?: DeepResearchImageAttachment[];
 }): Promise<{
   chat?: DeepResearchChatRecord;
   userMessage: DeepResearchMessageRecord;
@@ -73,6 +82,7 @@ export async function sendDeepResearchMessage(input: {
     body: JSON.stringify({
       text: input.text,
       model: input.model,
+      attachments: input.attachments ?? [],
     }),
   });
 }

@@ -7,7 +7,11 @@ import { z } from "zod";
 
 import { ExaApi } from "../../../src/api/exa.js";
 import { SupermemoryApi } from "../../../src/api/supermemory.js";
-import { createSupermemoryMemoryApi, getMemoryContainerTag } from "../../../src/global/index.js";
+import {
+  createOpenRouterChatModelForRole,
+  createSupermemoryMemoryApi,
+  getMemoryContainerTag,
+} from "../../../src/global/index.js";
 import { runInformationAgent } from "../../../src/agents/information/index.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
 import type { BranchRecord, JsonRecord, KairosLocalStore, RouterToolCallRecord } from "./store.js";
@@ -35,7 +39,15 @@ export type DeepResearchMessageRecord = {
   createdAt: string;
   text?: string;
   model?: string;
+  attachments?: DeepResearchImageAttachment[];
   toolCalls?: RouterToolCallRecord[];
+};
+
+export type DeepResearchImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
 };
 
 type DeepResearchContext = {
@@ -110,8 +122,20 @@ export const DEEP_RESEARCH_MODELS: DeepResearchModelOption[] = [
 ];
 
 const messageCreateSchema = z.object({
-  text: z.string().min(1),
+  text: z.string().optional().default(""),
   model: z.string().min(1).optional(),
+  attachments: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        mimeType: z.string().regex(/^image\/(?:png|jpe?g|webp|gif)$/),
+        dataUrl: z.string().regex(/^data:image\/(?:png|jpe?g|webp|gif);base64,/),
+      }).strict(),
+    )
+    .max(6)
+    .optional()
+    .default([]),
 });
 
 const chatCreateSchema = z.object({
@@ -151,6 +175,9 @@ export async function handleDeepResearchRequest(
       if (request.method === "GET") return json({ messages: await store.listMessages(chatId) });
       if (request.method === "POST") {
         const input = messageCreateSchema.parse(await readJson(request));
+        if (!input.text.trim() && input.attachments.length === 0) {
+          return json({ error: "bad_request", message: "Deep Research message is empty." }, 400);
+        }
         return runDeepResearchMessage(context, store, chat, input);
       }
     }
@@ -179,6 +206,7 @@ async function runDeepResearchMessage(
     chatId: chat.id,
     role: "user",
     text: input.text.trim(),
+    attachments: input.attachments,
     chatTitle,
   });
   const previousMessages = await store.listMessages(chat.id);
@@ -195,7 +223,10 @@ async function runDeepResearchMessage(
           role: message.role,
           content: message.text ?? "",
         }))
-        .concat({ role: "user", content: userMessage.text ?? "" }),
+        .concat({
+          role: "user",
+          content: deepResearchUserContent(userMessage),
+        }),
       tools: createDeepResearchTools(context, toolCalls),
       stopWhen: stepCountIs(8),
       temperature: 0.2,
@@ -242,6 +273,25 @@ function createDeepResearchOpenRouterModel(model: string) {
   });
 }
 
+function deepResearchUserContent(message: DeepResearchMessageRecord) {
+  const parts: Array<
+    | { type: "text"; text: string }
+    | { type: "file"; mediaType: string; data: string }
+  > = [];
+  const text = message.text?.trim();
+  if (text) {
+    parts.push({ type: "text", text });
+  }
+  for (const attachment of message.attachments ?? []) {
+    parts.push({
+      type: "file",
+      mediaType: attachment.mimeType,
+      data: attachment.dataUrl,
+    });
+  }
+  return parts.length > 0 ? parts : "";
+}
+
 function createDeepResearchTools(
   context: DeepResearchContext,
   traces: RouterToolCallRecord[],
@@ -266,7 +316,6 @@ function createDeepResearchTools(
           limit: limit ?? 8,
           rerank: true,
           searchMode: "hybrid",
-          aggregate: true,
           rewriteQuery: true,
         });
       },
@@ -348,11 +397,22 @@ function createDeepResearchTools(
           finnhub,
           memory: globalMemory,
           supermemory: globalMemory,
+          plannerModel: structuredModelProvider(createOpenRouterChatModelForRole("informationPlanner")),
+          synthesisModel: structuredModelProvider(createOpenRouterChatModelForRole("informationSynthesis")),
           maxToolCalls: 8,
           finnhubPremiumAccess: true,
           allowDeterministicFallback: false,
         });
       },
+    }),
+  };
+}
+
+function structuredModelProvider(model: ReturnType<typeof createOpenRouterChatModelForRole>) {
+  return {
+    withStructuredOutput: <T>(schema: unknown) => ({
+      invoke: (input: unknown) =>
+        model.withStructuredOutput(schema as Record<string, unknown>).invoke(input as never) as Promise<T>,
     }),
   };
 }
@@ -445,6 +505,7 @@ async function mirrorDeepResearchConversation(
       metadata: {
         type: "deep_research_conversation",
         chat_id: chatId,
+        image_count: userMessage.attachments?.length ?? 0,
         ...(assistantMessage.model ? { model: assistantMessage.model } : {}),
       },
     });
@@ -502,6 +563,7 @@ class DeepResearchFileStore {
     text?: string;
     chatTitle?: string;
     model?: string;
+    attachments?: DeepResearchImageAttachment[];
     toolCalls?: RouterToolCallRecord[];
   }): Promise<DeepResearchMessageRecord> {
     const message = {
@@ -510,6 +572,7 @@ class DeepResearchFileStore {
       role: input.role,
       text: input.text,
       model: input.model,
+      attachments: input.attachments,
       toolCalls: input.toolCalls,
       createdAt: new Date().toISOString(),
     };
