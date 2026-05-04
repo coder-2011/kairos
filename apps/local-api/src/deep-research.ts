@@ -25,7 +25,15 @@ import {
 } from "../../../src/global/index.js";
 import { runInformationAgent } from "../../../src/agents/information/index.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
-import type { BranchRecord, JsonRecord, KairosLocalStore, RouterToolCallRecord } from "./store.js";
+import type {
+  BranchRecord,
+  DeepResearchChatRecord,
+  DeepResearchImageAttachment,
+  DeepResearchMessageRecord,
+  JsonRecord,
+  KairosLocalStore,
+  RouterToolCallRecord,
+} from "./store.js";
 
 export type DeepResearchModelOption = {
   id: string;
@@ -36,36 +44,19 @@ export type DeepResearchModelOption = {
   note?: string;
 };
 
-export type DeepResearchChatRecord = {
-  id: string;
-  title?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type DeepResearchMessageRecord = {
-  id: string;
-  chatId: string;
-  role: "user" | "assistant";
-  createdAt: string;
-  text?: string;
-  model?: string;
-  reasoning?: string;
-  reasoningEffort?: KairosReasoningEffort;
-  attachments?: DeepResearchImageAttachment[];
-  toolCalls?: RouterToolCallRecord[];
-};
-
-export type DeepResearchImageAttachment = {
-  id: string;
-  name: string;
-  mimeType: string;
-  dataUrl: string;
-};
-
 export type DeepResearchContext = {
   store: KairosLocalStore;
 };
+
+type DeepResearchStore = Pick<
+  KairosLocalStore,
+  | "listDeepResearchChats"
+  | "createDeepResearchChat"
+  | "getDeepResearchChat"
+  | "deleteDeepResearchChat"
+  | "listDeepResearchMessages"
+  | "createDeepResearchMessage"
+>;
 
 export const DEEP_RESEARCH_DEFAULT_MODEL = "anthropic/claude-opus-4.7";
 
@@ -185,24 +176,28 @@ export async function handleDeepResearchRequest(
       });
     }
 
-    const store = new DeepResearchFileStore();
+    const store = context.store;
     if (segments.length === 2 && segments[1] === "chats") {
-      if (request.method === "GET") return json({ chats: await store.listChats() });
+      if (request.method === "GET") return json({ chats: await store.listDeepResearchChats() });
       if (request.method === "POST") {
-        return json({ chat: await store.createChat(chatCreateSchema.parse(await readJson(request))) }, 201);
+        return json({
+          chat: await store.createDeepResearchChat(
+            chatCreateSchema.parse(await readJson(request)),
+          ),
+        }, 201);
       }
     }
     if (segments.length === 3 && segments[1] === "chats" && request.method === "DELETE") {
       const chatId = segments[2];
-      const deleted = await store.deleteChat(chatId);
+      const deleted = await store.deleteDeepResearchChat(chatId);
       return deleted ? empty(204) : json({ error: "not_found", message: "Deep Research chat not found." }, 404);
     }
 
     if (segments.length === 4 && segments[1] === "chats" && segments[3] === "messages") {
       const chatId = segments[2];
-      const chat = await store.getChat(chatId);
+      const chat = await store.getDeepResearchChat(chatId);
       if (!chat) return json({ error: "not_found", message: "Deep Research chat not found." }, 404);
-      if (request.method === "GET") return json({ messages: await store.listMessages(chatId) });
+      if (request.method === "GET") return json({ messages: await store.listDeepResearchMessages(chatId) });
       if (request.method === "POST") {
         const input = messageCreateSchema.parse(await readJson(request));
         if (!input.text.trim() && input.attachments.length === 0) {
@@ -219,7 +214,7 @@ export async function handleDeepResearchRequest(
       segments[4] === "stream"
     ) {
       const chatId = segments[2];
-      const chat = await store.getChat(chatId);
+      const chat = await store.getDeepResearchChat(chatId);
       if (!chat) return json({ error: "not_found", message: "Deep Research chat not found." }, 404);
       if (request.method === "POST") {
         const input = messageCreateSchema.parse(await readJson(request));

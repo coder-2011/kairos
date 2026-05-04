@@ -32,10 +32,14 @@ import {
   type AppendRunEventInput,
   type BranchRecord,
   type CreateBranchInput,
+  type CreateDeepResearchChatInput,
+  type CreateDeepResearchMessageInput,
   type CreateRunInput,
   type KairosLocalStore,
   type RunEventRecord,
   type RunRecord,
+  type DeepResearchChatRecord,
+  type DeepResearchMessageRecord,
   type RouterChatRecord,
   type RouterMessageRecord,
   type CreateRouterChatInput,
@@ -298,6 +302,84 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return true;
   }
 
+  async listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
+    const chats = await this.readDeepResearchJsonFiles<DeepResearchChatRecord>("chats");
+    return chats.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  }
+
+  async createDeepResearchChat(
+    input: CreateDeepResearchChatInput = {},
+  ): Promise<DeepResearchChatRecord> {
+    const now = new Date().toISOString();
+    const chat: DeepResearchChatRecord = {
+      id: input.id ?? randomUUID(),
+      title: input.title,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.writeDeepResearchJson(this.deepResearchChatPath(chat.id), chat);
+    return chat;
+  }
+
+  async getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
+    return toUndefined(await this.readDeepResearchJson<DeepResearchChatRecord>(
+      this.deepResearchChatPath(id),
+    ));
+  }
+
+  async deleteDeepResearchChat(id: string): Promise<boolean> {
+    const chat = await this.getDeepResearchChat(id);
+    if (!chat) return false;
+
+    await Promise.all([
+      rm(this.deepResearchChatPath(id), { force: true }),
+      rm(this.deepResearchMessagesPath(id), { force: true }),
+    ]);
+    return true;
+  }
+
+  async listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
+    return this.readDeepResearchJsonl<DeepResearchMessageRecord>(
+      this.deepResearchMessagesPath(chatId),
+    );
+  }
+
+  async createDeepResearchMessage(
+    input: CreateDeepResearchMessageInput,
+  ): Promise<DeepResearchMessageRecord> {
+    const message: DeepResearchMessageRecord = {
+      id: input.id ?? randomUUID(),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      model: input.model,
+      reasoning: input.reasoning,
+      reasoningEffort: input.reasoningEffort,
+      attachments: input.attachments,
+      toolCalls: input.toolCalls,
+      createdAt: new Date().toISOString(),
+    };
+    await mkdir(dirname(this.deepResearchMessagesPath(input.chatId)), { recursive: true });
+    await writeFile(
+      this.deepResearchMessagesPath(input.chatId),
+      `${JSON.stringify(message)}\n`,
+      { flag: "a" },
+    );
+
+    const chat = await this.getDeepResearchChat(input.chatId);
+    if (chat) {
+      const nextTitle = chat.title ??
+        input.chatTitle ??
+        (input.role === "user" ? buildRouterChatTitle({ text: input.text }) : undefined);
+      await this.writeDeepResearchJson(this.deepResearchChatPath(input.chatId), {
+        ...chat,
+        ...(nextTitle ? { title: nextTitle } : {}),
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
+  }
+
   listMessages(): Promise<TradingMessage[]> {
     return this.tradingStore.listMessages();
   }
@@ -420,6 +502,18 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return join(this.routerDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
   }
 
+  private get deepResearchDir(): string {
+    return join(this.store.rootDir, "deep-research");
+  }
+
+  private deepResearchChatPath(chatId: string): string {
+    return join(this.deepResearchDir, "chats", `${encodeFileSegment(chatId)}.json`);
+  }
+
+  private deepResearchMessagesPath(chatId: string): string {
+    return join(this.deepResearchDir, "messages", `${encodeFileSegment(chatId)}.jsonl`);
+  }
+
   private async writeRouterJson(path: string, value: unknown): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -457,6 +551,55 @@ class RuntimeStoreAdapter implements KairosLocalStore {
   }
 
   private async readRouterJsonl<T>(path: string): Promise<T[]> {
+    try {
+      const text = await readFile(path, "utf8");
+      return text
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as T);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+  }
+
+  private async writeDeepResearchJson(path: string, value: unknown): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await rename(tmpPath, path);
+  }
+
+  private async readDeepResearchJson<T>(path: string): Promise<T | null> {
+    try {
+      return JSON.parse(await readFile(path, "utf8")) as T;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
+    }
+  }
+
+  private async readDeepResearchJsonFiles<T>(subdir: string): Promise<T[]> {
+    const dir = join(this.deepResearchDir, subdir);
+    let fileNames: string[];
+    try {
+      fileNames = await readdir(dir);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+
+    return Promise.all(
+      fileNames
+        .filter((fileName) => fileName.endsWith(".json"))
+        .sort()
+        .map(async (fileName) =>
+          JSON.parse(await readFile(join(dir, fileName), "utf8")) as T,
+        ),
+    );
+  }
+
+  private async readDeepResearchJsonl<T>(path: string): Promise<T[]> {
     try {
       const text = await readFile(path, "utf8");
       return text

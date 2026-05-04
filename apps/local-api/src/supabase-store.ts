@@ -22,10 +22,14 @@ import {
   uniqueStrings,
   type AppendRunEventInput,
   type BranchRecord,
+  type CreateDeepResearchChatInput,
+  type CreateDeepResearchMessageInput,
   type CreateBranchInput,
   type CreateRunInput,
   type CreateRouterChatInput,
   type CreateRouterMessageInput,
+  type DeepResearchChatRecord,
+  type DeepResearchMessageRecord,
   type KairosLocalStore,
   type RouterChatRecord,
   type RouterMessageRecord,
@@ -52,6 +56,8 @@ type Collection =
   | "run_events"
   | "router_chats"
   | "router_messages"
+  | "deep_research_chats"
+  | "deep_research_messages"
   | "messages"
   | "trade_intents"
   | "broker_orders"
@@ -257,6 +263,7 @@ export class SupabaseKairosStore implements KairosLocalStore {
       text: input.text,
       attachments: input.attachments,
       runId: input.runId,
+      toolCalls: input.toolCalls,
       createdAt: new Date().toISOString(),
     };
     await this.client.upsert("router_messages", message.id, message);
@@ -266,6 +273,78 @@ export class SupabaseKairosStore implements KairosLocalStore {
       await this.client.upsert("router_chats", chat.id, {
         ...chat,
         title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
+  }
+
+  async listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
+    const chats = await this.client.list<DeepResearchChatRecord>("deep_research_chats");
+    return chats.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  }
+
+  async createDeepResearchChat(
+    input: CreateDeepResearchChatInput = {},
+  ): Promise<DeepResearchChatRecord> {
+    const now = new Date().toISOString();
+    const chat: DeepResearchChatRecord = {
+      id: input.id ?? randomUUID(),
+      title: input.title,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.client.upsert("deep_research_chats", chat.id, chat);
+    return chat;
+  }
+
+  getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
+    return this.client.get<DeepResearchChatRecord>("deep_research_chats", id);
+  }
+
+  async deleteDeepResearchChat(id: string): Promise<boolean> {
+    const deleted = await this.client.delete("deep_research_chats", id);
+    if (!deleted) return false;
+
+    const messages = await this.listDeepResearchMessages(id);
+    await Promise.all(
+      messages.map((message) => this.client.delete("deep_research_messages", message.id)),
+    );
+    return true;
+  }
+
+  async listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
+    const messages = await this.client.list<DeepResearchMessageRecord>("deep_research_messages", {
+      "record->>chatId": `eq.${chatId}`,
+    });
+    return messages.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async createDeepResearchMessage(
+    input: CreateDeepResearchMessageInput,
+  ): Promise<DeepResearchMessageRecord> {
+    const message: DeepResearchMessageRecord = {
+      id: input.id ?? randomUUID(),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      model: input.model,
+      reasoning: input.reasoning,
+      reasoningEffort: input.reasoningEffort,
+      attachments: input.attachments,
+      toolCalls: input.toolCalls,
+      createdAt: new Date().toISOString(),
+    };
+    await this.client.upsert("deep_research_messages", message.id, message);
+
+    const chat = await this.getDeepResearchChat(input.chatId);
+    if (chat) {
+      const nextTitle = chat.title ??
+        input.chatTitle ??
+        (input.role === "user" ? buildRouterChatTitle({ text: input.text }) : undefined);
+      await this.client.upsert("deep_research_chats", chat.id, {
+        ...chat,
+        ...(nextTitle ? { title: nextTitle } : {}),
         updatedAt: message.createdAt,
       });
     }

@@ -1,4 +1,7 @@
-import type { KairosBranchAgentConfig } from "../../../src/global/agent-config.js";
+import type {
+  KairosBranchAgentConfig,
+  KairosReasoningEffort,
+} from "../../../src/global/agent-config.js";
 import {
   createBrokerOrderRecord,
   createPortfolioSnapshotRecord,
@@ -101,6 +104,33 @@ export type RouterToolCallRecord = {
   createdAt: string;
 };
 
+export type DeepResearchChatRecord = {
+  id: string;
+  title?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeepResearchImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+};
+
+export type DeepResearchMessageRecord = {
+  id: string;
+  chatId: string;
+  role: "user" | "assistant";
+  createdAt: string;
+  text?: string;
+  model?: string;
+  reasoning?: string;
+  reasoningEffort?: KairosReasoningEffort;
+  attachments?: DeepResearchImageAttachment[];
+  toolCalls?: RouterToolCallRecord[];
+};
+
 export type CreateBranchInput = {
   id?: string;
   lawId?: string;
@@ -148,6 +178,24 @@ export type CreateRouterMessageInput = {
   toolCalls?: RouterToolCallRecord[];
 };
 
+export type CreateDeepResearchChatInput = {
+  id?: string;
+  title?: string;
+};
+
+export type CreateDeepResearchMessageInput = {
+  id?: string;
+  chatId: string;
+  role: "user" | "assistant";
+  text?: string;
+  chatTitle?: string;
+  model?: string;
+  reasoning?: string;
+  reasoningEffort?: KairosReasoningEffort;
+  attachments?: DeepResearchImageAttachment[];
+  toolCalls?: RouterToolCallRecord[];
+};
+
 export type RunEventSubscriber = (event: RunEventRecord) => void;
 
 export type KairosLocalStore = {
@@ -169,6 +217,12 @@ export type KairosLocalStore = {
   getRouterChat(id: string): Promise<RouterChatRecord | undefined>;
   listRouterMessages(chatId: string): Promise<RouterMessageRecord[]>;
   createRouterMessage(input: CreateRouterMessageInput): Promise<RouterMessageRecord>;
+  listDeepResearchChats(): Promise<DeepResearchChatRecord[]>;
+  deleteDeepResearchChat(id: string): Promise<boolean>;
+  createDeepResearchChat(input?: CreateDeepResearchChatInput): Promise<DeepResearchChatRecord>;
+  getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined>;
+  listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]>;
+  createDeepResearchMessage(input: CreateDeepResearchMessageInput): Promise<DeepResearchMessageRecord>;
   listMessages(): Promise<TradingMessage[]>;
   createMessage(input: CreateTradingMessageInput): Promise<TradingMessage>;
   listTradeIntents(): Promise<TradeIntent[]>;
@@ -188,6 +242,8 @@ export class MemoryKairosStore implements KairosLocalStore {
   private events = new Map<string, RunEventRecord[]>();
   private routerChats = new Map<string, RouterChatRecord>();
   private routerMessages = new Map<string, RouterMessageRecord[]>();
+  private deepResearchChats = new Map<string, DeepResearchChatRecord>();
+  private deepResearchMessages = new Map<string, DeepResearchMessageRecord[]>();
   private messages = new Map<string, TradingMessage>();
   private tradeIntents = new Map<string, TradeIntent>();
   private brokerOrders = new Map<string, BrokerOrder>();
@@ -397,6 +453,69 @@ export class MemoryKairosStore implements KairosLocalStore {
       this.routerChats.set(input.chatId, {
         ...chat,
         title: chat.title ?? input.chatTitle ?? buildRouterChatTitle(input),
+        updatedAt: message.createdAt,
+      });
+    }
+    return message;
+  }
+
+  async listDeepResearchChats(): Promise<DeepResearchChatRecord[]> {
+    return [...this.deepResearchChats.values()].sort(
+      (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+    );
+  }
+
+  async createDeepResearchChat(input: CreateDeepResearchChatInput = {}): Promise<DeepResearchChatRecord> {
+    const now = new Date().toISOString();
+    const chat: DeepResearchChatRecord = {
+      id: input.id ?? this.nextId("deep_research_chat"),
+      title: input.title,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.deepResearchChats.set(chat.id, chat);
+    return chat;
+  }
+
+  async deleteDeepResearchChat(id: string): Promise<boolean> {
+    const deleted = this.deepResearchChats.delete(id);
+    this.deepResearchMessages.delete(id);
+    return deleted;
+  }
+
+  async getDeepResearchChat(id: string): Promise<DeepResearchChatRecord | undefined> {
+    return this.deepResearchChats.get(id);
+  }
+
+  async listDeepResearchMessages(chatId: string): Promise<DeepResearchMessageRecord[]> {
+    return [...(this.deepResearchMessages.get(chatId) ?? [])];
+  }
+
+  async createDeepResearchMessage(input: CreateDeepResearchMessageInput): Promise<DeepResearchMessageRecord> {
+    const message: DeepResearchMessageRecord = {
+      id: input.id ?? this.nextId("deep_research_message"),
+      chatId: input.chatId,
+      role: input.role,
+      text: input.text,
+      model: input.model,
+      reasoning: input.reasoning,
+      reasoningEffort: input.reasoningEffort,
+      attachments: input.attachments,
+      toolCalls: input.toolCalls,
+      createdAt: new Date().toISOString(),
+    };
+    const messages = this.deepResearchMessages.get(input.chatId) ?? [];
+    messages.push(message);
+    this.deepResearchMessages.set(input.chatId, messages);
+
+    const chat = this.deepResearchChats.get(input.chatId);
+    if (chat) {
+      const nextTitle = chat.title ??
+        input.chatTitle ??
+        (input.role === "user" ? buildRouterChatTitle({ text: input.text }) : undefined);
+      this.deepResearchChats.set(input.chatId, {
+        ...chat,
+        ...(nextTitle ? { title: nextTitle } : {}),
         updatedAt: message.createdAt,
       });
     }
