@@ -1408,6 +1408,8 @@ function MonitoringRunDetail({
         </div>
       </div>
 
+      <RunLifecyclePanel run={run} />
+
       <div className="monitoring-detail-grid">
         <section className="monitoring-detail-section">
           <div className="section-title">RUN</div>
@@ -1853,10 +1855,12 @@ function RunDeepDive({
               <div className="run-summary-grid">
                 <RunFact label="Status" tone={selectedRun.status === "failed" ? "danger" : "default"} value={selectedRun.status} />
                 <RunFact label="Kind" value={selectedRun.kind} />
+                <RunFact label="Stage" value={selectedRun.lifecycle?.stage ?? selectedRun.status} />
                 <RunFact label="Branch" value={selectedRunSummary.branchLabel} />
                 <RunFact label="Created" value={formatDateTime(selectedRun.createdAt)} />
                 <RunFact label="Updated" value={formatDateTime(selectedRun.updatedAt)} />
               </div>
+              <RunLifecyclePanel run={selectedRun} />
               <div className={`run-outcome ${selectedRun.status === "failed" ? "danger" : ""}`}>
                 <b>{selectedRunSummary.outcomeTitle}</b>
                 <p>{selectedRunSummary.outcome}</p>
@@ -1962,6 +1966,62 @@ function RunFact({
       <span>{label}</span>
       <b>{value}</b>
     </div>
+  );
+}
+
+function RunLifecyclePanel({ run }: { run: RunRecord }) {
+  const lifecycle = run.lifecycle;
+  const stage = lifecycle?.stage ?? run.status;
+  const currentOperation =
+    lifecycle?.currentOperation ?? `${run.kind} workflow is ${run.status}.`;
+
+  return (
+    <section className="run-lifecycle-panel">
+      <div className="section-title">LIFECYCLE</div>
+      <div className="run-lifecycle-grid">
+        <RunFact label="Stage" value={stage} />
+        <RunFact label="Operation" value={currentOperation} />
+        <RunFact
+          label="Elapsed"
+          value={formatDuration(lifecycle?.elapsedMs ?? elapsedMs(run))}
+        />
+        <RunFact
+          label="Last Event"
+          value={lifecycle?.lastEventAt ? formatDateTime(lifecycle.lastEventAt) : "-"}
+        />
+        <RunFact
+          label="Parent"
+          value={lifecycle?.parentRunId ?? "-"}
+        />
+        <RunFact
+          label="Children"
+          value={String(lifecycle?.childRunIds.length ?? 0)}
+        />
+        <RunFact
+          label="Blocking Service"
+          tone={lifecycle?.blockingExternalService ? "danger" : "default"}
+          value={lifecycle?.blockingExternalService ?? "-"}
+        />
+        <RunFact
+          label="Retryable"
+          value={lifecycle?.retryable ? "yes" : "no"}
+        />
+        <RunFact
+          label="Cancelable"
+          value={lifecycle?.cancelable ? "yes" : "no"}
+        />
+      </div>
+      {(lifecycle?.parentRunId || (lifecycle?.childRunIds.length ?? 0) > 0) && (
+        <div className="run-lifecycle-links">
+          {lifecycle?.parentRunId && (
+            <span>Parent run: {lifecycle.parentRunId}</span>
+          )}
+          {(lifecycle?.childRunIds ?? []).length > 0 && (
+            <span>Child runs: {(lifecycle?.childRunIds ?? []).join(", ")}</span>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -37,6 +37,18 @@ export type BranchRecord = {
   metadata?: JsonRecord;
 };
 
+export type RunLifecycle = {
+  stage: string;
+  lastEventAt?: string;
+  elapsedMs: number;
+  currentOperation?: string;
+  childRunIds: string[];
+  parentRunId?: string;
+  blockingExternalService?: string;
+  retryable: boolean;
+  cancelable: boolean;
+};
+
 export type RunRecord = {
   id: string;
   kind: "heartbeat" | "debate" | "router";
@@ -47,6 +59,7 @@ export type RunRecord = {
   input: JsonRecord;
   output?: JsonRecord;
   metadata?: JsonRecord;
+  lifecycle?: RunLifecycle;
 };
 
 export type RunEventRecord = {
