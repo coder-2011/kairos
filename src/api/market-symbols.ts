@@ -92,18 +92,17 @@ export function createMarketSymbolDirectoryProvider(
     input: MarketSymbolQuery = {},
   ): Promise<MarketSymbolRecord[]> {
     const query = input.query?.trim().toUpperCase();
+    const queryTokens = marketSymbolSearchTokens(query);
     const limit = Math.max(1, Math.min(input.limit ?? 500, 5000));
     const directory = await loadDirectory();
     const filtered = directory
       .filter((record) => {
         if (!query) return true;
-        return (
-          record.symbol.includes(query) ||
-          record.name?.toUpperCase().includes(query) ||
-          record.exchange?.toUpperCase().includes(query)
-        );
+        return matchesMarketSymbolRecord(record, query, queryTokens);
       })
-      .sort((left, right) => relevance(left, query) - relevance(right, query))
+      .sort((left, right) =>
+        relevance(left, query, queryTokens) - relevance(right, query, queryTokens),
+      )
       .slice(0, limit);
     const quotes = await fetchYahooQuotes(
       fetchImpl,
@@ -123,15 +122,57 @@ export function createMarketSymbolDirectoryProvider(
   return { listMarketSymbols };
 }
 
-function relevance(record: MarketSymbolRecord, query: string | undefined): number {
+function matchesMarketSymbolRecord(
+  record: MarketSymbolRecord,
+  query: string,
+  queryTokens: string[],
+): boolean {
+  const text = [
+    record.symbol,
+    record.name,
+    record.exchange,
+    record.assetClass,
+    record.exchangeName,
+    record.quoteType,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+  return text.includes(query) || queryTokens.some((token) => text.includes(token));
+}
+
+function relevance(
+  record: MarketSymbolRecord,
+  query: string | undefined,
+  queryTokens: string[] = [],
+): number {
   if (!query) return 0;
   if (record.symbol === query) return 0;
   if (record.symbol.startsWith(query)) return 1;
   if (record.symbol.includes(query)) return 2;
   if (record.name?.toUpperCase().startsWith(query)) return 3;
   if (record.name?.toUpperCase().includes(query)) return 4;
-  return 5;
+  if (queryTokens.some((token) => record.symbol === token)) return 5;
+  if (queryTokens.some((token) => record.symbol.startsWith(token))) return 6;
+  if (queryTokens.some((token) => record.name?.toUpperCase().includes(token))) return 7;
+  return 8;
 }
+
+function marketSymbolSearchTokens(query: string | undefined): string[] {
+  if (!query) return [];
+  return query
+    .split(/[^A-Z0-9.-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !marketSymbolSearchStopWords.has(token));
+}
+
+const marketSymbolSearchStopWords = new Set([
+  "ETF",
+  "FUND",
+  "INC",
+  "STOCK",
+  "THE",
+]);
 
 function parseNasdaqListed(text: string): MarketSymbolRecord[] {
   return parsePipeRows(text)

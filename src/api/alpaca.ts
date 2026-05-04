@@ -216,6 +216,7 @@ export class AlpacaTradingClient {
     input: AlpacaMarketSymbolQuery = {},
   ): Promise<AlpacaMarketSymbol[]> {
     const query = input.query?.trim().toUpperCase();
+    const queryTokens = marketSymbolSearchTokens(query);
     const limit = Math.max(1, Math.min(input.limit ?? 500, 1000));
     const assets = await this.listActiveEquityAssets();
     const filtered = assets
@@ -224,12 +225,12 @@ export class AlpacaTradingClient {
         if (!symbol) return false;
         if (asset.tradable !== true) return false;
         if (!query) return true;
-        return (
-          symbol.toUpperCase().includes(query) ||
-          stringValue(asset.name)?.toUpperCase().includes(query)
-        );
+        return matchesMarketSymbolAsset(asset, query, queryTokens);
       })
-      .sort((left, right) => symbolRelevance(left, query) - symbolRelevance(right, query))
+      .sort((left, right) =>
+        symbolRelevance(left, query, queryTokens) -
+        symbolRelevance(right, query, queryTokens),
+      )
       .slice(0, limit);
     const snapshots = await this.getStockSnapshots(
       filtered.map((asset) => stringValue(asset.symbol)).filter(Boolean) as string[],
@@ -478,7 +479,30 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function symbolRelevance(asset: AlpacaAsset, query: string | undefined): number {
+function matchesMarketSymbolAsset(
+  asset: AlpacaAsset,
+  query: string,
+  queryTokens: string[],
+): boolean {
+  const symbol = stringValue(asset.symbol)?.toUpperCase() ?? "";
+  const name = stringValue(asset.name)?.toUpperCase() ?? "";
+  const exchange = stringValue(asset.exchange)?.toUpperCase() ?? "";
+  const text = [symbol, name, exchange, stringValue(asset.asset_class)?.toUpperCase()]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    symbol.includes(query) ||
+    name.includes(query) ||
+    exchange.includes(query) ||
+    queryTokens.some((token) => text.includes(token))
+  );
+}
+
+function symbolRelevance(
+  asset: AlpacaAsset,
+  query: string | undefined,
+  queryTokens: string[] = [],
+): number {
   const symbol = stringValue(asset.symbol)?.toUpperCase() ?? "";
   const name = stringValue(asset.name)?.toUpperCase() ?? "";
   if (!query) return 0;
@@ -487,8 +511,27 @@ function symbolRelevance(asset: AlpacaAsset, query: string | undefined): number 
   if (symbol.includes(query)) return 2;
   if (name.startsWith(query)) return 3;
   if (name.includes(query)) return 4;
-  return 5;
+  if (queryTokens.some((token) => symbol === token)) return 5;
+  if (queryTokens.some((token) => symbol.startsWith(token))) return 6;
+  if (queryTokens.some((token) => name.includes(token))) return 7;
+  return 8;
 }
+
+function marketSymbolSearchTokens(query: string | undefined): string[] {
+  if (!query) return [];
+  return query
+    .split(/[^A-Z0-9.-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !marketSymbolSearchStopWords.has(token));
+}
+
+const marketSymbolSearchStopWords = new Set([
+  "ETF",
+  "FUND",
+  "INC",
+  "STOCK",
+  "THE",
+]);
 
 function normalizeOrderStatus(value: unknown): BrokerOrderStatus {
   const status = stringValue(value);
