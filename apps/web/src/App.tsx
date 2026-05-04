@@ -42,6 +42,7 @@ import {
   getRuns,
   getRouterChats,
   getRouterMessages,
+  deleteRouterChat as deleteRouterChatApi,
   getTradeSymbols,
   getTradeIntents,
   KairosApiError,
@@ -655,6 +656,27 @@ export function App() {
     }
   }
 
+  async function deleteRouterChat(chatId: string) {
+    const targetChat = routerChats.find((chat) => chat.id === chatId);
+    const confirmed = window.confirm(
+      `Delete router chat "${targetChat?.title ?? "Untitled"}"? This will remove its messages.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteRouterChatApi(chatId);
+      const remainingChats = routerChats.filter((chat) => chat.id !== chatId);
+      setRouterChats(remainingChats);
+      if (selectedRouterChatId === chatId) {
+        setSelectedRouterChatId(remainingChats[0]?.id ?? "");
+        setRouterMessages([]);
+      }
+      setRouterLoadState("api");
+    } catch {
+      setRouterLoadState("offline");
+    }
+  }
+
   async function submitRouterMessage(text: string) {
     if (!selectedRouterChatId || !text.trim()) return;
     setRouterRunning(true);
@@ -971,6 +993,7 @@ export function App() {
             onNewChat={() => void startRouterChat()}
             onSelectChat={setSelectedRouterChatId}
             onSend={(text) => void submitRouterMessage(text)}
+            onDeleteChat={(chatId) => void deleteRouterChat(chatId)}
           />
         )}
         {view === "deepResearch" && <DeepResearchView />}
@@ -1297,6 +1320,7 @@ function RouterView({
   selectedChatId,
   onNewChat,
   onSelectChat,
+  onDeleteChat,
   onSend,
 }: {
   branchCount: number;
@@ -1308,6 +1332,7 @@ function RouterView({
   selectedChatId: string;
   onNewChat: () => void;
   onSelectChat: (chatId: string) => void;
+  onDeleteChat: (chatId: string) => void;
   onSend: (text: string) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -1342,16 +1367,32 @@ function RouterView({
             />
           ) : (
             chats.map((chat) => (
-              <button
-                className={`run-list-item ${chat.id === selectedChatId ? "active" : ""}`}
+              <div
+                className={`run-list-item-row ${chat.id === selectedChatId ? "active" : ""}`}
                 key={chat.id}
-                onClick={() => onSelectChat(chat.id)}
-                type="button"
               >
-                <span>CHAT</span>
-                <b>{chatDisplayTitle(chat)}</b>
-                <em>{formatChatTimestamp(chat.updatedAt)}</em>
-              </button>
+                <button
+                  className={`run-list-item ${chat.id === selectedChatId ? "active" : ""}`}
+                  onClick={() => onSelectChat(chat.id)}
+                  type="button"
+                >
+                  <span>CHAT</span>
+                  <b>{chatDisplayTitle(chat)}</b>
+                  <em>{formatChatTimestamp(chat.updatedAt)}</em>
+                </button>
+                <button
+                  className="run-list-item-delete"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteChat(chat.id);
+                  }}
+                  type="button"
+                  title="Delete chat"
+                  aria-label="Delete chat"
+                >
+                  <Icon name="delete" />
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -2753,7 +2794,7 @@ function BranchConfig({
         </div>
       </div>
       <div className="config-body" key={draftVersion}>
-        <div className="config-grid">
+        <div>
           <FieldLabel label="Branch Name">
             <input
               onChange={(event) => setBranchName(event.target.value)}
@@ -2761,43 +2802,12 @@ function BranchConfig({
               value={branchName}
             />
           </FieldLabel>
-          <label className="checkbox-card compact">
-            <input
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <b>Branch enabled</b>
-              <small>Allows scheduled monitoring and router wakeups.</small>
-            </span>
-          </label>
         </div>
         <FieldLabel label="The Law (Primary Thesis)">
           <textarea
             onChange={(event) => setLawText(event.target.value)}
             placeholder="Describe what this branch watches, what counts as signal, and what should be ignored."
             value={lawText}
-          />
-        </FieldLabel>
-        <FieldLabel label="Tracked Tickers">
-          <input
-            onChange={(event) => {
-              const assets = parseAssetList(event.target.value);
-              setConfig((current) => ({
-                ...current,
-                assets,
-                trading: {
-                  ...current.trading,
-                  symbols: normalizeSymbolSelection(current.trading?.symbols ?? [], assets),
-                  symbol:
-                    normalizeSymbolSelection(current.trading?.symbols ?? [], assets)[0] ??
-                    assets[0],
-                },
-              }));
-            }}
-            placeholder="PLTR, NVDA, CRWV"
-            value={branchAssets.join(", ")}
           />
         </FieldLabel>
         <div>
@@ -2827,43 +2837,37 @@ function BranchConfig({
         <section className="trading-panel">
           <div className="trading-panel-head">
             <div>
-              <div className="field-label">PAPER TRADING CONTROLS</div>
               <h2>Trading</h2>
             </div>
           </div>
           <div className="trading-grid">
             <div className="trading-section full">
-              <div className="field-label">Mode</div>
-              <FieldLabel
-                hint="Enable Trading creates paper trade intents. Notify records/sends a human notification. Both does both. Auto-submit orders stay off."
-                label="Action"
-              >
-                <select
-                  onChange={(event) => {
-                    const nextMode = event.target.value as TradingActionMode;
-                    const tradingEnabled = nextMode === "enable_trading" || nextMode === "both";
-                    const notifyOnBuySignal = nextMode === "notify" || nextMode === "both";
+              <select
+                aria-label="Trading behavior"
+                onChange={(event) => {
+                  const nextMode = event.target.value as TradingActionMode;
+                  const tradingEnabled = nextMode === "enable_trading" || nextMode === "both";
+                  const notifyOnBuySignal = nextMode === "notify" || nextMode === "both";
 
-                    setConfig((current) => ({
-                      ...current,
-                      trading: {
-                        ...current.trading,
-                        mode: tradingEnabled ? "paper" : "disabled",
-                        notifyOnBuySignal,
-                        autoTradeEnabled: false,
-                        paperAutoBuyEnabled: false,
-                      },
-                    }));
-                  }}
-                  value={tradingActionMode}
-                >
-                  {tradingActionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
+                  setConfig((current) => ({
+                    ...current,
+                    trading: {
+                      ...current.trading,
+                      mode: tradingEnabled ? "paper" : "disabled",
+                      notifyOnBuySignal,
+                      autoTradeEnabled: false,
+                      paperAutoBuyEnabled: false,
+                    },
+                  }));
+                }}
+                value={tradingActionMode}
+              >
+                {tradingActionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="trading-section full">
               <div className="field-label">Execution</div>

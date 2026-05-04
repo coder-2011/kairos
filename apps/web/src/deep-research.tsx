@@ -8,6 +8,7 @@ import {
   createDeepResearchChat,
   getDeepResearchChats,
   getDeepResearchMessages,
+  deleteDeepResearchChat,
   getDeepResearchModels,
   sendDeepResearchMessage,
   sendDeepResearchMessageStream,
@@ -112,6 +113,28 @@ export function DeepResearchView() {
       setChats((current) => [chat, ...current]);
       setSelectedChatId(chat.id);
       setMessages([]);
+      setLoadState("api");
+    } catch {
+      setLoadState("offline");
+    }
+  }
+
+  async function deleteChat(chatId: string) {
+    const targetChat = chats.find((chat) => chat.id === chatId);
+    const confirmed = window.confirm(
+      `Delete deep research chat "${targetChat?.title ?? "Untitled"}"? This will remove its messages too.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteDeepResearchChat(chatId);
+      const remainingChats = chats.filter((chat) => chat.id !== chatId);
+      setChats(remainingChats);
+      if (selectedChatId === chatId) {
+        const nextChatId = remainingChats[0]?.id ?? "";
+        setSelectedChatId(nextChatId);
+        setMessages([]);
+      }
       setLoadState("api");
     } catch {
       setLoadState("offline");
@@ -332,16 +355,29 @@ export function DeepResearchView() {
             </div>
           ) : (
             chats.map((chat) => (
-              <button
-                className={`deep-research-chat ${chat.id === selectedChatId ? "active" : ""}`}
+              <div
+                className={`deep-research-chat-row ${chat.id === selectedChatId ? "active" : ""}`}
                 key={chat.id}
-                onClick={() => setSelectedChatId(chat.id)}
-                type="button"
               >
-                <span>RESEARCH</span>
-                <b>{chat.title ?? "Untitled research"}</b>
-                <em>{formatChatTimestamp(chat.updatedAt)}</em>
-              </button>
+                <button
+                  className={`deep-research-chat ${chat.id === selectedChatId ? "active" : ""}`}
+                  onClick={() => setSelectedChatId(chat.id)}
+                  type="button"
+                >
+                  <span>RESEARCH</span>
+                  <b>{chat.title ?? "Untitled research"}</b>
+                  <em>{formatChatTimestamp(chat.updatedAt)}</em>
+                </button>
+                <button
+                  className="deep-research-chat-delete"
+                  onClick={() => deleteChat(chat.id)}
+                  type="button"
+                  aria-label="Delete deep research chat"
+                  title="Delete chat"
+                >
+                  <span className="material-symbols-outlined">delete</span>
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -824,6 +860,7 @@ function formatWorkflowSummary(message: DeepResearchMessageRecord): string {
 
 function humanizeDeepResearchToolName(value: string): string {
   const labels: Record<string, string> = {
+    supermemory_context: "Memory Context",
     supermemory_search_all: "Memory Search",
     supermemory_branch_profiles: "Branch Profiles",
     exa_search: "Source Search",

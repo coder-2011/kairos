@@ -89,6 +89,12 @@ export async function createDeepResearchChat(): Promise<DeepResearchChatRecord> 
   }).then((response) => response.chat);
 }
 
+export async function deleteDeepResearchChat(chatId: string): Promise<void> {
+  await request<void>(`/deep-research/chats/${chatId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function getDeepResearchMessages(
   chatId: string,
 ): Promise<DeepResearchMessageRecord[]> {

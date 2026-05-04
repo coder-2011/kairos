@@ -79,6 +79,13 @@
   padding: 0 10px 12px;
 }
 
+.deep-research-chat-row {
+  align-items: stretch;
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
 .deep-research-chat {
   background: transparent;
   border: 1px solid transparent;
@@ -88,13 +95,36 @@
   flex-direction: column;
   gap: 3px;
   padding: 10px;
+  width: 100%;
   text-align: left;
+}
+
+.deep-research-chat-row.active .deep-research-chat {
+  border-color: var(--outline-variant);
 }
 
 .deep-research-chat:hover,
 .deep-research-chat.active {
   background: var(--surface);
   border-color: var(--outline-variant);
+}
+
+.deep-research-chat-delete {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--on-variant);
+  display: inline-flex;
+  justify-content: center;
+  min-width: 34px;
+  padding: 0 6px;
+}
+
+.deep-research-chat-delete:hover {
+  background: var(--error-container);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  color: var(--error);
 }
 
 .deep-research-chat span,

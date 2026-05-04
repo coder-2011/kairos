@@ -432,6 +432,12 @@ export async function deleteBranch(branchId: string): Promise<void> {
   });
 }
 
+export async function deleteRouterChat(chatId: string): Promise<void> {
+  await request<void>(`/router/chats/${chatId}`, {
+    method: "DELETE",
+  });
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
