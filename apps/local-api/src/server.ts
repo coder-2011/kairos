@@ -49,12 +49,12 @@ import {
   type SupermemoryMirror,
 } from "../../../src/global/index.js";
 import {
-  createAlpacaPaperBroker,
+  createAlpacaTradingBroker,
   createTradeIntentInputSchema,
   evaluateTradingThresholdPolicy,
-  submitPaperOrder,
+  submitOrder,
   tradingConfigSchema,
-  type PaperTradingBroker,
+  type TradingBroker,
   type PortfolioSnapshot,
   type TradeIntent,
   type TradingConfig,
@@ -86,7 +86,7 @@ export type LocalApiDependencies = {
   runHeartbeat?: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate?: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   retrieveUrlContents?: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
-  tradingBroker?: PaperTradingBroker;
+  tradingBroker?: TradingBroker;
   marketSymbolProvider?: MarketSymbolProvider;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
@@ -102,7 +102,7 @@ export type LocalApiContext = {
   runHeartbeat: (input: HeartbeatTriggerInput) => Promise<HeartbeatRunResult>;
   createDebate: (input: DebateCreateInput) => Promise<DebateCreateResult>;
   retrieveUrlContents: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
-  tradingBroker?: PaperTradingBroker;
+  tradingBroker?: TradingBroker;
   marketSymbolProvider?: MarketSymbolProvider;
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
@@ -218,7 +218,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     createDebate: options.dependencies?.createDebate ?? runConfiguredDebate,
     retrieveUrlContents:
       options.dependencies?.retrieveUrlContents ?? defaultRetrieveUrlContents,
-    tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaPaperBroker(),
+    tradingBroker: options.dependencies?.tradingBroker ?? lazyAlpacaTradingBroker(),
     marketSymbolProvider: options.dependencies?.marketSymbolProvider,
     notificationSender:
       options.dependencies?.notificationSender ??
@@ -1319,7 +1319,7 @@ async function submitPaperTradeIntent(
   const branch = tradeIntent.branchId ? await context.store.getBranch(tradeIntent.branchId) : undefined;
   const resolvedTradingConfig = resolveTradingConfig(tradingConfig, branch?.config);
 
-  const result = await submitPaperOrder(getTradingBroker(context), tradeIntent, resolvedTradingConfig);
+  const result = await submitOrder(getTradingBroker(context), tradeIntent, resolvedTradingConfig);
   if (!result.preflight.ok || !result.order) {
     const updated = await context.store.updateTradeIntent(tradeIntent.id, {
       status: "blocked",
@@ -1340,6 +1340,16 @@ async function submitPaperTradeIntent(
       confidence: tradeIntent.confidence,
       metadata: { preflight: result.preflight },
     });
+    if (tradeIntent.sourceRunId) {
+      await context.store.appendRunEvent(tradeIntent.sourceRunId, {
+        type: "trading.intent.failed",
+        payload: {
+          tradeIntentId: tradeIntent.id,
+          preflight: result.preflight,
+          messageId: message.id,
+        },
+      });
+    }
     return json({
       tradeIntent: updated,
       brokerOrder: null,
@@ -1369,6 +1379,16 @@ async function submitPaperTradeIntent(
     confidence: tradeIntent.confidence,
     metadata: { preflight: result.preflight },
   });
+  if (tradeIntent.sourceRunId) {
+    await context.store.appendRunEvent(tradeIntent.sourceRunId, {
+      type: "trading.intent.submitted",
+      payload: {
+        tradeIntentId: tradeIntent.id,
+        brokerOrderId: brokerOrder.id,
+        messageId: message.id,
+      },
+    });
+  }
 
   return json({
     tradeIntent: updated,
@@ -1462,15 +1482,15 @@ async function streamRunEvents(context: LocalApiContext, runId: string): Promise
   });
 }
 
-function getTradingBroker(context: LocalApiContext): PaperTradingBroker {
-  context.tradingBroker ??= lazyAlpacaPaperBroker();
+function getTradingBroker(context: LocalApiContext): TradingBroker {
+  context.tradingBroker ??= lazyAlpacaTradingBroker();
   return context.tradingBroker;
 }
 
-function lazyAlpacaPaperBroker(): PaperTradingBroker {
-  let broker: PaperTradingBroker | undefined;
+function lazyAlpacaTradingBroker(): TradingBroker {
+  let broker: TradingBroker | undefined;
   const current = () => {
-    broker ??= createAlpacaPaperBroker();
+    broker ??= createAlpacaTradingBroker();
     return broker;
   };
 

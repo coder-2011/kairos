@@ -7,7 +7,7 @@ import {
   type TradingConfig,
 } from "./schemas.js";
 
-export type PaperTradingBroker = {
+export type TradingBroker = {
   getPortfolioSnapshot(): Promise<PortfolioSnapshot>;
   getClock(): Promise<{ is_open?: boolean; next_open?: string }>;
   getAsset(symbol: string): Promise<{ tradable?: boolean; status?: string }>;
@@ -27,17 +27,21 @@ export type PaperTradingBroker = {
   }): Promise<BrokerOrder>;
 };
 
+export type PaperTradingBroker = TradingBroker;
+
 export type PaperOrderPreflightResult = {
   ok: boolean;
   reasons: string[];
 };
 
-export function createAlpacaPaperBroker(): PaperTradingBroker {
+export function createAlpacaTradingBroker(): TradingBroker {
   return new AlpacaTradingClient();
 }
 
-export async function preflightPaperOrder(
-  broker: PaperTradingBroker,
+export const createAlpacaPaperBroker = createAlpacaTradingBroker;
+
+export async function preflightOrder(
+  broker: TradingBroker,
   intent: TradeIntent,
   config: TradingConfig = {},
 ): Promise<PaperOrderPreflightResult> {
@@ -45,7 +49,7 @@ export async function preflightPaperOrder(
   const notional = estimatedNotional(intent);
 
   if (intent.mode !== "paper") {
-    reasons.push("Only paper trade intents can be submitted.");
+    reasons.push("Only broker-backed trade intents can be submitted.");
   }
   if (config.allowedSymbols && !config.allowedSymbols.includes(intent.symbol)) {
     reasons.push(`${intent.symbol} is not in the configured allowedSymbols list.`);
@@ -116,6 +120,8 @@ export async function preflightPaperOrder(
   };
 }
 
+export const preflightPaperOrder = preflightOrder;
+
 function findPortfolioPosition(
   portfolio: PortfolioSnapshot,
   symbol: string,
@@ -134,12 +140,12 @@ function estimatedPositionNotional(
   return 0;
 }
 
-export async function submitPaperOrder(
-  broker: PaperTradingBroker,
+export async function submitOrder(
+  broker: TradingBroker,
   intent: TradeIntent,
   config: TradingConfig = {},
 ): Promise<{ preflight: PaperOrderPreflightResult; order?: BrokerOrder }> {
-  const preflight = await preflightPaperOrder(broker, intent, config);
+  const preflight = await preflightOrder(broker, intent, config);
   if (!preflight.ok) {
     return { preflight };
   }
@@ -164,6 +170,8 @@ export async function submitPaperOrder(
     }),
   };
 }
+
+export const submitPaperOrder = submitOrder;
 
 function estimatedNotional(intent: TradeIntent): number {
   if (intent.notional !== undefined) return intent.notional;

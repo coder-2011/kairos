@@ -1059,16 +1059,16 @@ describe("local API handler", () => {
     expect(requests.some((request) => request.url.includes("/rest/v1/kairos_records"))).toBe(true);
   });
 
-  it("creates a message and paper trade intent when confidence crosses paper threshold without auto-buy", async () => {
+  it("creates a message and trade intent when confidence crosses the trading threshold without auto-submit", async () => {
     const { requestJson } = makeClient();
 
     const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
       confidence: 0.9,
       tradingConfig: {
-        mode: "paper",
+        mode: "enabled",
         notifyConfidenceThreshold: 0.65,
-        paperTradeConfidenceThreshold: 0.85,
-        paperAutoBuyEnabled: false,
+        tradeConfidenceThreshold: 0.85,
+        autoTradeEnabled: false,
       },
     }));
 
@@ -1076,6 +1076,7 @@ describe("local API handler", () => {
     expect(response.body.policy).toMatchObject({
       thresholdResult: "paper_trade_candidate",
       permittedAction: "paper_trade_intent",
+      autoTradeEnabled: false,
       paperAutoBuyEnabled: false,
       paperAutoTradeEnabled: false,
     });
@@ -1131,16 +1132,16 @@ describe("local API handler", () => {
     ]);
   });
 
-  it("preflights and submits an Alpaca paper order when paper auto-buy is enabled", async () => {
+  it("preflights and submits an Alpaca order when auto-submit is enabled", async () => {
     const { requestJson } = makeClient({ tradingBroker: createMockTradingBroker() });
 
     const response = await requestJson("POST", "/trade-intents", tradeIntentPayload({
       confidence: 0.91,
       tradingConfig: {
-        mode: "paper",
+        mode: "enabled",
         notifyConfidenceThreshold: 0.65,
-        paperTradeConfidenceThreshold: 0.85,
-        paperAutoBuyEnabled: true,
+        tradeConfidenceThreshold: 0.85,
+        autoTradeEnabled: true,
       },
     }));
 
