@@ -2789,7 +2789,7 @@ function BranchConfig({
           </button>
           <button
             className="command-button danger-outline"
-            onClick={resetDraft}
+            onClick={onDiscard}
             type="button"
           >
             DISCARD
