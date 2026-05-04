@@ -276,10 +276,6 @@ async function executeToolCall(input: {
         error: error instanceof Error ? error.message : String(error),
       },
     });
-    if (deps.requiredTools?.[toolName] === true) {
-      throw error;
-    }
-
     return informationToolResultSchema.parse({
       toolName,
       input: toolInput,
@@ -330,7 +326,6 @@ export function createInformationAgentGraph(
     exa: deps.exa,
     finnhub: deps.finnhub,
     finnhubPremiumAccess: deps.finnhubPremiumAccess,
-    requiredTools: deps.requiredTools as Partial<Record<GlobalToolName, boolean>>,
     memory: deps.memory ?? deps.supermemory,
     memoryContainerTag:
       deps.supermemoryContainerTag ?? GLOBAL_MEMORY_CONTAINER_TAG,

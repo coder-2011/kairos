@@ -590,10 +590,6 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
           error: event.error,
         },
       });
-      if (deps.requiredTools?.[state.pendingToolRequest.toolName] === true) {
-        throw error;
-      }
-
       return {
         messages: [
           {

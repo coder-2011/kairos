@@ -482,48 +482,6 @@ describe("information agent", () => {
     expect(result?.summary).not.toContain("Tool exa_search failed");
   });
 
-  it("throws required global tool failures after retry instead of degrading", async () => {
-    const search = vi.fn(async () => {
-      throw new Error("search unavailable");
-    });
-    const registry = createGlobalToolRegistry({
-      exa: {
-        search,
-        answer: vi.fn(async () => ({ answer: "", citations: [] })),
-        contents: vi.fn(async () => ({ results: [] })),
-      },
-      requiredTools: {
-        exa_search: true,
-      },
-    });
-
-    await expect(registry.exa_search?.("PLTR latest catalyst")).rejects.toThrow(
-      "search unavailable",
-    );
-    expect(search).toHaveBeenCalledTimes(2);
-  });
-
-  it("bubbles required information tool failures instead of synthesizing degraded output", async () => {
-    const deps = fakeDeps({
-      exa: {
-        search: vi.fn(async () => {
-          throw new Error("search unavailable");
-        }),
-        answer: vi.fn(async () => ({ answer: "", citations: [] })),
-        contents: vi.fn(async () => ({ results: [] })),
-      },
-      finnhub: undefined,
-      supermemory: undefined,
-      requiredTools: {
-        exa_search: true,
-      },
-    });
-
-    await expect(runInformationAgent("PLTR latest news", deps)).rejects.toThrow(
-      "search unavailable",
-    );
-  });
-
   it("exposes the information agent as debate and AI SDK tools", async () => {
     const deps = fakeDeps();
     const debateTools = createInformationDebateTools(deps);

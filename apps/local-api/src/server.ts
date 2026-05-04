@@ -2338,7 +2338,6 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
         },
       };
     },
-    requiredTools: informationConfig.requiredTools,
   });
   const informationModels = {
     plannerModel: structuredModelProvider(createOpenRouterChatModelForRole("informationPlanner", {
@@ -2361,7 +2360,6 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
       exa_research: Boolean(exa),
       ...debateConfig.enabledTools,
     },
-    requiredTools: debateConfig.requiredTools,
     globalTools,
     observer: createDebateProgressObserver(input.onProgress),
     isCanceled: input.isCanceled,
@@ -2376,7 +2374,6 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
         : undefined,
       maxToolCalls: informationConfig.maxToolCalls,
       enabledTools: informationConfig.enabledTools,
-      requiredTools: informationConfig.requiredTools,
       finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
     }),
   });

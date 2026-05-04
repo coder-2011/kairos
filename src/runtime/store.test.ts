@@ -267,10 +267,6 @@ describe("runtime schemas", () => {
         finnhub_filings: false,
         supermemory_search: true,
       },
-      requiredTools: {
-        exa_search: false,
-        finnhub_filings: false,
-      },
       maxToolCalls: 5,
       finnhubPremiumAccess: true,
     });

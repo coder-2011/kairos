@@ -116,16 +116,11 @@ function toolCallSafe<T extends GlobalToolResult>(
   toolName: string,
   action: () => Promise<T>,
   suggestion?: string,
-  required = false,
 ): Promise<T> {
   return withRetry(action, {
     attempts: TOOL_RETRY_ATTEMPTS,
     delayMs: TOOL_RETRY_DELAY_MS,
   }).catch((error) => {
-    if (required) {
-      throw error;
-    }
-
     return toolFailureResult(toolName, error, suggestion) as T;
   });
 }
@@ -256,7 +251,6 @@ export type GlobalToolDependencies = {
     >
   >;
   finnhubPremiumAccess?: boolean;
-  requiredTools?: Partial<Record<GlobalToolName, boolean>>;
   memory?: Pick<GlobalMemoryApi, "search"> & Partial<Pick<GlobalMemoryApi, "profile">>;
   memoryContainerTag?: string;
   now?: () => Date;
@@ -276,7 +270,6 @@ export function createGlobalToolRegistry(
         name,
         () => handler(input, context),
         suggestion,
-        deps.requiredTools?.[name] === true,
       );
   };
   const summarizeFinnhubResult = (

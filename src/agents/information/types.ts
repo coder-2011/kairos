@@ -107,7 +107,6 @@ export type InformationAgentDependencies = {
   supermemoryContainerTag?: string;
   maxToolCalls?: number;
   enabledTools?: Partial<Record<InformationToolName, boolean>>;
-  requiredTools?: Partial<Record<InformationToolName, boolean>>;
   now?: () => Date;
   observer?: AgentObserver;
   supermemoryMirror?: SupermemoryMirror;

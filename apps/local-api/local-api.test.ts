@@ -462,14 +462,14 @@ describe("local API handler", () => {
       },
       tools: {
         heartbeat: {
-          exa_news_search: { enabled: false, required: true },
+          exa_news_search: { enabled: false },
         },
         debate: {
-          information: { enabled: true, required: true },
+          information: { enabled: true },
         },
         information: {
-          exa_search: { enabled: true, required: true },
-          supermemory_search: { enabled: true, required: true },
+          exa_search: { enabled: true },
+          supermemory_search: { enabled: true },
         },
         finnhubPremiumAccess: true,
       },
