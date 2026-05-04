@@ -16,6 +16,10 @@ import {
 } from "../../../src/trading/index.js";
 import {
   buildRouterChatTitle,
+  lifecyclePatchForEvent,
+  lifecyclePatchForStatus,
+  normalizeRunLifecycle,
+  uniqueStrings,
   type AppendRunEventInput,
   type BranchRecord,
   type CreateBranchInput,
@@ -126,22 +130,48 @@ export class SupabaseKairosStore implements KairosLocalStore {
       input: input.input ?? {},
       output: input.output,
       metadata: input.metadata,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...input.lifecycle,
+          parentRunId:
+            input.lifecycle?.parentRunId ??
+            readString(input.metadata?.parentRunId) ??
+            readString(input.input?.sourceRunId),
+        },
+        {
+          createdAt: now,
+          updatedAt: now,
+          kind: input.kind,
+          status: input.status ?? "pending",
+        },
+      ),
     };
     await this.client.upsert("runs", run.id, run);
+    await this.linkParentRun(run);
     return run;
   }
 
   async updateRun(
     id: string,
-    input: Partial<Pick<RunRecord, "status" | "output" | "metadata">>,
+    input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>,
   ): Promise<RunRecord | undefined> {
     const current = await this.getRun(id);
     if (!current) return undefined;
 
+    const now = new Date().toISOString();
+    const status = input.status ?? current.status;
     const run: RunRecord = {
       ...current,
       ...definedFields(input),
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...current.lifecycle,
+          ...input.lifecycle,
+          ...lifecyclePatchForStatus(status),
+        },
+        { createdAt: current.createdAt, updatedAt: now, kind: current.kind, status },
+      ),
     };
     await this.client.upsert("runs", id, run);
     return run;
@@ -166,6 +196,7 @@ export class SupabaseKairosStore implements KairosLocalStore {
       payload: input.payload ?? {},
     };
     await this.client.upsert("run_events", event.id, event);
+    await this.updateRunLifecycleFromEvent(runId, event);
     return event;
   }
 
@@ -309,6 +340,56 @@ export class SupabaseKairosStore implements KairosLocalStore {
     await this.client.upsert("portfolio_snapshots", snapshot.id, snapshot);
     return snapshot;
   }
+
+  private async updateRunLifecycleFromEvent(
+    runId: string,
+    event: RunEventRecord,
+  ): Promise<void> {
+    const current = await this.getRun(runId);
+    if (!current) return;
+
+    await this.updateRun(runId, {
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...current.lifecycle,
+          ...lifecyclePatchForEvent(event),
+          lastEventAt: event.timestamp,
+        },
+        {
+          createdAt: current.createdAt,
+          updatedAt: event.timestamp,
+          kind: current.kind,
+          status: current.status,
+        },
+      ),
+    });
+  }
+
+  private async linkParentRun(run: RunRecord): Promise<void> {
+    const parentRunId = run.lifecycle?.parentRunId;
+    if (!parentRunId) return;
+
+    const parent = await this.getRun(parentRunId);
+    if (!parent) return;
+
+    await this.updateRun(parentRunId, {
+      lifecycle: normalizeRunLifecycle(
+        {
+          ...parent.lifecycle,
+          childRunIds: uniqueStrings([
+            ...(parent.lifecycle?.childRunIds ?? []),
+            run.id,
+          ]),
+        },
+        {
+          createdAt: parent.createdAt,
+          updatedAt: parent.updatedAt,
+          kind: parent.kind,
+          status: parent.status,
+        },
+      ),
+    });
+  }
 }
 
 class SupabaseRecordClient {
@@ -435,4 +516,10 @@ function definedFields<T extends object>(value: T): Partial<T> {
 
 function sortByCreatedAt<T extends { createdAt: string }>(records: T[]): T[] {
   return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }

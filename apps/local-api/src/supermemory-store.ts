@@ -104,7 +104,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
 
   async updateRun(
     id: string,
-    input: Partial<Pick<RunRecord, "status" | "output" | "metadata">>,
+    input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>,
   ): Promise<RunRecord | undefined> {
     const run = await this.store.updateRun(id, input);
     if (run) {

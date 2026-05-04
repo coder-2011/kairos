@@ -621,10 +621,11 @@ function lifecycleStageForEvent(type: string): Partial<RunLifecycle> {
     "debate.judge.plan": { stage: "judge_plan", currentOperation: "Judge selected the next debate step." },
     "debate.judge.summary": { stage: "judge_summary", currentOperation: "Judge produced final synthesis." },
     "debate.output": { stage: "debate_output", currentOperation: "Debate output recorded." },
+    "trading.threshold.evaluated": { stage: "trading_policy", currentOperation: "Trading threshold policy evaluated." },
     "trading.policy.skipped": { stage: "trading_policy_skipped", currentOperation: "Trading policy did not create an action." },
-    "trading.intent.created": { stage: "trade_intent_created", currentOperation: "Paper trade intent created." },
-    "trading.intent.submitted": { stage: "paper_order_submitted", currentOperation: "Paper order submitted." },
-    "trading.intent.failed": { stage: "paper_order_failed", currentOperation: "Paper order failed.", retryable: true },
+    "trading.intent.created": { stage: "trade_intent_created", currentOperation: "Trade intent created." },
+    "trading.intent.submitted": { stage: "paper_order_submitted", currentOperation: "Order submitted." },
+    "trading.intent.failed": { stage: "paper_order_failed", currentOperation: "Order failed.", retryable: true },
     "human.interjection": { stage: "human_context_added", currentOperation: "Human context added." },
   };
 
