@@ -37,9 +37,14 @@ Current stack decisions:
 - Live ticker snapshots and heartbeat market-data seeds: Alpaca.
 - Finnhub: company news, optional market/research endpoints, and broader information-agent tooling where useful.
 - Primary language: TypeScript for most implementation work.
-- Database: no database initially. Use local files for audit/replay only and
-  Supermemory for agent-usable memory and retrieval. Do not add local embedding
-  or vector indexes unless this decision changes explicitly.
+- Product-state database: Supabase Postgres, currently through the generic
+  `public.kairos_records` table. Branches, runs, run events, router chats and
+  messages, Deep Research chats and messages, trading messages, trade intents,
+  broker orders, and portfolio snapshots should route through the shared
+  Kairos store abstraction so Supabase mode persists them server-side.
+- Persistent agent memory: Supermemory remains the agent-usable memory and
+  retrieval layer. Do not add local embedding or vector indexes unless this
+  decision changes explicitly.
 - Frontend: React with Vite.
 - Styling/UI: Tailwind CSS and shadcn/ui.
 - Mobile shell: Capacitor for iOS/Android wrapping the same web app.
@@ -58,9 +63,10 @@ Implications:
 - Trading execution interfaces should keep Alpaca isolated behind a broker adapter.
 - Ticker snapshot access should use Alpaca behind a provider adapter.
 - Finnhub access should stay isolated behind a data-provider adapter for news and optional research endpoints.
-- Persistence should start with local audit/replay files plus Supermemory as the
-  persistent agent memory and retrieval backbone. Add a database or local vector
-  index only if the architecture decision changes explicitly.
+- Product state should persist through the provider-agnostic Kairos store
+  interface. Hosted/runtime environments should use `KAIROS_STORE=supabase`
+  with server-side Supabase credentials; local file storage is only a fallback
+  for local development and isolated tests.
 - The frontend should be implemented as a React/Vite app, styled with Tailwind and shadcn/ui, with Capacitor used when native mobile shells are needed.
 
 ## 4. First-Class Concept: Laws
@@ -345,7 +351,47 @@ The architecture should assume that big agents need access to:
 
 Data access should be queryable, auditable, and provider-agnostic.
 
-### 11.0 Persistent Agent Memory
+### 11.0 Product State and Agent Memory
+
+Supabase Postgres is the primary product-state store.
+
+Kairos product state should be persisted through the shared Kairos store
+abstraction. In hosted and real runtime environments, that store should be
+backed by Supabase using `KAIROS_STORE=supabase`, `SUPABASE_URL`, and the
+server-only `SUPABASE_SERVICE_ROLE_KEY`.
+
+The current Supabase model deliberately uses one generic table:
+
+```text
+public.kairos_records
+```
+
+Each record stores a logical `collection`, an `id`, and the full JSON `record`.
+This keeps schemas evolvable while the product is still changing quickly.
+
+The following product records should route through Supabase in Supabase mode:
+
+- Branches.
+- Runs.
+- Run events.
+- Router chats.
+- Router messages.
+- Deep Research chats.
+- Deep Research messages.
+- Trading messages.
+- Trade intents.
+- Broker orders.
+- Portfolio snapshots.
+
+The Supabase service role key must never be exposed to the browser. Browser
+clients should use only publishable/anon Supabase keys for auth, while the
+server/API process verifies auth and performs product-state reads and writes.
+
+Local files are not the canonical product-state store in hosted environments.
+They may still be used for isolated tests, local development fallback, temporary
+artifacts, and QA screenshots.
+
+### 11.1 Persistent Agent Memory
 
 Supermemory is the shared persistent memory layer for agents.
 
@@ -365,23 +411,27 @@ tool result summary, run event, debate transcript, trade intent, notification,
 and correction should be written through Supermemory when credentials are
 present.
 
-Local files remain the audit and replay log. They should not be treated as a
-separate semantic retrieval layer. Do not introduce a local embedding model,
-local vector index, or parallel RAG store unless this architecture decision
-changes explicitly.
+Supabase records are the product-state audit trail. Supermemory is the semantic
+agent memory. Local files should not be treated as a separate semantic retrieval
+layer. Do not introduce a local embedding model, local vector index, or parallel
+RAG store unless this architecture decision changes explicitly.
 
-### 11.1 Supermemory-First Data Pipeline
+### 11.2 Supabase and Supermemory Data Pipeline
 
-The initial data pipeline should stay simple and Supermemory-first.
+The data pipeline should stay simple and split responsibilities cleanly between
+Supabase and Supermemory.
 
 Kairos should ingest tracked-stock, tracked-sector, source, router, heartbeat,
-debate, and trading-safety information into Supermemory as documents,
-conversations, and direct memories. The local filesystem stores the canonical
-audit trail needed for replay and inspection, but agents should retrieve prior
-context through Supermemory profile/search rather than local embeddings.
+debate, Deep Research, and trading-safety information into Supabase as product
+state. High-signal, agent-usable memory should also be written into Supermemory
+as documents, conversations, and direct memories. Agents should retrieve prior
+semantic context through Supermemory profile/search rather than local
+embeddings.
 
 Target storage model:
 
+- Supabase `kairos_records` for product state, auditability, UI replay,
+  operational records, Deep Research transcripts, and trading records.
 - Supermemory global container for cross-branch system memory.
 - Supermemory branch containers for law-specific memory and observations.
 - Supermemory branch profile containers for user-profile context, one per
@@ -391,7 +441,8 @@ Target storage model:
   transcript fidelity.
 - Compact direct memories written for high-signal summaries and future
   retrieval.
-- Local JSON/JSONL files retained for auditability, replay, and UI state.
+- Local files retained only for local fallback, isolated tests, temporary
+  artifacts, and QA screenshots.
 
 Expected access pattern:
 
@@ -401,24 +452,27 @@ Expected access pattern:
   Supermemory search/profile.
 - Agents should be able to query Supermemory by ticker, sector, date range,
   law, source type, and semantic similarity.
-- Historical source records can still be kept locally for audit/replay, but
-  agent retrieval should go through Supermemory.
+- Historical product records should be kept in Supabase. Agent retrieval should
+  go through Supermemory.
 
 This should cover the entire early data pipeline:
 
 1. Pull or receive data from Finnhub, Alpaca, and human-routed sources.
 2. Normalize the data into compact, citeable records.
-3. Write full records to Supermemory documents or conversations.
-4. Write high-signal summaries to Supermemory direct memories.
-5. Keep local JSON/JSONL copies only for audit, replay, and UI state.
-6. Retrieve relevant context through Supermemory for heartbeat checks,
+3. Write product records to Supabase through the shared Kairos store.
+4. Write full memory-worthy records to Supermemory documents or conversations.
+5. Write high-signal summaries to Supermemory direct memories.
+6. Keep local files only for local fallback, isolated tests, temporary
+   artifacts, and QA screenshots.
+7. Retrieve relevant context through Supermemory for heartbeat checks,
    big-agent research, and multi-agent debate.
 
 This keeps the system easy to inspect, replay, back up, and modify while
-avoiding a separate embedding pipeline. A database can be reconsidered later if
-local audit files become too slow, too large, or too hard to query safely.
+avoiding a separate embedding pipeline. If the generic Supabase record table
+becomes too slow, too large, or too hard to query safely, the next step should
+be typed Supabase tables or views, not a local semantic store.
 
-### 11.2 Future: Continuously Updated Data Packets
+### 11.3 Future: Continuously Updated Data Packets
 
 Down the line, Kairos should maintain continuously updated data packets for models.
 
@@ -609,9 +663,11 @@ The first useful version should focus on the core loop:
 - Which LangChain JS packages and LangGraph JS APIs should be used for the first implementation?
 - Which OpenRouter models should run heartbeat agents?
 - Which OpenRouter models should run big agents?
-- Should laws be stored as markdown, JSON/YAML, database records, or both?
+- How should laws be edited and exported while remaining stored as portable
+  Supabase-backed records?
 - What exact dashboard/debate UI flows should be built first?
-- What is the minimum viable audit log?
+- When should the generic Supabase `kairos_records` table be split into typed
+  tables, materialized views, or indexed projections?
 - How should law performance be evaluated?
 - How should the human's debate weight interact with model confidence?
 
