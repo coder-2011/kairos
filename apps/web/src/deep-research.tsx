@@ -658,9 +658,11 @@ function DeepResearchMessage({
   isProcessing?: boolean;
   message: DeepResearchMessageRecord;
 }) {
+  const displayText = formatDeepResearchMessageText(message);
+  const displayReasoning = formatDeepResearchReasoning(message.reasoning);
   const hasWorkflow =
     message.role === "assistant" &&
-    ((typeof message.reasoning === "string" && message.reasoning.trim()) ||
+    ((typeof displayReasoning === "string" && displayReasoning.trim()) ||
       (message.toolCalls?.length ?? 0) > 0);
   const assistantMeta =
     message.role === "assistant"
@@ -678,7 +680,7 @@ function DeepResearchMessage({
         <b>{message.role === "user" ? "YOU" : "DEEP RESEARCH"}</b>
         <span>{assistantMeta}</span>
       </div>
-      {isProcessing ? <DeepResearchProcessing /> : <p>{message.text}</p>}
+      {isProcessing ? <DeepResearchProcessing /> : <p>{displayText}</p>}
       {message.attachments && message.attachments.length > 0 && (
         <div className="deep-message-images">
           {message.attachments.map((attachment) => (
@@ -696,11 +698,11 @@ function DeepResearchMessage({
             <b>{formatWorkflowSummary(message)}</b>
           </summary>
           <div className="deep-research-workflow-content">
-            {typeof message.reasoning === "string" &&
-              message.reasoning.trim().length > 0 && (
+            {typeof displayReasoning === "string" &&
+              displayReasoning.trim().length > 0 && (
                 <div className="deep-research-reasoning">
                   <div className="deep-research-workflow-label">Thinking</div>
-                  <pre>{message.reasoning.trim()}</pre>
+                  <pre>{displayReasoning.trim()}</pre>
                 </div>
               )}
             {message.toolCalls && message.toolCalls.length > 0 && (
@@ -740,6 +742,7 @@ function DeepResearchProcessing() {
 function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
   const hasPayload =
     call.input !== undefined || call.output !== undefined || call.error !== undefined;
+  const summary = formatToolCallSummary(call);
 
   return (
     <details className={`deep-tool-call ${call.status}`}>
@@ -752,7 +755,7 @@ function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
         </span>
         <b>{call.status}</b>
       </summary>
-      <p>{call.summary}</p>
+      <p>{summary}</p>
       {hasPayload && (
         <pre>
           {JSON.stringify(
@@ -768,6 +771,44 @@ function DeepToolCall({ call }: { call: RouterToolCallRecord }) {
       )}
     </details>
   );
+}
+
+function formatDeepResearchMessageText(message: DeepResearchMessageRecord): string {
+  const text = message.text ?? "";
+  if (isClosedControllerFailureText(text)) {
+    return "Previous research stream stopped before the final answer was produced. Start a new run to retry the question.";
+  }
+  return text;
+}
+
+function formatDeepResearchReasoning(reasoning: string | undefined): string | undefined {
+  if (!reasoning) return reasoning;
+  if (isClosedControllerFailureText(reasoning)) return undefined;
+  return reasoning;
+}
+
+function isClosedControllerFailureText(text: string): boolean {
+  return /invalid state:\s*controller is already closed/i.test(text);
+}
+
+function formatToolCallSummary(call: RouterToolCallRecord): string {
+  if (call.summary !== "Tool completed.") return call.summary;
+  const output = call.output;
+  if (isJsonRecord(output) && Array.isArray(output.results)) {
+    const total = typeof output.total === "number" ? output.total : output.results.length;
+    return total === 0
+      ? "No matching memory or source results found."
+      : `Found ${total} result${total === 1 ? "" : "s"}.`;
+  }
+  if (isJsonRecord(output) && Array.isArray(output.profiles)) {
+    const count = output.profiles.length;
+    return `Loaded ${count} branch profile${count === 1 ? "" : "s"}.`;
+  }
+  return call.summary;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatWorkflowSummary(message: DeepResearchMessageRecord): string {
