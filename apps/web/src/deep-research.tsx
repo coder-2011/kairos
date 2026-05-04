@@ -542,7 +542,7 @@ export function DeepResearchView() {
             <span className="material-symbols-outlined">add_photo_alternate</span>
           </button>
           <button
-            className="command-button primary blue"
+            className="command-button primary"
             disabled={(!draft.trim() && attachments.length === 0) || running || !selectedModel}
             onClick={() => void submit()}
             type="button"
