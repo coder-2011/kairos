@@ -7,6 +7,7 @@ import {
   createLocalApi,
   createLocalApiHandler,
   MemoryKairosStore,
+  serveLocalApi,
   SupabaseKairosStore,
   type LocalApiContext,
 } from "./src/server.js";
@@ -43,6 +44,128 @@ describe("local API handler", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
+  });
+
+  it("requires a local request header when Supabase auth is disabled", async () => {
+    const { requestJson } = makeClient({ omitLocalRequestHeader: true });
+
+    const response = await requestJson("GET", "/branches");
+
+    expect(response.status).toBe(401);
+    expect(response.body).toMatchObject({
+      error: "unauthorized",
+    });
+  });
+
+  it("rejects non-health routes without bearer auth when Supabase auth is enabled", async () => {
+    const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
+    process.env.KAIROS_AUTH_ENABLED = "true";
+    try {
+      const { requestJson } = makeClient({ omitLocalRequestHeader: true });
+
+      const response = await requestJson("GET", "/branches");
+
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({
+        error: "unauthorized",
+        message: "Missing authorization token.",
+      });
+    } finally {
+      if (previousAuthEnabled === undefined) {
+        delete process.env.KAIROS_AUTH_ENABLED;
+      } else {
+        process.env.KAIROS_AUTH_ENABLED = previousAuthEnabled;
+      }
+    }
+  });
+
+  it("refuses unauthenticated off-loopback API binding", async () => {
+    const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
+    process.env.KAIROS_AUTH_ENABLED = "false";
+    try {
+      await expect(
+        serveLocalApi({
+          hostname: "0.0.0.0",
+          port: 0,
+          dependencies: { store: new MemoryKairosStore() },
+        }),
+      ).rejects.toThrow("Refusing to bind unauthenticated Kairos API");
+    } finally {
+      if (previousAuthEnabled === undefined) {
+        delete process.env.KAIROS_AUTH_ENABLED;
+      } else {
+        process.env.KAIROS_AUTH_ENABLED = previousAuthEnabled;
+      }
+    }
+  });
+
+  it("requires the configured local API token when Supabase auth is disabled", async () => {
+    const previousToken = process.env.KAIROS_LOCAL_API_TOKEN;
+    process.env.KAIROS_LOCAL_API_TOKEN = "local-secret";
+    try {
+      const rejected = await makeClient({ localApiToken: "wrong" }).requestJson("GET", "/branches");
+      expect(rejected.status).toBe(401);
+
+      const accepted = await makeClient({ localApiToken: "local-secret" }).requestJson(
+        "GET",
+        "/branches",
+      );
+      expect(accepted.status).toBe(200);
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.KAIROS_LOCAL_API_TOKEN;
+      } else {
+        process.env.KAIROS_LOCAL_API_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it("rejects oversized JSON request bodies", async () => {
+    const previousLimit = process.env.KAIROS_MAX_JSON_BODY_BYTES;
+    process.env.KAIROS_MAX_JSON_BODY_BYTES = "32";
+    try {
+      const { requestJson } = makeClient();
+
+      const response = await requestJson("POST", "/branches", {
+        name: "This payload is intentionally too large for the test limit",
+      });
+
+      expect(response.status).toBe(413);
+      expect(response.body).toMatchObject({
+        error: "payload_too_large",
+        maxBytes: 32,
+      });
+    } finally {
+      if (previousLimit === undefined) {
+        delete process.env.KAIROS_MAX_JSON_BODY_BYTES;
+      } else {
+        process.env.KAIROS_MAX_JSON_BODY_BYTES = previousLimit;
+      }
+    }
+  });
+
+  it("rejects oversized Deep Research JSON request bodies", async () => {
+    const previousLimit = process.env.KAIROS_MAX_JSON_BODY_BYTES;
+    process.env.KAIROS_MAX_JSON_BODY_BYTES = "32";
+    try {
+      const { requestJson } = makeClient();
+
+      const response = await requestJson("POST", "/deep-research/chats", {
+        title: "This Deep Research payload is intentionally too large",
+      });
+
+      expect(response.status).toBe(413);
+      expect(response.body).toMatchObject({
+        error: "payload_too_large",
+        maxBytes: 32,
+      });
+    } finally {
+      if (previousLimit === undefined) {
+        delete process.env.KAIROS_MAX_JSON_BODY_BYTES;
+      } else {
+        process.env.KAIROS_MAX_JSON_BODY_BYTES = previousLimit;
+      }
+    }
   });
 
   it("lists market symbols through the configured symbol provider", async () => {
@@ -1063,7 +1186,10 @@ describe("local API handler", () => {
       const response = await handler(
         new Request(`${baseUrl}/branches`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...localApiRequestHeaders(),
+          },
           body: JSON.stringify({
             id: "branch_runtime",
             name: "Runtime branch",
@@ -1084,7 +1210,10 @@ describe("local API handler", () => {
       const heartbeat = await handler(
         new Request(`${baseUrl}/branches/branch_runtime/heartbeat-runs`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...localApiRequestHeaders(),
+          },
           body: JSON.stringify({ input: { source: "test" } }),
         }),
       );
@@ -1509,6 +1638,8 @@ function makeClient(options: {
   marketSymbolProvider?: LocalApiContext["marketSymbolProvider"];
   notificationSender?: TradingSmsNotifier;
   supermemoryMirror?: SupermemoryMirror;
+  omitLocalRequestHeader?: boolean;
+  localApiToken?: string;
 } = {}) {
   const store = options.store ?? new MemoryKairosStore();
   const context: LocalApiContext = {
@@ -1545,7 +1676,10 @@ function makeClient(options: {
   async function request(method: string, path: string, body?: unknown): Promise<Response> {
     return handler(new Request(`${baseUrl}${path}`, {
       method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      headers: {
+        ...localApiRequestHeaders(options),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     }));
   }
@@ -1570,7 +1704,10 @@ function apiClient(handler: (request: Request) => Promise<Response>) {
   ): Promise<{ status: number; body: any }> {
     const response = await handler(new Request(`${baseUrl}${path}`, {
       method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      headers: {
+        ...localApiRequestHeaders(),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     }));
     const text = await response.text();
@@ -1578,6 +1715,18 @@ function apiClient(handler: (request: Request) => Promise<Response>) {
       status: response.status,
       body: text ? JSON.parse(text) : undefined,
     };
+  };
+}
+
+function localApiRequestHeaders(options: {
+  omitLocalRequestHeader?: boolean;
+  localApiToken?: string;
+} = {}): Record<string, string> {
+  if (options.omitLocalRequestHeader) return {};
+  const token = options.localApiToken ?? process.env.KAIROS_LOCAL_API_TOKEN;
+  return {
+    "x-kairos-local-request": "1",
+    ...(token ? { "x-kairos-local-token": token } : {}),
   };
 }
 
