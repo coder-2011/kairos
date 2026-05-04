@@ -10,7 +10,14 @@ export type ExaConfig = {
 export type ExaSearchRequest = {
   query: string;
   numResults?: number;
-  category?: "news" | "company" | "research paper" | "github" | "tweet";
+  category?:
+    | "news"
+    | "company"
+    | "research paper"
+    | "pdf"
+    | "personal site"
+    | "financial report"
+    | "people";
   startPublishedDate?: string;
   endPublishedDate?: string;
 };
@@ -81,10 +88,10 @@ export class ExaApi {
   }
 
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
+    const category = normalizeExaCategory(request.category);
     const data = await withRetry(() => this.client.search(request.query, {
-      type: "auto",
       numResults: request.numResults ?? 10,
-      category: request.category ?? "news",
+      ...(category ? { category } : {}),
       startPublishedDate: request.startPublishedDate,
       endPublishedDate: request.endPublishedDate,
       contents: {
@@ -143,4 +150,15 @@ export class ExaApi {
       results: "contents" in data ? data.contents : data.results,
     };
   }
+}
+
+function normalizeExaCategory(
+  category?:
+    | ExaSearchRequest["category"]
+    | "github"
+    | "tweet",
+): ExaSearchRequest["category"] | undefined {
+  if (!category) return undefined;
+  if (category === "github" || category === "tweet") return undefined;
+  return category;
 }

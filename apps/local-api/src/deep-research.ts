@@ -242,11 +242,14 @@ async function runDeepResearchMessage(
       stopWhen: stepCountIs(8),
       temperature: 0.2,
     });
+    const assistantText = result.text?.trim();
     const reasoning = extractDeepResearchReasoning(result);
     const assistantMessage = await store.createMessage({
       chatId: chat.id,
       role: "assistant",
-      text: result.text,
+      text: assistantText?.length
+        ? result.text
+        : `No direct answer was produced. I collected ${toolCalls.length} tool result${toolCalls.length === 1 ? "" : "s"} and no verified conclusion. Try a narrower query.`,
       reasoning,
       model,
       reasoningEffort,
@@ -385,12 +388,18 @@ function createDeepResearchTools(
       description: "Search current web and news sources.",
       inputSchema: z.object({
         query: z.string().min(1),
-        category: z.enum(["news", "company", "research paper", "github", "tweet"]).optional(),
+        category: z
+          .enum(["news", "company", "research paper", "pdf", "personal site", "financial report", "people"])
+          .optional(),
         numResults: z.number().int().min(1).max(10).optional(),
       }),
       execute: async ({ query, category, numResults }) => {
         if (!exa) throw new Error("EXA_API_KEY is not configured.");
-        return exa.search({ query, category, numResults });
+        return exa.search({
+          query,
+          category: normalizeExaCategory(category),
+          numResults,
+        });
       },
     }),
     exa_research: tracedTool(traces, "exa_research", {
@@ -478,6 +487,19 @@ function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCall
       }
     },
   } as never);
+}
+
+function normalizeExaCategory(
+  category?:
+    | "news"
+    | "company"
+    | "research paper"
+    | "pdf"
+    | "personal site"
+    | "financial report"
+    | "people",
+): "news" | "company" | "research paper" | "pdf" | "personal site" | "financial report" | "people" | undefined {
+  return category;
 }
 
 function deepResearchSystemPrompt(): string {
@@ -720,11 +742,42 @@ function compactReasoningLines(value: unknown): string | undefined {
 
 function compactJson(value: unknown): JsonRecord | undefined {
   if (!isJsonRecord(value)) return undefined;
-  return JSON.parse(JSON.stringify(value).slice(0, 6000)) as JsonRecord;
+  const seen = new Map<unknown, unknown>();
+  return sanitizeForTrace(value, seen) as JsonRecord;
 }
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeForTrace(
+  value: unknown,
+  seen: Map<unknown, unknown>,
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return value.length > 2400 ? `${value.slice(0, 2395)}…` : value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") return undefined;
+  if (typeof value === "object") {
+    if (seen.has(value)) return "[circular]";
+    seen.set(value, value);
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => sanitizeForTrace(item, seen))
+        .filter((item) => item !== undefined);
+    }
+
+    const output: JsonRecord = {};
+    for (const [key, item] of Object.entries(value)) {
+      const sanitized = sanitizeForTrace(item, seen);
+      if (sanitized !== undefined) {
+        output[key] = sanitized;
+      }
+    }
+    return output;
+  }
+
+  return String(value);
 }
 
 function isNotFoundError(error: unknown): boolean {
