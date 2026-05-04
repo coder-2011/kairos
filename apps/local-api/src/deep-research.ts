@@ -279,7 +279,7 @@ function createDeepResearchOpenRouterModel(model: string) {
 function deepResearchUserContent(message: DeepResearchMessageRecord) {
   const parts: Array<
     | { type: "text"; text: string }
-    | { type: "file"; mediaType: string; data: string }
+    | { type: "file"; mediaType: string; data: string; filename?: string }
   > = [];
   const text = message.text?.trim();
   if (text) {
@@ -289,10 +289,15 @@ function deepResearchUserContent(message: DeepResearchMessageRecord) {
     parts.push({
       type: "file",
       mediaType: attachment.mimeType,
-      data: attachment.dataUrl,
+      filename: attachment.name,
+      data: dataUrlToBase64(attachment.dataUrl),
     });
   }
   return parts.length > 0 ? parts : "";
+}
+
+function dataUrlToBase64(dataUrl: string): string {
+  return dataUrl.replace(/^data:[^;]+;base64,/, "");
 }
 
 function createDeepResearchTools(
