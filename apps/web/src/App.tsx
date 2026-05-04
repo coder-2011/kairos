@@ -3377,6 +3377,7 @@ function TradeSymbolDropdown({
   const [semanticError, setSemanticError] = useState("");
   const searchQuery = query.trim();
   const normalizedSearchQuery = searchQuery.toUpperCase();
+  const searchTokens = symbolSearchTokens(searchQuery);
   const activeCatalog = searchQuery
     ? mergeTradeSymbolRecords(catalog, searchCatalog)
     : catalog;
@@ -3387,10 +3388,7 @@ function TradeSymbolDropdown({
   const optionSymbols = options.map((option) => option.symbol);
   const visibleOptions = options.filter((option) => {
     if (!normalizedSearchQuery) return true;
-    return (
-      option.symbol.includes(normalizedSearchQuery) ||
-      option.name?.toUpperCase().includes(normalizedSearchQuery)
-    );
+    return matchesSymbolSearch(option, normalizedSearchQuery, searchTokens);
   });
   const selectedSet = new Set(selected);
   const summary =
@@ -4499,6 +4497,36 @@ function parseAssetList(value: string): string[] {
 function normalizeTickerInput(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "");
 }
+
+function symbolSearchTokens(value: string): string[] {
+  return value
+    .toUpperCase()
+    .split(/[^A-Z0-9.-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !symbolSearchStopWords.has(token));
+}
+
+function matchesSymbolSearch(
+  option: TradeSymbolOption,
+  normalizedQuery: string,
+  tokens: string[],
+): boolean {
+  const text = [option.symbol, option.name, option.exchange, option.assetClass]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+  if (text.includes(normalizedQuery)) return true;
+  if (tokens.length === 0) return false;
+  return tokens.some((token) => text.includes(token));
+}
+
+const symbolSearchStopWords = new Set([
+  "ETF",
+  "FUND",
+  "INC",
+  "STOCK",
+  "THE",
+]);
 
 function getTradingActionMode(trading: BranchTradingConfig): TradingActionMode {
   const mode = trading.mode ?? "disabled";
