@@ -423,11 +423,11 @@ describe("heartbeat scheduler", () => {
       await scheduler.runNow();
       expect(onResult).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await advanceTimersByTime(60_000);
       expect(onResult).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
-      await vi.advanceTimersByTimeAsync(60_000);
+      await advanceTimersByTime(60_000);
       expect(onResult).toHaveBeenCalledTimes(2);
     } finally {
       scheduler.stop();
@@ -435,6 +435,19 @@ describe("heartbeat scheduler", () => {
     }
   });
 });
+
+async function advanceTimersByTime(ms: number): Promise<void> {
+  const timers = vi as typeof vi & {
+    advanceTimersByTimeAsync?: (ms: number) => Promise<void>;
+  };
+  if (timers.advanceTimersByTimeAsync) {
+    await timers.advanceTimersByTimeAsync(ms);
+    return;
+  }
+
+  vi.advanceTimersByTime(ms);
+  await Promise.resolve();
+}
 
 describe("heartbeat de-dupe", () => {
   it("passes prior branch decisions into the model prompt for semantic duplicate suppression", async () => {
