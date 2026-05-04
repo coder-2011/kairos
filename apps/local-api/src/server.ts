@@ -2466,6 +2466,7 @@ type Route =
   | { name: "triggerHeartbeat"; params: { branchId: string } }
   | { name: "createDebate"; params: Record<string, never> }
   | { name: "appendInterjection"; params: { runId: string } }
+  | { name: "cancelRun"; params: { runId: string } }
   | { name: "streamRunEvents"; params: { runId: string } }
   | { name: "getPortfolio"; params: Record<string, never> }
   | { name: "refreshPortfolio"; params: Record<string, never> }
@@ -2528,6 +2529,9 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   if (segments.length === 2 && segments[0] === "runs" && method === "GET") return { name: "getRun", params: { runId: segments[1] } };
   if (segments.length === 3 && segments[0] === "runs" && segments[2] === "events" && method === "GET") {
     return { name: "listRunEvents", params: { runId: segments[1] } };
+  }
+  if (segments.length === 3 && segments[0] === "runs" && segments[2] === "cancel" && method === "POST") {
+    return { name: "cancelRun", params: { runId: segments[1] } };
   }
   if (segments.length === 4 && segments[0] === "runs" && segments[2] === "events" && segments[3] === "stream" && method === "GET") {
     return { name: "streamRunEvents", params: { runId: segments[1] } };
