@@ -37,10 +37,10 @@ const IGNORED_TICKER_TOKENS = new Set([
 const supermemoryProfileInputSchema = z.object({
   containerTag: z
     .string()
-    .describe("Branch-scoped Supermemory profile container tag, for example branch_profile_pltr_deals."),
+    .describe("Branch-scoped Supermemory profile container tag. Example: branch_profile_pltr_deals."),
   query: z
     .string()
-    .describe("Plain-language query describing the branch law, catalyst, or memory context to retrieve."),
+    .describe("Plain-language query for stable branch context. Include the law, asset, or catalyst. Example: prior PLTR government-contract false positives."),
   threshold: z
     .number()
     .min(0)
@@ -51,10 +51,10 @@ const supermemoryProfileInputSchema = z.object({
 const supermemorySearchInputSchema = z.object({
   containerTag: z
     .string()
-    .describe("Branch-scoped Supermemory profile container tag, for example branch_profile_pltr_deals."),
+    .describe("Branch-scoped Supermemory profile container tag. Example: branch_profile_pltr_deals."),
   query: z
     .string()
-    .describe("Plain-language search query for prior events, human corrections, false positives, or branch preferences."),
+    .describe("Plain-language query for prior events, duplicate checks, human corrections, false positives, or branch preferences."),
   limit: z
     .number()
     .int()
@@ -386,7 +386,8 @@ export function createGlobalToolRegistry(
               numResults: MAX_EXA_RESULTS,
               outputSchema: {
                 type: "text",
-                description: "concise source-backed synthesis",
+                description:
+                  "Concise source-backed synthesis with material claims, dates, numbers, guidance, and uncertainty.",
               },
               contents: {
                 highlights: {
@@ -519,7 +520,7 @@ export function createGlobalToolRegistry(
               `Finnhub premium endpoint ${request.path} requested while FINNHUB_PREMIUM_ACCESS is disabled.`,
             );
           }
-          const result = await apiRequest(request);
+          const result = await apiRequest.call(deps.finnhub, request);
           return summarizeFinnhubResult(
             `Finnhub API request ${request.path}`,
             result,
@@ -536,7 +537,7 @@ export function createGlobalToolRegistry(
         "finnhub_quote",
         async (input) => {
           const ticker = tickerInput(input);
-          const rawQuote = await quote(ticker);
+          const rawQuote = await quote.call(deps.finnhub, ticker);
           const record =
             rawQuote && typeof rawQuote === "object" && !Array.isArray(rawQuote)
               ? (rawQuote as Record<string, unknown>)
@@ -562,7 +563,7 @@ export function createGlobalToolRegistry(
         async (input, context) => {
         const ticker = tickerInput(input);
         const { from, to } = dateWindow(context, 7);
-        const news = await companyNews({ symbol: ticker, from, to });
+        const news = await companyNews.call(deps.finnhub, { symbol: ticker, from, to });
           if (!Array.isArray(news)) {
             return {
               summary: `No company news available for ${ticker}.`,
@@ -582,7 +583,7 @@ export function createGlobalToolRegistry(
         async (input, context) => {
           const ticker = tickerInput(input);
           const { from, to } = unixWindow(context, 30);
-          const candles = await stockCandles({
+          const candles = await stockCandles.call(deps.finnhub, {
             symbol: ticker,
             resolution: "D",
             from,
@@ -602,7 +603,7 @@ export function createGlobalToolRegistry(
         "finnhub_aggregate_indicator",
         async (input) => {
           const ticker = tickerInput(input);
-          const indicator = await aggregateIndicator(ticker, "D");
+          const indicator = await aggregateIndicator.call(deps.finnhub, ticker, "D");
           return summarizeFinnhubResult(
             `Finnhub aggregate technical indicator for ${ticker}`,
             indicator,
@@ -617,7 +618,7 @@ export function createGlobalToolRegistry(
         "finnhub_basic_financials",
         async (input) => {
           const ticker = tickerInput(input);
-          const financials = await basicFinancials(ticker);
+          const financials = await basicFinancials.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub basic financials for ${ticker}`,
             financials,
@@ -632,7 +633,7 @@ export function createGlobalToolRegistry(
         "finnhub_company_earnings",
         async (input) => {
           const ticker = tickerInput(input);
-          const earnings = await companyEarnings(ticker, 4);
+          const earnings = await companyEarnings.call(deps.finnhub, ticker, 4);
           return summarizeFinnhubResult(
             `Finnhub recent company earnings for ${ticker}`,
             earnings,
@@ -647,7 +648,7 @@ export function createGlobalToolRegistry(
         "finnhub_company_eps_estimates",
         async (input) => {
           const ticker = tickerInput(input);
-          const estimates = await companyEpsEstimates(ticker, "quarterly");
+          const estimates = await companyEpsEstimates.call(deps.finnhub, ticker, "quarterly");
           return summarizeFinnhubResult(
             `Finnhub quarterly EPS estimates for ${ticker}`,
             estimates,
@@ -662,7 +663,7 @@ export function createGlobalToolRegistry(
         "finnhub_company_peers",
         async (input) => {
           const ticker = tickerInput(input);
-          const peers = await companyPeers(ticker);
+          const peers = await companyPeers.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(`Finnhub company peers for ${ticker}`, peers);
         },
         "If peer data is not available, use profile and recommendation data instead.",
@@ -674,7 +675,7 @@ export function createGlobalToolRegistry(
         "finnhub_company_profile",
         async (input) => {
           const ticker = tickerInput(input);
-          const profile = await companyProfile2(ticker);
+          const profile = await companyProfile2.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub company profile for ${ticker}`,
             profile,
@@ -690,7 +691,7 @@ export function createGlobalToolRegistry(
         async (input, context) => {
           const ticker = tickerInput(input);
           const { from, to } = dateWindow(context, 30);
-          const calendar = await earningsCalendar({
+          const calendar = await earningsCalendar.call(deps.finnhub, {
             symbol: ticker,
             from,
             to,
@@ -710,7 +711,7 @@ export function createGlobalToolRegistry(
         async (input, context) => {
           const ticker = tickerInput(input);
           const { from, to } = dateWindow(context, 30);
-          const rawFilings = await filings({ symbol: ticker, from, to });
+          const rawFilings = await filings.call(deps.finnhub, { symbol: ticker, from, to });
           return summarizeFinnhubResult(
             `Finnhub filings for ${ticker} over the last 30 days`,
             rawFilings,
@@ -726,7 +727,7 @@ export function createGlobalToolRegistry(
         "finnhub_financials_reported",
         async (input) => {
           const ticker = tickerInput(input);
-          const financials = await financialsReported(ticker);
+          const financials = await financialsReported.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub reported financials for ${ticker}`,
             financials,
@@ -741,7 +742,7 @@ export function createGlobalToolRegistry(
         "finnhub_insider_transactions",
         async (input) => {
           const ticker = tickerInput(input);
-          const transactions = await insiderTransactions(ticker);
+          const transactions = await insiderTransactions.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub insider transactions for ${ticker}`,
             transactions,
@@ -756,7 +757,7 @@ export function createGlobalToolRegistry(
         "finnhub_news_sentiment",
         async (input) => {
           const ticker = tickerInput(input);
-          const sentiment = await newsSentiment(ticker);
+          const sentiment = await newsSentiment.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub news sentiment for ${ticker}`,
             sentiment,
@@ -771,7 +772,7 @@ export function createGlobalToolRegistry(
         "finnhub_ownership",
         async (input) => {
           const ticker = tickerInput(input);
-          const rawOwnership = await ownership(ticker, 20);
+          const rawOwnership = await ownership.call(deps.finnhub, ticker, 20);
           return summarizeFinnhubResult(
             `Finnhub ownership for ${ticker}`,
             rawOwnership,
@@ -786,7 +787,7 @@ export function createGlobalToolRegistry(
         "finnhub_press_releases",
         async (input) => {
           const ticker = tickerInput(input);
-          const releases = await pressReleases(ticker);
+          const releases = await pressReleases.call(deps.finnhub, ticker);
           const rawReleases = Array.isArray(releases) ? releases : [];
           return summarizeFinnhubResult(
             `Finnhub press releases for ${ticker}`,
@@ -803,7 +804,7 @@ export function createGlobalToolRegistry(
         "finnhub_recommendation_trends",
         async (input) => {
           const ticker = tickerInput(input);
-          const trends = await recommendationTrends(ticker);
+          const trends = await recommendationTrends.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub recommendation trends for ${ticker}`,
             trends,
@@ -818,7 +819,7 @@ export function createGlobalToolRegistry(
         "finnhub_social_sentiment",
         async (input) => {
           const ticker = tickerInput(input);
-          const sentiment = await socialSentiment(ticker);
+          const sentiment = await socialSentiment.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub social sentiment for ${ticker}`,
             sentiment,
@@ -833,7 +834,7 @@ export function createGlobalToolRegistry(
         "finnhub_supply_chain_relationships",
         async (input) => {
           const ticker = tickerInput(input);
-          const relationships = await supplyChainRelationships(ticker);
+          const relationships = await supplyChainRelationships.call(deps.finnhub, ticker);
           return summarizeFinnhubResult(
             `Finnhub supply-chain relationships for ${ticker}`,
             relationships,
@@ -849,7 +850,7 @@ export function createGlobalToolRegistry(
         async (input, context) => {
           const ticker = tickerInput(input);
           const { from, to } = dateWindow(context, 30);
-          const changes = await upgradeDowngrade({
+          const changes = await upgradeDowngrade.call(deps.finnhub, {
             symbol: ticker,
             from,
             to,
@@ -873,7 +874,7 @@ export function createGlobalToolRegistry(
           context?.containerTag ??
           deps.memoryContainerTag ??
           GLOBAL_MEMORY_CONTAINER_TAG;
-        const profile = await profileMemory({
+        const profile = await profileMemory.call(deps.memory, {
           containerTag,
           q: input,
         });
@@ -958,7 +959,7 @@ export function createSupermemoryProfileTool(
 ) {
   return tool({
     description:
-      "Fetch branch-scoped Supermemory profile context. Use when you need stable or recent memory about the branch, prior human corrections, recurring false positives, or durable preferences. Do not use for fresh market/news source discovery.",
+      "Fetch branch-scoped Supermemory profile context for a Kairos monitoring branch. Use when stable memory may change heartbeat interpretation: law intent, durable user preferences, prior corrections, recurring false positives, or remembered thesis context. Do not use for fresh market/news discovery or public-source proof. Returns a compact profile summary; treat it as internal context that should be corroborated before public factual claims.",
     inputSchema: supermemoryProfileInputSchema,
     execute: ({
       containerTag,
@@ -984,7 +985,7 @@ export function createSupermemorySearchTool(
 ) {
   return tool({
     description:
-      "Search branch-scoped Supermemory memories for prior related events, prior decisions, human corrections, and false positives. Use to decide whether current evidence is new or a duplicate. Do not use as a substitute for fresh news/source checks.",
+      "Search branch-scoped Supermemory memories for prior related events, decisions, human corrections, and false-positive history. Use to test novelty, duplicate risk, or branch-specific preferences before escalating. Do not use as a substitute for fresh news/source checks or citations. Returns capped memory snippets with relevance signals; treat them as Kairos context, not public evidence.",
     inputSchema: supermemorySearchInputSchema,
     execute: ({
       containerTag,
@@ -1012,7 +1013,7 @@ export function createSupermemorySearchTool(
 export function createExaSearchTool(exa: Pick<ExaApi, "search">) {
   return tool({
     description:
-      "Search recent web/news coverage when the seeded headlines are insufficient or need source verification. Use for current external corroboration of a specific catalyst, event, or claim. Do not use for broad deep research; escalate instead.",
+      "Search recent public web/news coverage for one specific catalyst, event, company, asset, or claim. Use when seeded headlines are insufficient, stale, or need external corroboration before heartbeat escalation. Do not use for broad market mapping, long-horizon synthesis, private Kairos memory, or trade decisions. Returns a capped list of source summaries and URLs; check source quality and dates before treating results as material.",
     inputSchema: exaNewsSearchInputSchema,
     execute: ({ query, numResults }: z.infer<typeof exaNewsSearchInputSchema>) =>
       exa.search({

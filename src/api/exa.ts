@@ -224,7 +224,8 @@ export class ExaApi {
       },
       outputSchema: request.outputSchema ?? {
         type: "text",
-        description: "source-backed synthesis",
+        description:
+          "Source-backed synthesis with material claims, dates, numbers, uncertainty, and citation-grounded context.",
       },
     });
   }

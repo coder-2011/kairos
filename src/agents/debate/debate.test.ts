@@ -24,6 +24,15 @@ const startInput = {
     ticker: "PLTR",
     marketCap: "example",
     revenueGrowth: "example",
+    sourceUrls: ["https://example.com/pltr-contract"],
+  },
+};
+
+const thinStartInput = {
+  summary:
+    "A smaller model found a potentially material PLTR contract headline but provided no source URL, counterparty, value, or cited evidence.",
+  basicFinancials: {
+    ticker: "PLTR",
   },
 };
 
@@ -216,6 +225,69 @@ describe("debate agent", () => {
       action: "watch",
       confidence: 0.61,
       citations: [],
+    });
+  });
+
+  it("runs source preflight before debate when the case file has no citations", async () => {
+    const information = vi.fn(async () => ({
+      summary: "Information tool found source-backed PLTR contract context.",
+      citations: [
+        {
+          title: "Source-backed context",
+          url: "https://example.com/pltr-sourced",
+        },
+      ],
+    }));
+    const judge = queuedStructuredModel<JudgePlan>([
+      { plan: "Source preflight completed; synthesize.", nextNode: "final" },
+    ]);
+    const final = queuedStructuredModel<DebateDecision>([
+      {
+        summary: "Final: research with cited source context.",
+        action: "research",
+        confidence: 0.62,
+        citations: [{ url: "https://example.com/pltr-sourced" }],
+      },
+    ]);
+
+    const result = await runDebateAgent(
+      {
+        debateId: "debate-source-preflight-1",
+        startInput: thinStartInput,
+      },
+      {
+        models: {
+          judge: judge.model,
+          final: final.model,
+        },
+        tools: {
+          information,
+        },
+        now: () => fixedNow,
+        id: () => "source-preflight-tool-1",
+      },
+    );
+
+    expect(information).toHaveBeenCalledWith(
+      expect.stringContaining("Verify the source basis"),
+      expect.objectContaining({
+        debateId: "debate-source-preflight-1",
+        requestedBy: "judge",
+        startInput: thinStartInput,
+      }),
+    );
+    expect(result.toolEvents).toEqual([
+      expect.objectContaining({
+        toolEventId: "source-preflight-tool-1",
+        toolName: "information",
+        requestedBy: "judge",
+        status: "completed",
+        citations: [{ title: "Source-backed context", url: "https://example.com/pltr-sourced" }],
+      }),
+    ]);
+    expect(result.messages[0]).toMatchObject({
+      agentName: "tool_agent",
+      messageType: "tool_result",
     });
   });
 

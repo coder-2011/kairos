@@ -251,7 +251,10 @@ describe("information agent", () => {
         expect.objectContaining({
           name: "finnhub_quote",
           access: "free",
-          input: "Ticker symbol.",
+          input: expect.stringContaining("Uppercase ticker symbol"),
+          useWhen: expect.stringContaining("price-action context"),
+          avoidWhen: expect.stringContaining("historical trend"),
+          returns: expect.stringContaining("Current quote fields"),
         }),
       ]),
     );

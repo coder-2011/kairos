@@ -29,6 +29,7 @@ import type {
   DebateRunConfig,
   DebateRunResult,
   DebateStatus,
+  DebateToolName,
   DebateToolEvent,
   HumanInterjection,
   JudgePlan,
@@ -208,6 +209,69 @@ function deterministicFinalDecision(state: DebateState): DebateDecision {
     confidence: 0.5,
     citations,
   };
+}
+
+function hasSourceEvidence(startInput: DebateState["startInput"]): boolean {
+  if (/https?:\/\/\S+/i.test(startInput.summary)) {
+    return true;
+  }
+
+  return hasStructuredSourceEvidence(startInput.basicFinancials);
+}
+
+function hasStructuredSourceEvidence(value: unknown): boolean {
+  if (typeof value === "string") {
+    return /https?:\/\/\S+/i.test(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(hasStructuredSourceEvidence);
+  }
+
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return Object.entries(value).some(([key, child]) => {
+    if (/^(citation|citations|sourceUrls|sourceUrl|url|urls)$/i.test(key)) {
+      return hasStructuredSourceEvidence(child) || (Array.isArray(child) && child.length > 0);
+    }
+
+    return hasStructuredSourceEvidence(child);
+  });
+}
+
+function hasRegisteredTool(
+  deps: DebateGraphDependencies,
+  toolName: DebateToolName,
+): boolean {
+  if (deps.enabledTools?.[toolName] === false) return false;
+  return Boolean(deps.tools?.[toolName] ?? deps.globalTools?.[toolName as GlobalToolName]);
+}
+
+function selectSourceDiscoveryTool(
+  deps: DebateGraphDependencies,
+): DebateToolName | undefined {
+  return (["information", "exa_search", "exa_research"] as const).find((toolName) =>
+    hasRegisteredTool(deps, toolName),
+  );
+}
+
+function buildSourceDiscoveryInput(state: DebateState, toolName: DebateToolName): string {
+  const query = [
+    "Verify the source basis for this Kairos debate before bull/bear arguments.",
+    `Case file: ${state.startInput.summary}`,
+    "Return cited current sources, counterevidence, and whether the core catalyst has a named counterparty, date, value, and primary or reputable source.",
+  ].join(" ");
+
+  if (toolName === "exa_search") {
+    return [
+      state.startInput.summary,
+      "current cited source named counterparty date value catalyst",
+    ].join(" ");
+  }
+
+  return query;
 }
 
 function summarizePortfolioContext(
@@ -657,6 +721,53 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     return { updatedAt: isoNow(deps) };
   };
 
+  const sourcePreflightNode = async (
+    state: DebateState,
+  ): Promise<{
+    pendingToolRequest: PendingToolRequest | null;
+    updatedAt: string;
+  }> => {
+    if (
+      hasSourceEvidence(state.startInput) ||
+      state.toolEvents.length > 0 ||
+      state.budgets.toolCallsUsed >= state.budgets.maxToolCalls
+    ) {
+      return {
+        pendingToolRequest: null,
+        updatedAt: isoNow(deps),
+      };
+    }
+
+    const toolName = selectSourceDiscoveryTool(deps);
+    if (!toolName) {
+      return {
+        pendingToolRequest: null,
+        updatedAt: isoNow(deps),
+      };
+    }
+
+    const pendingToolRequest = {
+      toolName,
+      input: buildSourceDiscoveryInput(state, toolName),
+      requestedBy: "judge" as const,
+    };
+    await observe(deps.observer, {
+      agent: "debate",
+      type: "source_preflight_queued",
+      runId: deps.runId,
+      branchId: branchIdFromState(state),
+      payload: {
+        debateId: state.debateId,
+        toolName,
+      },
+    });
+
+    return {
+      pendingToolRequest,
+      updatedAt: isoNow(deps),
+    };
+  };
+
   const finalNode = async (
     state: DebateState,
   ): Promise<{
@@ -744,13 +855,15 @@ export function createDebateGraph(deps: DebateGraphDependencies = {}) {
     .addNode("bear", createDebateParticipantNode("bear", prompts.bearSystemPrompt))
     .addNode("tools", toolsNode)
     .addNode("human_context", humanContextNode)
+    .addNode("source_preflight", sourcePreflightNode)
     .addNode("final", finalNode)
     .addEdge(START, "human_context")
     .addConditionalEdges("judge", routeJudge)
     .addConditionalEdges("bull", routeParticipant)
     .addConditionalEdges("bear", routeParticipant)
+    .addConditionalEdges("source_preflight", routeParticipant)
     .addEdge("tools", "judge")
-    .addEdge("human_context", "judge")
+    .addEdge("human_context", "source_preflight")
     .addEdge("final", END)
     .compile({ checkpointer: new MemorySaver() });
 }
