@@ -223,6 +223,10 @@ export type GlobalToolHandler = (
 export type GlobalToolRegistry = Partial<Record<GlobalToolName, GlobalToolHandler>>;
 
 export type GlobalToolDependencies = {
+  deepResearch?: (
+    input: string,
+    context?: GlobalToolContext,
+  ) => Promise<GlobalToolResult>;
   exa?: Pick<ExaApi, "search" | "answer" | "contents">;
   finnhub?: Partial<
     Pick<
@@ -363,7 +367,11 @@ export function createGlobalToolRegistry(
     );
     registerTool(
       "exa_research",
-      async (input) => {
+      async (input, context) => {
+        if (deps.deepResearch) {
+          return deps.deepResearch(input, context);
+        }
+
         const response = await deps.exa?.answer({ query: input, text: true });
         return {
           summary: compactText(

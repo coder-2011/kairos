@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, stepCountIs, tool, type ToolSet } from "ai";
+import {
+  generateText,
+  streamText,
+  stepCountIs,
+  tool,
+  type TextStreamPart,
+  type ToolSet,
+} from "ai";
 import { z } from "zod";
 
 import { ExaApi } from "../../../src/api/exa.js";
@@ -189,6 +196,24 @@ export async function handleDeepResearchRequest(
       }
     }
 
+    if (
+      segments.length === 5 &&
+      segments[1] === "chats" &&
+      segments[3] === "messages" &&
+      segments[4] === "stream"
+    ) {
+      const chatId = segments[2];
+      const chat = await store.getChat(chatId);
+      if (!chat) return json({ error: "not_found", message: "Deep Research chat not found." }, 404);
+      if (request.method === "POST") {
+        const input = messageCreateSchema.parse(await readJson(request));
+        if (!input.text.trim() && input.attachments.length === 0) {
+          return json({ error: "bad_request", message: "Deep Research message is empty." }, 400);
+        }
+        return runDeepResearchMessageStream(context, store, chat, input);
+      }
+    }
+
     return json({ error: "not_found", message: "Deep Research route not found." }, 404);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -199,6 +224,41 @@ export async function handleDeepResearchRequest(
       message: error instanceof Error ? error.message : "Unknown error.",
     }, 500);
   }
+}
+
+export async function runDeepResearchQuery(
+  context: DeepResearchContext,
+  input: Pick<z.infer<typeof messageCreateSchema>, "text" | "model" | "reasoningEffort">,
+): Promise<{
+  text: string;
+  reasoning?: string;
+  model: string;
+  reasoningEffort?: KairosReasoningEffort;
+  toolCalls: RouterToolCallRecord[];
+}> {
+  const model = resolveDeepResearchModel(input.model);
+  const reasoningEffort = input.reasoningEffort;
+  const toolCalls: RouterToolCallRecord[] = [];
+
+  const result = await generateText({
+    model: createDeepResearchOpenRouterModel(model, reasoningEffort),
+    system: deepResearchSystemPrompt(),
+    messages: [{ role: "user", content: input.text }],
+    tools: createDeepResearchTools(context, toolCalls),
+    temperature: 0.2,
+  });
+
+  const assistantText = result.text?.trim() ??
+    `No direct answer was produced. I collected ${toolCalls.length} tool result${toolCalls.length === 1 ? "" : "s"} and no verified conclusion. Try a narrower query.`;
+  const reasoning = extractDeepResearchReasoning(result as { reasoning?: unknown });
+
+  return {
+    text: assistantText,
+    reasoning,
+    model,
+    reasoningEffort,
+    toolCalls,
+  };
 }
 
 async function runDeepResearchMessage(
@@ -265,7 +325,7 @@ async function runDeepResearchMessage(
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
-  const assistantMessage = await store.createMessage({
+    const assistantMessage = await store.createMessage({
       chatId: chat.id,
       role: "assistant",
       text: `Deep Research failed: ${message}`,
@@ -276,6 +336,135 @@ async function runDeepResearchMessage(
     });
     return json({ userMessage, assistantMessage, error: "run_failed", message }, 500);
   }
+}
+
+async function runDeepResearchMessageStream(
+  context: DeepResearchContext,
+  store: DeepResearchFileStore,
+  chat: DeepResearchChatRecord,
+  input: z.infer<typeof messageCreateSchema>,
+): Promise<Response> {
+  const model = resolveDeepResearchModel(input.model);
+  const reasoningEffort = input.reasoningEffort;
+  const chatTitle = chat.title ?? await generateDeepResearchTitle(input.text);
+  const userMessage = await store.createMessage({
+    chatId: chat.id,
+    role: "user",
+    text: input.text.trim(),
+    attachments: input.attachments,
+    chatTitle,
+  });
+
+  const previousMessages = await store.listMessages(chat.id);
+  const toolCalls: RouterToolCallRecord[] = [];
+  let assistantReasoning = "";
+  const modelMessages = [
+    ...previousMessages
+      .filter((message) => message.id !== userMessage.id)
+      .slice(-12)
+      .map((message) => ({
+        role: message.role,
+        content: message.text ?? "",
+      })),
+    {
+      role: "user" as const,
+      content: deepResearchUserContent(userMessage),
+    },
+  ];
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const sendEvent = (event: string, payload: unknown) => {
+          controller.enqueue(encoder.encode(`event: ${event}\n`));
+          controller.enqueue(encoder.encode(`id: ${randomUUID()}\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        };
+
+        const result = streamText({
+          model: createDeepResearchOpenRouterModel(model, reasoningEffort),
+          system: deepResearchSystemPrompt(),
+          messages: modelMessages as never,
+          tools: createDeepResearchTools(context, toolCalls),
+          stopWhen: stepCountIs(8),
+          temperature: 0.2,
+        });
+
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta" && part.text) {
+            sendEvent("assistant_delta", { text: part.text });
+          }
+          if (part.type === "reasoning-delta" && part.text) {
+            assistantReasoning += part.text;
+            sendEvent("assistant_reasoning", { text: part.text });
+          }
+
+          if (part.type === "tool-result" || part.type === "tool-error") {
+            const toolCall = mapStreamToolCallToRecord(part);
+            if (toolCall) {
+              sendEvent("assistant_tool", { toolCall });
+            }
+          }
+        }
+
+        const assistantTextRaw = (await result.text)?.trim();
+        const assistantText = assistantTextRaw?.length
+          ? assistantTextRaw
+          : `No direct answer was produced. I collected ${toolCalls.length} tool result${toolCalls.length === 1 ? "" : "s"} and no verified conclusion. Try a narrower query.`;
+        const reasoning = extractDeepResearchReasoning({
+          reasoning: assistantReasoning.length > 0 ? assistantReasoning : undefined,
+        });
+
+        const assistantMessage = await store.createMessage({
+          chatId: chat.id,
+          role: "assistant",
+          text: assistantText,
+          model,
+          reasoning,
+          reasoningEffort,
+          toolCalls,
+        });
+
+        await mirrorDeepResearchConversation(chat.id, userMessage, assistantMessage);
+        sendEvent("assistant_final", {
+          chat: await store.getChat(chat.id),
+          userMessage,
+          assistantMessage,
+        });
+        controller.close();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error.";
+        const assistantMessage = await store.createMessage({
+          chatId: chat.id,
+          role: "assistant",
+          text: `Deep Research failed: ${message}`,
+          reasoning: `FAILED: ${message}`,
+          model,
+          reasoningEffort,
+          toolCalls,
+        });
+        sendEvent("assistant_error", {
+          chat: await store.getChat(chat.id),
+          userMessage,
+          assistantMessage,
+          message,
+        });
+        controller.close();
+      }
+    },
+    cancel() {},
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...corsHeaders(),
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    },
+  });
 }
 
 function createDeepResearchOpenRouterModel(
@@ -735,6 +924,49 @@ function compactReasoningLines(value: unknown): string | undefined {
     } catch {
       return undefined;
     }
+  }
+
+  return undefined;
+}
+
+function mapStreamToolCallToRecord(part: TextStreamPart<ToolSet>): RouterToolCallRecord | undefined {
+  const typedPart = part as {
+    toolName?: unknown;
+    toolCallId?: unknown;
+    input?: unknown;
+    output?: unknown;
+    error?: unknown;
+  };
+
+  const toolName = typeof typedPart.toolName === "string" ? typedPart.toolName : undefined;
+  const toolCallId = typeof typedPart.toolCallId === "string" ? typedPart.toolCallId : undefined;
+  if (!toolName || !toolCallId) return undefined;
+
+  if (part.type === "tool-result") {
+    return {
+      id: toolCallId,
+      name: toolName,
+      status: "succeeded",
+      summary: compactToolSummary(typedPart.output),
+      input: compactJson(typedPart.input),
+      output: compactJson(typedPart.output),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  if (part.type === "tool-error") {
+    return {
+      id: toolCallId,
+      name: toolName,
+      status: "failed",
+      summary:
+        typedPart.error instanceof Error
+          ? typedPart.error.message
+          : compactToolSummary(typedPart.error),
+      input: compactJson(typedPart.input),
+      error: typedPart.error instanceof Error ? typedPart.error.message : String(typedPart.error ?? ""),
+      createdAt: new Date().toISOString(),
+    };
   }
 
   return undefined;

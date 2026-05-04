@@ -80,7 +80,10 @@ import {
 } from "./store.js";
 import { SupabaseKairosStore } from "./supabase-store.js";
 import { createSupermemoryMirroredStore } from "./supermemory-store.js";
-import { handleDeepResearchRequest } from "./deep-research.js";
+import {
+  handleDeepResearchRequest,
+  runDeepResearchQuery,
+} from "./deep-research.js";
 
 export type LocalApiDependencies = {
   store?: KairosLocalStore;
@@ -2174,6 +2177,47 @@ function routerResponse(
   ].join("\n");
 }
 
+function extractCitationsFromDeepResearchToolCalls(
+  toolCalls: RouterToolCallRecord[],
+): Array<{ title?: string; url: string; source?: string }> {
+  const citations: Array<{ title?: string; url: string; source?: string }> = [];
+  const seen = new Set<string>();
+
+  const visit = (value: unknown): void => {
+    if (value === null || value === undefined) return;
+    if (typeof value === "string") return;
+    if (typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    const record = value as Record<string, unknown>;
+    const url = typeof record.url === "string" ? record.url.trim() : "";
+    if (url && !seen.has(url)) {
+      citations.push({
+        title: typeof record.title === "string" ? record.title : undefined,
+        url,
+        source: typeof record.source === "string" ? record.source : undefined,
+      });
+      seen.add(url);
+    }
+
+    const citationsValue = record.citations;
+    const resultsValue = record.results;
+    if (Array.isArray(citationsValue)) citationsValue.forEach(visit);
+    if (Array.isArray(resultsValue)) resultsValue.forEach(visit);
+    if (record.output !== undefined) visit(record.output);
+    if (record.input !== undefined) visit(record.input);
+  };
+
+  for (const toolCall of toolCalls) {
+    if (toolCall.output) visit(toolCall.output);
+  }
+
+  return citations;
+}
+
 async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCreateResult> {
   if (!process.env.OPENROUTER_API_KEY) {
     throw new Error(
@@ -2210,6 +2254,22 @@ async function runConfiguredDebate(input: DebateCreateInput): Promise<DebateCrea
       })
       : undefined,
     finnhubPremiumAccess: informationConfig.finnhubPremiumAccess,
+    deepResearch: async (toolInput) => {
+      const result = await runDeepResearchQuery(context, {
+        text: toolInput,
+      });
+      return {
+        summary: result.text,
+        citations: extractCitationsFromDeepResearchToolCalls(result.toolCalls),
+        raw: {
+          text: result.text,
+          reasoning: result.reasoning,
+          model: result.model,
+          reasoningEffort: result.reasoningEffort,
+          toolCalls: result.toolCalls,
+        },
+      };
+    },
     requiredTools: informationConfig.requiredTools,
   });
   const informationModels = {
