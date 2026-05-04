@@ -3375,20 +3375,21 @@ function TradeSymbolDropdown({
   const [semanticCatalog, setSemanticCatalog] = useState<TradeSymbolRecord[]>([]);
   const [semanticLoadState, setSemanticLoadState] = useState<LoadState>("api");
   const [semanticError, setSemanticError] = useState("");
-  const normalizedQuery = normalizeTickerInput(query);
-  const activeCatalog = normalizedQuery
+  const searchQuery = query.trim();
+  const normalizedSearchQuery = searchQuery.toUpperCase();
+  const activeCatalog = searchQuery
     ? mergeTradeSymbolRecords(catalog, searchCatalog)
     : catalog;
-  const activeLoadState = normalizedQuery ? searchLoadState : loadState;
+  const activeLoadState = searchQuery ? searchLoadState : loadState;
   const semanticOptions = mergeTradeSymbolOptions(semanticCatalog, [], selected);
   const semanticOptionSymbols = semanticOptions.map((option) => option.symbol);
   const options = mergeTradeSymbolOptions(activeCatalog, assets, selected);
   const optionSymbols = options.map((option) => option.symbol);
   const visibleOptions = options.filter((option) => {
-    if (!normalizedQuery) return true;
+    if (!normalizedSearchQuery) return true;
     return (
-      option.symbol.includes(normalizedQuery) ||
-      option.name?.toUpperCase().includes(normalizedQuery)
+      option.symbol.includes(normalizedSearchQuery) ||
+      option.name?.toUpperCase().includes(normalizedSearchQuery)
     );
   });
   const selectedSet = new Set(selected);
@@ -3400,7 +3401,7 @@ function TradeSymbolDropdown({
         : selected.join(", ");
 
   useEffect(() => {
-    if (!normalizedQuery) {
+    if (!searchQuery) {
       setSearchCatalog([]);
       setSearchLoadState("api");
       return;
@@ -3408,7 +3409,7 @@ function TradeSymbolDropdown({
 
     let cancelled = false;
     setSearchLoadState("loading");
-    getTradeSymbols({ query: normalizedQuery, limit: 50 })
+    getTradeSymbols({ query: searchQuery, limit: 50 })
       .then((symbols) => {
         if (!cancelled) {
           setSearchCatalog(symbols);
@@ -3425,7 +3426,7 @@ function TradeSymbolDropdown({
     return () => {
       cancelled = true;
     };
-  }, [normalizedQuery]);
+  }, [searchQuery]);
 
   function toggle(symbol: string, checked: boolean) {
     const scrollContainer = document.querySelector(".config-canvas");
