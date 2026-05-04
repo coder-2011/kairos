@@ -1471,17 +1471,14 @@ describe("local API handler", () => {
       "GET",
       `/deep-research/chats/${deepResearchChat.body.chat.id}/messages`,
     );
-    await store.createTradeIntent(tradeIntentPayload({
+    const tradeIntent = await requestJson("POST", "/trade-intents", tradeIntentPayload({
       id: "trade_intent_supabase",
       confidence: 0.9,
+      tradingConfig: {
+        notifyConfidenceThreshold: 0.65,
+        paperTradeConfidenceThreshold: 0.85,
+      },
     }));
-    await store.createMessage({
-      type: "manual",
-      severity: "info",
-      title: "Manual note",
-      body: "Trading note stored in Supabase.",
-      tradeIntentId: "trade_intent_supabase",
-    });
     await store.createBrokerOrder({
       provider: "alpaca",
       environment: "paper",
@@ -1517,6 +1514,7 @@ describe("local API handler", () => {
         toolCalls: [expect.objectContaining({ name: "exa_search" })],
       }),
     ]);
+    expect(tradeIntent.status).toBe(201);
     expect(await store.listTradeIntents()).toEqual([
       expect.objectContaining({ id: "trade_intent_supabase" }),
     ]);
