@@ -109,7 +109,7 @@ function fakeDeps(
 describe("information agent", () => {
   it("uses the configured default model map for each agent role", () => {
     expect(resolveKairosModelConfig("heartbeat", {} as NodeJS.ProcessEnv)).toEqual({
-      model: "google/gemma-4-31b-it",
+      model: "qwen/qwen3.5-9b",
       reasoning: undefined,
     });
     expect(

@@ -254,7 +254,10 @@ export class AlpacaTradingClient {
     ]);
 
     return assets
-      .filter((asset): asset is AlpacaAsset => Boolean(asset?.symbol) && asset.tradable === true)
+      .filter(
+        (asset): asset is AlpacaAsset =>
+          asset !== undefined && Boolean(asset.symbol) && asset.tradable === true,
+      )
       .map((asset) => toMarketSymbol(asset, snapshots[stringValue(asset.symbol) ?? ""]));
   }
 

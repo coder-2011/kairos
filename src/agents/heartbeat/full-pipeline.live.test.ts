@@ -8,6 +8,7 @@ import {
   ExaApi,
   FinnhubApi,
   SupermemoryApi,
+  createAlpacaTradingClient,
   createOpenRouterAiSdkModelForRole,
   createOpenRouterChatModelForRole,
   resolveKairosModelConfig,
@@ -69,6 +70,7 @@ describeIfLive("heartbeat full live pipeline", () => {
         });
 
         const seedProviders = createHeartbeatSeedProviders({
+          alpaca: createAlpacaTradingClient(),
           finnhub,
           supermemory,
         });

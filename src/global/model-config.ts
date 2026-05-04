@@ -53,7 +53,7 @@ export const DEFAULT_KAIROS_MODEL_CONFIGS: Record<
   KairosRoleModelConfig
 > = {
   heartbeat: {
-    model: "google/gemma-4-31b-it",
+    model: "qwen/qwen3.5-9b",
   },
   informationPlanner: {
     model: "google/gemma-4-31b-it",

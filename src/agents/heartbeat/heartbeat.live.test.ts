@@ -8,6 +8,7 @@ import {
   ExaApi,
   FinnhubApi,
   SupermemoryApi,
+  createAlpacaTradingClient,
   createOpenRouterAiSdkModelForRole,
   resolveKairosModelConfig,
   validateKairosEnv,
@@ -54,6 +55,7 @@ describeIfLive("heartbeat live", () => {
           temperature: 0,
         }),
         seedProviders: createHeartbeatSeedProviders({
+          alpaca: createAlpacaTradingClient(),
           finnhub: new FinnhubApi(),
           supermemory,
         }),
