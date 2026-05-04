@@ -101,10 +101,6 @@ select {
   font: inherit;
 }
 
-textarea {
-  min-height: 180px;
-}
-
 button {
   cursor: pointer;
 }
@@ -2936,7 +2932,20 @@ select:focus:hover {
 }
 
 .prompt-area {
-  min-height: 180px;
+  height: 54px;
+  min-height: 54px;
+  overflow: hidden;
+  padding: 16px;
+  resize: vertical;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.prompt-area:focus {
+  height: 400px;
+  min-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .model-grid {

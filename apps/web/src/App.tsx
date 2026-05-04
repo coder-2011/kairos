@@ -2872,10 +2872,7 @@ function BranchConfig({
             <div className="trading-section full">
               <div className="field-label">Execution</div>
               <div className="trading-fields-row">
-                <FieldLabel
-                  hint="US listed equities and ETFs from Nasdaq Trader listed-symbol files, including Nasdaq and other US exchanges, with Yahoo quote enrichment."
-                  label="Symbols"
-                >
+                <FieldLabel label="Symbols">
                   <TradeSymbolDropdown
                     assets={branchAssets}
                     catalog={tradeSymbols}

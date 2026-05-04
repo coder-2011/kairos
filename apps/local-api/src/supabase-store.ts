@@ -465,7 +465,7 @@ class SupabaseRecordClient {
   }
 
   async delete(collection: Collection, id: string): Promise<boolean> {
-    const rows = await this.request<Array<SupabaseRecordRow<unknown>>>(
+    const rows = await this.request<Array<SupabaseRecordRow<unknown>> | undefined>(
       "DELETE",
       this.tableUrl({
         select: "collection,id,record",
@@ -478,7 +478,7 @@ class SupabaseRecordClient {
         },
       },
     );
-    return rows.length > 0;
+    return rows === undefined || rows.length > 0;
   }
 
   private tableUrl(params: Record<string, string>): URL {
