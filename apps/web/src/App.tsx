@@ -830,7 +830,13 @@ export function App() {
       setAuthStatus("initializing");
       await signInWithGoogle();
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Failed to sign in.");
+      const message =
+        error instanceof Error ? error.message : "Failed to sign in.";
+      setAuthError(
+        message.includes("provider is not enabled")
+          ? "Google auth is not enabled in Supabase. Enable Google in Supabase Auth Providers."
+          : message,
+      );
       setAuthStatus("ready");
     }
   }
