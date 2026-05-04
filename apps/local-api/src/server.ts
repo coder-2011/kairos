@@ -70,6 +70,7 @@ import {
   MemoryKairosStore,
   buildRouterChatTitle,
   type AppendRunEventInput,
+  type ApiControlRecord,
   type BranchRecord,
   type KairosLocalStore,
   type JsonRecord,
@@ -81,6 +82,7 @@ import {
 import { SupabaseKairosStore } from "./supabase-store.js";
 import { createSupermemoryMirroredStore } from "./supermemory-store.js";
 import {
+  executeQueuedDeepResearchRun,
   handleDeepResearchRequest,
   runDeepResearchQuery,
   type DeepResearchContext,
@@ -173,6 +175,7 @@ const LOCAL_TOKEN_HEADER = "x-kairos-local-token";
 const REQUEST_ID_HEADER = "x-request-id";
 const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 const IDEMPOTENCY_CACHE_TTL_MS = 10 * 60_000;
+const JOB_LEASE_TTL_MS = 5 * 60_000;
 const SENSITIVE_RESPONSE_KEY_PATTERN =
   /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key|stack)/i;
 
@@ -221,7 +224,13 @@ const branchCreateSchema = z.object({
 const branchUpdateSchema = branchCreateSchema.omit({ id: true }).partial();
 
 const heartbeatTriggerSchema = z.object({
+  async: z.boolean().optional().default(false),
   input: z.record(z.string(), z.unknown()).optional().default({}),
+});
+
+const jobDrainSchema = z.object({
+  limit: z.number().int().positive().max(25).optional().default(5),
+  kinds: z.array(z.enum(["heartbeat", "debate", "deep_research", "broker_sync"])).optional(),
 });
 
 const debateCreateSchema = z.object({
@@ -343,7 +352,7 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
       async () => {
         let response: Response;
         try {
-          const rateLimitResponse = checkRateLimit(request, url);
+          const rateLimitResponse = await checkRateLimit(context.store, request, url);
           if (rateLimitResponse) {
             response = rateLimitResponse;
           } else {
@@ -352,13 +361,15 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
               response = idempotencyFailure;
             } else {
               const idempotencyKey = idempotencyCacheKey(request, url);
-              const cached = idempotencyKey ? readCachedIdempotentResponse(idempotencyKey) : undefined;
+              const cached = idempotencyKey
+                ? await readCachedIdempotentResponse(context.store, idempotencyKey)
+                : undefined;
               if (cached) {
                 response = cached;
               } else {
                 response = await handleLocalApiRequest(context, request);
                 if (idempotencyKey) {
-                  response = await cacheIdempotentResponse(idempotencyKey, response);
+                  response = await cacheIdempotentResponse(context.store, idempotencyKey, response);
                 }
               }
             }
@@ -387,25 +398,38 @@ function normalizeRequestId(value: string | null): string | undefined {
     : undefined;
 }
 
-function checkRateLimit(request: Request, url: URL): Response | undefined {
+async function checkRateLimit(
+  store: KairosLocalStore,
+  request: Request,
+  url: URL,
+): Promise<Response | undefined> {
   if (!isRateLimitEnabled() || isHealthOrPreflight(request, url)) return undefined;
   const now = Date.now();
   const windowMs = rateLimitWindowMs();
   const key = rateLimitKey(request);
-  const current = rateLimitBuckets.get(key);
-  const bucket =
-    !current || now - current.windowStartedAt >= windowMs
-      ? { windowStartedAt: now, count: 0 }
-      : current;
-  bucket.count += 1;
-  rateLimitBuckets.set(key, bucket);
-  pruneRateLimitBuckets(now, windowMs);
-
+  const windowStartedAt = Math.floor(now / windowMs) * windowMs;
+  const idPrefix = `rate:${safeControlId(key)}:${windowStartedAt}:`;
+  await deleteExpiredApiControlRecords(store);
+  await upsertApiControlRecord(store, {
+    id: `${idPrefix}${requestLogContext.getStore()?.requestId ?? randomUUID()}`,
+    kind: "rate_limit_hit",
+    createdAt: new Date(now).toISOString(),
+    updatedAt: new Date(now).toISOString(),
+    expiresAt: new Date(windowStartedAt + windowMs + 5_000).toISOString(),
+    data: {
+      method: request.method,
+      path: url.pathname,
+    },
+  });
+  const hits = await listApiControlRecords(store, {
+    kind: "rate_limit_hit",
+    idPrefix,
+  });
   const max = rateLimitMaxRequests();
-  if (bucket.count <= max) return undefined;
+  if (hits.length <= max) return undefined;
   const retryAfterSeconds = Math.max(
     1,
-    Math.ceil((bucket.windowStartedAt + windowMs - now) / 1000),
+    Math.ceil((windowStartedAt + windowMs - now) / 1000),
   );
   return json({
     error: "rate_limited",
@@ -508,7 +532,33 @@ function idempotencyCacheKey(request: Request, url: URL): string | undefined {
   return key ? `${request.method}:${url.pathname}:${key}` : undefined;
 }
 
-function readCachedIdempotentResponse(key: string): Response | undefined {
+async function readCachedIdempotentResponse(
+  store: KairosLocalStore,
+  key: string,
+): Promise<Response | undefined> {
+  const durable = await getApiControlRecord(store, key);
+  if (durable) {
+    if (durable.expiresAt && durable.expiresAt <= new Date().toISOString()) {
+      return undefined;
+    }
+    const data = durable.data ?? {};
+    const headers = new Headers(
+      Array.isArray(data.headers)
+        ? data.headers.filter((entry): entry is [string, string] =>
+            Array.isArray(entry) &&
+            typeof entry[0] === "string" &&
+            typeof entry[1] === "string"
+          )
+        : [],
+    );
+    headers.set("x-idempotency-cache", "hit");
+    return new Response(typeof data.bodyText === "string" ? data.bodyText : "", {
+      status: typeof data.status === "number" ? data.status : 200,
+      statusText: typeof data.statusText === "string" ? data.statusText : undefined,
+      headers,
+    });
+  }
+
   const cached = idempotencyResponses.get(key);
   if (!cached) return undefined;
   if (cached.expiresAt <= Date.now()) {
@@ -524,13 +574,32 @@ function readCachedIdempotentResponse(key: string): Response | undefined {
   });
 }
 
-async function cacheIdempotentResponse(key: string, response: Response): Promise<Response> {
+async function cacheIdempotentResponse(
+  store: KairosLocalStore,
+  key: string,
+  response: Response,
+): Promise<Response> {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("text/event-stream") || response.status >= 500) return response;
   const clone = response.clone();
-  const body = await clone.arrayBuffer();
+  const bodyText = await clone.text();
+  const body = new TextEncoder().encode(bodyText).buffer;
+  const now = new Date();
+  await upsertApiControlRecord(store, {
+    id: key,
+    kind: "idempotency_response",
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + IDEMPOTENCY_CACHE_TTL_MS).toISOString(),
+    data: {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Array.from(response.headers.entries()),
+      bodyText,
+    },
+  });
   idempotencyResponses.set(key, {
-    expiresAt: Date.now() + IDEMPOTENCY_CACHE_TTL_MS,
+    expiresAt: now.getTime() + IDEMPOTENCY_CACHE_TTL_MS,
     status: response.status,
     statusText: response.statusText,
     headers: Array.from(response.headers.entries()),
@@ -551,6 +620,38 @@ function pruneIdempotencyResponses(): void {
 
 function isHealthOrPreflight(request: Request, url: URL): boolean {
   return request.method === "OPTIONS" || url.pathname === "/" || url.pathname === "/health";
+}
+
+async function listApiControlRecords(
+  store: KairosLocalStore,
+  input: { kind?: ApiControlRecord["kind"]; idPrefix?: string } = {},
+): Promise<ApiControlRecord[]> {
+  return store.listApiControlRecords?.(input) ?? [];
+}
+
+async function getApiControlRecord(
+  store: KairosLocalStore,
+  id: string,
+): Promise<ApiControlRecord | undefined> {
+  return store.getApiControlRecord?.(id);
+}
+
+async function upsertApiControlRecord(
+  store: KairosLocalStore,
+  record: ApiControlRecord,
+): Promise<ApiControlRecord> {
+  if (store.upsertApiControlRecord) {
+    return store.upsertApiControlRecord(record);
+  }
+  return record;
+}
+
+async function deleteExpiredApiControlRecords(store: KairosLocalStore): Promise<void> {
+  await store.deleteExpiredApiControlRecords?.();
+}
+
+function safeControlId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 180);
 }
 
 async function handleLocalApiRequest(
@@ -658,6 +759,9 @@ async function handleLocalApiRequest(
 
         case "createDebate":
           return await createDebate(context, await readJson(request));
+
+        case "drainJobs":
+          return await drainJobs(context, await readJson(request));
 
         case "appendInterjection":
           return await appendInterjection(context, route.params.runId, await readJson(request));
@@ -917,6 +1021,7 @@ async function triggerHeartbeat(context: LocalApiContext, branchId: string, body
     completed = await runHeartbeatForBranch(context, branch, {
       input: input.input,
       metadataSource: "runtime",
+      async: input.async,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -1020,19 +1125,44 @@ async function runHeartbeatForBranch(
   options: {
     input: JsonRecord;
     metadataSource: string;
+    async?: boolean;
   },
 ): Promise<RunRecord | undefined> {
   const runPayload = {
     ...options.input,
     branch: branchRunContext(branch),
   };
+  const enqueue = shouldEnqueueAgentJob(options.async);
   const run = await context.store.createRun({
     kind: "heartbeat",
-    status: "running",
+    status: enqueue ? "pending" : "running",
     branchId: branch.id,
     input: runPayload,
-    metadata: { source: options.metadataSource },
+    metadata: {
+      source: options.metadataSource,
+      jobKind: "heartbeat",
+      durableJob: enqueue,
+    },
   });
+  if (enqueue) {
+    await context.store.appendRunEvent(run.id, {
+      type: "job.enqueued",
+      payload: { kind: "heartbeat" },
+    });
+    return run;
+  }
+  return executeHeartbeatRun(context, run, branch, runPayload);
+}
+
+async function executeHeartbeatRun(
+  context: LocalApiContext,
+  run: RunRecord,
+  branch: BranchRecord,
+  runPayload: JsonRecord,
+): Promise<RunRecord | undefined> {
+  if (run.status === "pending") {
+    await context.store.updateRun(run.id, { status: "running" });
+  }
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
   });
@@ -1390,35 +1520,32 @@ async function createDebate(context: LocalApiContext, body: unknown): Promise<Re
     ...(branch ? { branch: branchRunContext(branch) } : {}),
     ...(humanInterjections.length > 0 ? { humanInterjections } : {}),
   };
+  const enqueue = shouldEnqueueAgentJob(input.async);
   const run = await context.store.createRun({
     kind: "debate",
-    status: "running",
+    status: enqueue ? "pending" : "running",
     branchId,
     input: runPayload,
     metadata: {
       source: "runtime",
+      jobKind: "debate",
+      durableJob: enqueue,
       ...(sourceRunId ? { parentRunId: sourceRunId } : {}),
     },
   });
+  if (enqueue) {
+    await context.store.appendRunEvent(run.id, {
+      type: "job.enqueued",
+      payload: { kind: "debate" },
+    });
+    return json({ run }, 202);
+  }
   await context.store.appendRunEvent(run.id, {
     type: "run.started",
     payload: { kind: "debate" },
   });
   const debateCancelState: DebateCancelState = { canceled: false };
   context.debateCancelStates.set(run.id, debateCancelState);
-
-  if (input.async) {
-    void executeDebateRun(
-      context,
-      run,
-      runPayload,
-      branch,
-      debateCancelState,
-    ).catch((error) => {
-      console.error("[kairos] background debate failed", error);
-    });
-    return json({ run }, 202);
-  }
 
   const completed = await executeDebateRun(
     context,
@@ -1556,6 +1683,112 @@ async function cancelRun(context: LocalApiContext, runId: string): Promise<Respo
   });
 
   return json({ run: canceled, canceled: true });
+}
+
+async function drainJobs(context: LocalApiContext, body: unknown): Promise<Response> {
+  const input = jobDrainSchema.parse(body);
+  const allowedKinds = new Set(input.kinds ?? ["heartbeat", "debate", "deep_research", "broker_sync"]);
+  const pendingRuns = (await context.store.listRuns())
+    .filter((run) => run.status === "pending")
+    .filter((run) =>
+      run.kind === "heartbeat" ||
+      run.kind === "debate" ||
+      run.kind === "deep_research" ||
+      run.kind === "broker_sync"
+    )
+    .filter((run) => allowedKinds.has(run.kind))
+    .slice(0, input.limit);
+  const results: JsonRecord[] = [];
+
+  for (const run of pendingRuns) {
+    const lease = await acquireJobLease(context.store, run.id);
+    if (!lease) {
+      results.push({ runId: run.id, status: "skipped", reason: "leased" });
+      continue;
+    }
+
+    try {
+      if (run.kind === "heartbeat") {
+        const branch = run.branchId ? await context.store.getBranch(run.branchId) : undefined;
+        if (!branch) {
+          const failed = await context.store.updateRun(run.id, {
+            status: "failed",
+            output: { error: "Queued heartbeat run has no branch." },
+          });
+          await context.store.appendRunEvent(run.id, {
+            type: "run.failed",
+            payload: { error: "Queued heartbeat run has no branch." },
+          });
+          results.push({ runId: run.id, status: "failed", run: failed });
+          continue;
+        }
+        const completed = await executeHeartbeatRun(context, run, branch, run.input);
+        results.push({ runId: run.id, status: completed?.status ?? "unknown", run: completed });
+        continue;
+      }
+
+      if (run.kind === "deep_research") {
+        const completed = await executeQueuedDeepResearchRun(context, run);
+        results.push({ runId: run.id, status: completed.status, run: completed });
+        continue;
+      }
+
+      if (run.kind === "broker_sync") {
+        const completed = await executeBrokerSyncRun(context, run);
+        results.push({ runId: run.id, status: completed.status, run: completed });
+        continue;
+      }
+
+      const branch = run.branchId ? await context.store.getBranch(run.branchId) : undefined;
+      await context.store.updateRun(run.id, { status: "running" });
+      await context.store.appendRunEvent(run.id, {
+        type: "run.started",
+        payload: { kind: "debate" },
+      });
+      const cancelState: DebateCancelState = { canceled: false };
+      context.debateCancelStates.set(run.id, cancelState);
+      const completed = await executeDebateRun(context, run, run.input, branch, cancelState);
+      results.push({ runId: run.id, status: completed.status, run: completed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error.";
+      const failed = await context.store.updateRun(run.id, {
+        status: "failed",
+        output: { error: message },
+      });
+      await context.store.appendRunEvent(run.id, {
+        type: "run.failed",
+        payload: { error: message },
+      });
+      results.push({ runId: run.id, status: "failed", run: failed, error: message });
+    }
+  }
+
+  return json({
+    drained: results.length,
+    results,
+  });
+}
+
+async function acquireJobLease(store: KairosLocalStore, runId: string): Promise<boolean> {
+  const now = new Date();
+  const id = `job_lease:${safeControlId(runId)}`;
+  const current = await getApiControlRecord(store, id);
+  if (current?.expiresAt && current.expiresAt > now.toISOString()) {
+    return false;
+  }
+
+  await upsertApiControlRecord(store, {
+    id,
+    kind: "job_lease",
+    createdAt: current?.createdAt ?? now.toISOString(),
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + JOB_LEASE_TTL_MS).toISOString(),
+    data: {
+      runId,
+      requestId: requestLogContext.getStore()?.requestId,
+    },
+  });
+  return true;
 }
 
 async function createRouterMessage(
@@ -1909,6 +2142,29 @@ async function portfolioSnapshotResponse(
 }
 
 async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
+  if (shouldEnqueueAgentJob(undefined)) {
+    const run = await context.store.createRun({
+      kind: "broker_sync",
+      status: "pending",
+      input: { operation: "portfolio_refresh" },
+      metadata: {
+        source: "runtime",
+        jobKind: "broker_sync",
+        durableJob: true,
+      },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "job.enqueued",
+      payload: { kind: "broker_sync", operation: "portfolio_refresh" },
+    });
+    return json({ run }, 202);
+  }
+
+  const output = await executePortfolioRefresh(context);
+  return json(output, 201);
+}
+
+async function executePortfolioRefresh(context: LocalApiContext): Promise<JsonRecord> {
   const broker = getTradingBroker(context);
   const snapshot = await broker.getPortfolioSnapshot();
   const stored = await context.store.createPortfolioSnapshot(snapshot);
@@ -1920,7 +2176,7 @@ async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
   ]);
   const storage = portfolioStorageStatus({ brokerOrders, tradeIntents, messages });
 
-  return json({
+  return {
     portfolio: {
       ...stored,
       account: normalizePortfolioAccountForFrontend(stored.account),
@@ -1937,7 +2193,41 @@ async function refreshPortfolio(context: LocalApiContext): Promise<Response> {
     tradeIntents,
     messages,
     storage,
-  }, 201);
+  };
+}
+
+async function executeBrokerSyncRun(
+  context: LocalApiContext,
+  run: RunRecord,
+): Promise<RunRecord> {
+  await context.store.updateRun(run.id, { status: "running" });
+  await context.store.appendRunEvent(run.id, {
+    type: "run.started",
+    payload: { kind: "broker_sync" },
+  });
+  try {
+    const output = await executePortfolioRefresh(context);
+    const completed = await context.store.updateRun(run.id, {
+      status: "succeeded",
+      output,
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.completed",
+      payload: { status: "succeeded" },
+    });
+    return completed ?? run;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: message },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: message },
+    });
+    return failed ?? { ...run, status: "failed", output: { error: message } };
+  }
 }
 
 async function syncPaperBrokerOrders(
@@ -3858,7 +4148,8 @@ type Route =
   | { name: "listTradeIntents"; params: Record<string, never> }
   | { name: "createTradeIntent"; params: Record<string, never> }
   | { name: "submitPaperTradeIntent"; params: { tradeIntentId: string } }
-  | { name: "listBrokerOrders"; params: Record<string, never> };
+  | { name: "listBrokerOrders"; params: Record<string, never> }
+  | { name: "drainJobs"; params: Record<string, never> };
 
 function matchRoute(method: string, pathname: string): Route | undefined {
   const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
@@ -3917,6 +4208,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
     return { name: "appendInterjection", params: { runId: segments[1] } };
   }
   if (segments.length === 1 && segments[0] === "debates" && method === "POST") return { name: "createDebate", params: {} };
+  if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "drain" && method === "POST") return { name: "drainJobs", params: {} };
 
   return undefined;
 }
@@ -4075,6 +4367,11 @@ function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production" ||
     process.env.VERCEL === "1" ||
     process.env.KAIROS_DEPLOYMENT_ENV === "production";
+}
+
+function shouldEnqueueAgentJob(requestedAsync: boolean | undefined): boolean {
+  return requestedAsync === true ||
+    (parseAuthEnabledFlag(process.env.KAIROS_ENQUEUE_AGENT_JOBS) ?? isProductionRuntime());
 }
 
 function redactSensitiveResponseValues(value: unknown, seen = new WeakSet<object>()): unknown {

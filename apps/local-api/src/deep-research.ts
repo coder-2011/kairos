@@ -31,6 +31,7 @@ import type {
   JsonRecord,
   KairosLocalStore,
   RouterToolCallRecord,
+  RunRecord,
 } from "./store.js";
 
 export type DeepResearchModelOption = {
@@ -205,6 +206,26 @@ export async function handleDeepResearchRequest(
         if (!input.text.trim() && input.attachments.length === 0) {
           return json({ error: "bad_request", message: "Deep Research message is empty." }, 400);
         }
+        if (shouldEnqueueDeepResearchJob()) {
+          const run = await context.store.createRun({
+            kind: "deep_research",
+            status: "pending",
+            input: {
+              chatId,
+              message: input as unknown as JsonRecord,
+            },
+            metadata: {
+              source: "runtime",
+              jobKind: "deep_research",
+              durableJob: true,
+            },
+          });
+          await context.store.appendRunEvent(run.id, {
+            type: "job.enqueued",
+            payload: { kind: "deep_research", chatId },
+          });
+          return json({ chat, run }, 202);
+        }
         return runDeepResearchMessage(context, store, chat, input);
       }
     }
@@ -286,6 +307,61 @@ export async function runDeepResearchQuery(
     reasoningEffort,
     toolCalls,
   };
+}
+
+export async function executeQueuedDeepResearchRun(
+  context: DeepResearchContext,
+  run: RunRecord,
+): Promise<RunRecord> {
+  const chatId = typeof run.input.chatId === "string" ? run.input.chatId : undefined;
+  const message = isJsonRecord(run.input.message) ? run.input.message : undefined;
+  const input = messageCreateSchema.parse(message ?? {});
+  if (!chatId) {
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: "Queued Deep Research run is missing chatId." },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: "Queued Deep Research run is missing chatId." },
+    });
+    return failed ?? run;
+  }
+
+  const chat = await context.store.getDeepResearchChat(chatId);
+  if (!chat) {
+    const failed = await context.store.updateRun(run.id, {
+      status: "failed",
+      output: { error: "Queued Deep Research chat not found." },
+    });
+    await context.store.appendRunEvent(run.id, {
+      type: "run.failed",
+      payload: { error: "Queued Deep Research chat not found." },
+    });
+    return failed ?? run;
+  }
+
+  await context.store.updateRun(run.id, { status: "running" });
+  await context.store.appendRunEvent(run.id, {
+    type: "run.started",
+    payload: { kind: "deep_research", chatId },
+  });
+  const response = await runDeepResearchMessage(context, context.store, chat, input);
+  const body = await response.json() as JsonRecord;
+  const status = response.status >= 400 ? "failed" : "succeeded";
+  const completed = await context.store.updateRun(run.id, {
+    status,
+    output: body,
+  });
+  await context.store.appendRunEvent(run.id, {
+    type: status === "succeeded" ? "run.completed" : "run.failed",
+    payload: {
+      status,
+      httpStatus: response.status,
+      error: typeof body.message === "string" ? body.message : undefined,
+    },
+  });
+  return completed ?? run;
 }
 
 async function runDeepResearchMessage(
@@ -1338,6 +1414,21 @@ function maxJsonBodyBytes(): number {
   return Number.isFinite(configured) && configured > 0
     ? Math.floor(configured)
     : DEFAULT_MAX_JSON_BODY_BYTES;
+}
+
+function shouldEnqueueDeepResearchJob(): boolean {
+  return parseEnabledFlag(process.env.KAIROS_ENQUEUE_AGENT_JOBS) ??
+    (process.env.NODE_ENV === "production" ||
+    process.env.VERCEL === "1" ||
+    process.env.KAIROS_DEPLOYMENT_ENV === "production");
+}
+
+function parseEnabledFlag(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["0", "false", "off", "no", "disabled"].includes(normalized)) return false;
+  if (["1", "true", "on", "yes", "enabled"].includes(normalized)) return true;
+  return undefined;
 }
 
 function json(body: unknown, status = 200): Response {

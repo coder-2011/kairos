@@ -32,7 +32,7 @@ export type BranchRecord = {
   metadata?: JsonRecord;
 };
 
-export type RunKind = "heartbeat" | "debate" | "router";
+export type RunKind = "heartbeat" | "debate" | "router" | "deep_research" | "broker_sync";
 export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "canceled";
 
 export type RunLifecycle = {
@@ -198,6 +198,15 @@ export type CreateDeepResearchMessageInput = {
 
 export type RunEventSubscriber = (event: RunEventRecord) => void;
 
+export type ApiControlRecord = {
+  id: string;
+  kind: "rate_limit_hit" | "idempotency_response" | "job_lease";
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
+  data?: JsonRecord;
+};
+
 export type KairosLocalStore = {
   listBranches(): Promise<BranchRecord[]>;
   getBranch(id: string): Promise<BranchRecord | undefined>;
@@ -234,6 +243,10 @@ export type KairosLocalStore = {
   listPortfolioSnapshots(): Promise<PortfolioSnapshot[]>;
   latestPortfolioSnapshot(): Promise<PortfolioSnapshot | undefined>;
   createPortfolioSnapshot(input: Omit<PortfolioSnapshot, "id" | "capturedAt"> & { id?: string; capturedAt?: string }): Promise<PortfolioSnapshot>;
+  listApiControlRecords?(input?: { kind?: ApiControlRecord["kind"]; idPrefix?: string }): Promise<ApiControlRecord[]>;
+  getApiControlRecord?(id: string): Promise<ApiControlRecord | undefined>;
+  upsertApiControlRecord?(record: ApiControlRecord): Promise<ApiControlRecord>;
+  deleteExpiredApiControlRecords?(now?: string): Promise<number>;
 };
 
 export class MemoryKairosStore implements KairosLocalStore {
@@ -248,6 +261,7 @@ export class MemoryKairosStore implements KairosLocalStore {
   private tradeIntents = new Map<string, TradeIntent>();
   private brokerOrders = new Map<string, BrokerOrder>();
   private portfolioSnapshots = new Map<string, PortfolioSnapshot>();
+  private apiControlRecords = new Map<string, ApiControlRecord>();
   private subscribers = new Map<string, Set<RunEventSubscriber>>();
   private sequence = 0;
 
@@ -595,6 +609,36 @@ export class MemoryKairosStore implements KairosLocalStore {
     });
     this.portfolioSnapshots.set(snapshot.id, snapshot);
     return snapshot;
+  }
+
+  async listApiControlRecords(input: {
+    kind?: ApiControlRecord["kind"];
+    idPrefix?: string;
+  } = {}): Promise<ApiControlRecord[]> {
+    return [...this.apiControlRecords.values()]
+      .filter((record) => !input.kind || record.kind === input.kind)
+      .filter((record) => !input.idPrefix || record.id.startsWith(input.idPrefix))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async getApiControlRecord(id: string): Promise<ApiControlRecord | undefined> {
+    return this.apiControlRecords.get(id);
+  }
+
+  async upsertApiControlRecord(record: ApiControlRecord): Promise<ApiControlRecord> {
+    this.apiControlRecords.set(record.id, record);
+    return record;
+  }
+
+  async deleteExpiredApiControlRecords(now = new Date().toISOString()): Promise<number> {
+    let deleted = 0;
+    for (const [id, record] of this.apiControlRecords) {
+      if (record.expiresAt && record.expiresAt <= now) {
+        this.apiControlRecords.delete(id);
+        deleted += 1;
+      }
+    }
+    return deleted;
   }
 
   private nextId(prefix: string): string {

@@ -20,6 +20,7 @@ import {
   lifecyclePatchForStatus,
   normalizeRunLifecycle,
   uniqueStrings,
+  type ApiControlRecord,
   type AppendRunEventInput,
   type BranchRecord,
   type CreateDeepResearchChatInput,
@@ -61,7 +62,8 @@ type Collection =
   | "messages"
   | "trade_intents"
   | "broker_orders"
-  | "portfolio_snapshots";
+  | "portfolio_snapshots"
+  | "api_controls";
 
 export class SupabaseKairosStore implements KairosLocalStore {
   private readonly client: SupabaseRecordClient;
@@ -427,6 +429,33 @@ export class SupabaseKairosStore implements KairosLocalStore {
     const snapshot = createPortfolioSnapshotRecord(input);
     await this.client.upsert("portfolio_snapshots", snapshot.id, snapshot);
     return snapshot;
+  }
+
+  async listApiControlRecords(input: {
+    kind?: ApiControlRecord["kind"];
+    idPrefix?: string;
+  } = {}): Promise<ApiControlRecord[]> {
+    const filters: Record<string, string> = {};
+    if (input.kind) filters["record->>kind"] = `eq.${input.kind}`;
+    if (input.idPrefix) filters.id = `like.${input.idPrefix.replaceAll("%", "\\%")}%`;
+    return sortByCreatedAt(await this.client.list<ApiControlRecord>("api_controls", filters));
+  }
+
+  getApiControlRecord(id: string): Promise<ApiControlRecord | undefined> {
+    return this.client.get<ApiControlRecord>("api_controls", id);
+  }
+
+  async upsertApiControlRecord(record: ApiControlRecord): Promise<ApiControlRecord> {
+    await this.client.upsert("api_controls", record.id, record);
+    return record;
+  }
+
+  async deleteExpiredApiControlRecords(now = new Date().toISOString()): Promise<number> {
+    const expired = await this.client.list<ApiControlRecord>("api_controls", {
+      "record->>expiresAt": `lte.${now}`,
+    });
+    await Promise.all(expired.map((record) => this.client.delete("api_controls", record.id)));
+    return expired.length;
   }
 
   private async updateRunLifecycleFromEvent(

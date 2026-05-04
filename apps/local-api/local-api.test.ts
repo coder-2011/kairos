@@ -250,6 +250,182 @@ describe("local API handler", () => {
     }
   });
 
+  it("persists rate limits, idempotency, and queued agent jobs across handler instances", async () => {
+    const previous = {
+      requireIdempotency: process.env.KAIROS_REQUIRE_IDEMPOTENCY,
+      rateLimitEnabled: process.env.KAIROS_RATE_LIMIT_ENABLED,
+      rateLimitMax: process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS,
+      rateLimitWindow: process.env.KAIROS_RATE_LIMIT_WINDOW_MS,
+      enqueueJobs: process.env.KAIROS_ENQUEUE_AGENT_JOBS,
+    };
+    process.env.KAIROS_REQUIRE_IDEMPOTENCY = "true";
+    process.env.KAIROS_RATE_LIMIT_ENABLED = "true";
+    process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS = "1";
+    process.env.KAIROS_RATE_LIMIT_WINDOW_MS = "60000";
+    process.env.KAIROS_ENQUEUE_AGENT_JOBS = "true";
+
+    try {
+      const store = new MemoryKairosStore();
+      let debateExecutions = 0;
+      const createDebate: LocalApiContext["createDebate"] = async ({ runId }) => {
+        debateExecutions += 1;
+        return {
+          output: { runId, decision: "needs_review" },
+          events: [{ type: "debate.judge.summary", payload: { decision: "needs_review" } }],
+        };
+      };
+
+      const firstLimited = await makeClient({
+        store,
+        createDebate,
+        headers: { "x-forwarded-for": "203.0.113.31" },
+      }).requestJson("GET", "/branches");
+      expect(firstLimited.status).toBe(200);
+      const secondLimited = await makeClient({
+        store,
+        createDebate,
+        headers: { "x-forwarded-for": "203.0.113.31" },
+      }).requestJson("GET", "/runs");
+      expect(secondLimited.status).toBe(429);
+
+      process.env.KAIROS_RATE_LIMIT_MAX_REQUESTS = "100";
+      const firstDebate = await makeClient({
+        store,
+        createDebate,
+        headers: {
+          "idempotency-key": "durable-debate-job",
+          "x-forwarded-for": "203.0.113.32",
+        },
+      }).requestJson("POST", "/debates", { input: { topic: "durable job" } });
+      expect(firstDebate.status).toBe(202);
+      expect(firstDebate.body.run).toMatchObject({
+        kind: "debate",
+        status: "pending",
+      });
+      expect(debateExecutions).toBe(0);
+
+      const replayedDebate = await makeClient({
+        store,
+        createDebate,
+        headers: {
+          "idempotency-key": "durable-debate-job",
+          "x-forwarded-for": "203.0.113.33",
+        },
+      }).requestJson("POST", "/debates", { input: { topic: "durable job" } });
+      expect(replayedDebate.status).toBe(202);
+      expect(replayedDebate.body.run.id).toBe(firstDebate.body.run.id);
+      expect(debateExecutions).toBe(0);
+
+      const drained = await makeClient({
+        store,
+        createDebate,
+        headers: { "x-forwarded-for": "203.0.113.34" },
+      }).requestJson("POST", "/jobs/drain", { limit: 5 });
+      expect(drained.status).toBe(200);
+      expect(drained.body.results).toEqual([
+        expect.objectContaining({
+          runId: firstDebate.body.run.id,
+          status: "succeeded",
+        }),
+      ]);
+      expect(debateExecutions).toBe(1);
+
+      const emptyDrain = await makeClient({
+        store,
+        createDebate,
+        headers: { "x-forwarded-for": "203.0.113.35" },
+      }).requestJson("POST", "/jobs/drain", { limit: 5 });
+      expect(emptyDrain.status).toBe(200);
+      expect(emptyDrain.body.results).toEqual([]);
+      expect(debateExecutions).toBe(1);
+
+      const deepChat = await makeClient({
+        store,
+        createDebate,
+        headers: { "x-forwarded-for": "203.0.113.36" },
+      }).requestJson("POST", "/deep-research/chats", { title: "Durable research" });
+      const deepMessage = await makeClient({
+        store,
+        createDebate,
+        headers: {
+          "idempotency-key": "durable-deep-research-job",
+          "x-forwarded-for": "203.0.113.37",
+        },
+      }).requestJson(
+        "POST",
+        `/deep-research/chats/${deepChat.body.chat.id}/messages`,
+        { text: "Research this later.", model: "openai/gpt-5.5" },
+      );
+      expect(deepMessage.status).toBe(202);
+      expect(deepMessage.body.run).toMatchObject({
+        kind: "deep_research",
+        status: "pending",
+      });
+
+      const tradingBroker = {
+        async getPortfolioSnapshot() {
+          return {
+            provider: "alpaca" as const,
+            environment: "paper" as const,
+            account: {
+              status: "ACTIVE",
+              cash: 1000,
+              buyingPower: 1000,
+              portfolioValue: 1000,
+              equity: 1000,
+              unrealizedPl: 0,
+              daytradeCount: 0,
+              patternDayTrader: false,
+              tradingBlocked: false,
+              accountBlocked: false,
+            },
+            positions: [],
+          };
+        },
+        async getClock() {
+          return { isOpen: true };
+        },
+        async getAsset() {
+          return { tradable: true };
+        },
+        async submitPaperOrder() {
+          throw new Error("not used");
+        },
+      } as unknown as PaperTradingBroker;
+      const queuedBrokerSync = await makeClient({
+        store,
+        createDebate,
+        tradingBroker,
+        headers: { "x-forwarded-for": "203.0.113.38" },
+      }).requestJson("POST", "/portfolio/refresh");
+      expect(queuedBrokerSync.status).toBe(202);
+      expect(queuedBrokerSync.body.run).toMatchObject({
+        kind: "broker_sync",
+        status: "pending",
+      });
+
+      const drainedBrokerSync = await makeClient({
+        store,
+        createDebate,
+        tradingBroker,
+        headers: { "x-forwarded-for": "203.0.113.39" },
+      }).requestJson("POST", "/jobs/drain", { limit: 5, kinds: ["broker_sync"] });
+      expect(drainedBrokerSync.status).toBe(200);
+      expect(drainedBrokerSync.body.results).toEqual([
+        expect.objectContaining({
+          runId: queuedBrokerSync.body.run.id,
+          status: "succeeded",
+        }),
+      ]);
+    } finally {
+      restoreEnv("KAIROS_REQUIRE_IDEMPOTENCY", previous.requireIdempotency);
+      restoreEnv("KAIROS_RATE_LIMIT_ENABLED", previous.rateLimitEnabled);
+      restoreEnv("KAIROS_RATE_LIMIT_MAX_REQUESTS", previous.rateLimitMax);
+      restoreEnv("KAIROS_RATE_LIMIT_WINDOW_MS", previous.rateLimitWindow);
+      restoreEnv("KAIROS_ENQUEUE_AGENT_JOBS", previous.enqueueJobs);
+    }
+  });
+
   it("rejects oversized JSON request bodies", async () => {
     const previousLimit = process.env.KAIROS_MAX_JSON_BODY_BYTES;
     process.env.KAIROS_MAX_JSON_BODY_BYTES = "32";
@@ -608,7 +784,7 @@ describe("local API handler", () => {
       input: { branchId: "branch_pltr_deals" },
     });
     expect(started.status).toBe(202);
-    expect(started.body.run.status).toBe("running");
+    expect(started.body.run.status).toBe("pending");
 
     const canceled = await requestJson("POST", `/runs/${started.body.run.id}/cancel`);
     expect(canceled.status).toBe(200);
