@@ -1,3 +1,5 @@
+import { recordProviderUsage } from "../global/usage.js";
+
 export type TelegramBotClientOptions = {
   token?: string;
   defaultChatId?: string;
@@ -75,6 +77,7 @@ export type TelegramMessage = {
   photo?: TelegramPhotoSize[];
   document?: TelegramDocument;
   from?: TelegramUser;
+  reply_to_message?: TelegramMessage;
 };
 
 export type TelegramUpdate = {
@@ -230,6 +233,7 @@ export class TelegramBotClient {
 
   private async request<T>(method: string, payload: Record<string, unknown>): Promise<T> {
     this.validateBotConfigured();
+    const startedAt = Date.now();
     const response = await this.fetchImpl(`${this.baseUrl}/bot${this.token}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -239,6 +243,20 @@ export class TelegramBotClient {
 
     if (!response.ok || !body?.ok) {
       const description = body && !body.ok ? body.description : undefined;
+      await recordProviderUsage({
+        provider: "telegram",
+        operation: method,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: method === "sendMessage" ? 1 : undefined,
+        unit: method === "sendMessage" ? "message" : "request",
+        metadata: {
+          errorCode: body && !body.ok ? body.error_code : response.status,
+          retryAfter: body && !body.ok ? body.parameters?.retry_after : undefined,
+          description,
+        },
+      });
       throw new TelegramBotApiError(
         `Telegram Bot API ${method} failed: ${response.status}${description ? ` ${description}` : ""}`,
         {
@@ -249,8 +267,34 @@ export class TelegramBotClient {
       );
     }
 
+    await recordProviderUsage({
+      provider: "telegram",
+      operation: method,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: method === "sendMessage" ? 1 : undefined,
+      unit: method === "sendMessage" ? "message" : "request",
+      metadata: summarizeTelegramResult(method, body.result),
+    });
     return body.result;
   }
+}
+
+function summarizeTelegramResult(method: string, result: unknown): Record<string, unknown> | undefined {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return { method };
+  }
+  const record = result as Record<string, unknown>;
+  const chat = record.chat && typeof record.chat === "object"
+    ? record.chat as Record<string, unknown>
+    : undefined;
+  return {
+    method,
+    messageId: typeof record.message_id === "number" ? record.message_id : undefined,
+    chatId: chat && (typeof chat.id === "number" || typeof chat.id === "string") ? String(chat.id) : undefined,
+    fileSize: typeof record.file_size === "number" ? record.file_size : undefined,
+  };
 }
 
 export function createTelegramBotClient(options: TelegramBotClientOptions = {}): TelegramBotClient {

@@ -1,5 +1,6 @@
 import type { HeartbeatSeedDataProviders } from "../agents/heartbeat/types.js";
 import { retryFetch } from "../global/retry.js";
+import { recordProviderUsage } from "../global/usage.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_SECONDS = 24 * 60 * 60;
@@ -386,6 +387,7 @@ export class FinnhubApi {
     path: string,
     params: Record<string, string | undefined>,
   ): Promise<T> {
+    const startedAt = Date.now();
     const url = new URL(`${this.baseUrl}${path}`);
     url.searchParams.set("token", this.apiKey);
     Object.entries(params).forEach(([key, value]) => {
@@ -398,10 +400,34 @@ export class FinnhubApi {
       attempts: this.retryAttempts,
     });
     if (!response.ok) {
-      throw new Error(`Finnhub ${response.status}: ${await response.text()}`);
+      const text = await response.text();
+      await recordProviderUsage({
+        provider: "finnhub",
+        operation: `GET ${path}`,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          error: text.slice(0, 500),
+        },
+      });
+      throw new Error(`Finnhub ${response.status}: ${text}`);
     }
 
-    return response.json() as Promise<T>;
+    const payload = await response.json() as T;
+    await recordProviderUsage({
+      provider: "finnhub",
+      operation: `GET ${path}`,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: summarizeFinnhubPayload(payload),
+    });
+    return payload;
   }
 
   private async request<T>(
@@ -410,6 +436,7 @@ export class FinnhubApi {
     params: Record<string, string | undefined>,
     body: unknown,
   ): Promise<T> {
+    const startedAt = Date.now();
     const url = new URL(`${this.baseUrl}${path}`);
     url.searchParams.set("token", this.apiKey);
     Object.entries(params).forEach(([key, value]) => {
@@ -429,13 +456,35 @@ export class FinnhubApi {
       { attempts: this.retryAttempts },
     );
     if (!response.ok) {
-      throw new Error(`Finnhub ${response.status}: ${await response.text()}`);
+      const text = await response.text();
+      await recordProviderUsage({
+        provider: "finnhub",
+        operation: `${method} ${path}`,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: { error: text.slice(0, 500) },
+      });
+      throw new Error(`Finnhub ${response.status}: ${text}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    return contentType.includes("application/json")
+    const payload = contentType.includes("application/json")
       ? ((await response.json()) as T)
       : ((await response.text()) as T);
+    await recordProviderUsage({
+      provider: "finnhub",
+      operation: `${method} ${path}`,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: summarizeFinnhubPayload(payload),
+    });
+    return payload;
   }
 
   private packageOrGet<T>(
@@ -458,6 +507,17 @@ export class FinnhubApi {
       }
     });
   }
+}
+
+function summarizeFinnhubPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(payload)) return { itemCount: payload.length };
+  if (!payload || typeof payload !== "object") return undefined;
+  const record = payload as Record<string, unknown>;
+  return {
+    status: typeof record.s === "string" ? record.s : undefined,
+    symbol: typeof record.symbol === "string" ? record.symbol : undefined,
+    hasQuote: ["c", "d", "dp", "h", "l", "o", "pc"].some((key) => key in record),
+  };
 }
 
 export function createFinnhubHeartbeatSeedProviders(

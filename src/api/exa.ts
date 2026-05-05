@@ -1,5 +1,6 @@
 import { Exa } from "exa-js";
 import { withRetry } from "../global/retry.js";
+import { recordProviderUsage } from "../global/usage.js";
 
 export type ExaSearchType =
   | "auto"
@@ -50,6 +51,7 @@ export type ExaSearchContents = {
 export type ExaConfig = {
   apiKey?: string;
   client?: ExaSdkClient;
+  fetchImpl?: typeof fetch;
   retryAttempts?: number;
 };
 
@@ -164,6 +166,7 @@ export class ExaApi {
   private readonly retryAttempts: number;
   private readonly apiKey: string;
   private readonly useSdkSearch: boolean;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(config: ExaConfig = {}) {
     const apiKey = config.apiKey ?? process.env.EXA_API_KEY;
@@ -175,6 +178,7 @@ export class ExaApi {
     this.retryAttempts = config.retryAttempts ?? 3;
     this.apiKey = apiKey ?? "";
     this.useSdkSearch = Boolean(config.client);
+    this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
   async search(request: ExaSearchRequest): Promise<ExaSearchResponse> {
@@ -184,17 +188,54 @@ export class ExaApi {
       query: request.query,
       ...normalizedRequest,
     };
-    const data: ExaSearchResponse = await withRetry(
-      () =>
-        this.useSdkSearch
-          ? this.client.search(request.query, normalizedRequest) as Promise<ExaSearchResponse>
-          : request.stream
-            ? this.requestSearchStream("/search", payload)
-            : this.requestJson<ExaSearchResponse>("/search", payload),
-      { attempts: this.retryAttempts },
-    );
+    const startedAt = Date.now();
 
-    return normalizeSearchResponse(data);
+    try {
+      const data: ExaSearchResponse = await withRetry(
+        () =>
+          this.useSdkSearch
+            ? this.client.search(request.query, normalizedRequest) as Promise<ExaSearchResponse>
+            : request.stream
+              ? this.requestSearchStream("/search", payload)
+              : this.requestJson<ExaSearchResponse>("/search", payload),
+        { attempts: this.retryAttempts },
+      );
+      const response = normalizeSearchResponse(data);
+      await recordProviderUsage({
+        provider: "exa",
+        operation: request.type === "deep" ? "search.deep" : "search",
+        status: "succeeded",
+        providerRequestId: response.requestId,
+        durationMs: Date.now() - startedAt,
+        costUsd: response.costDollars?.total,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          searchType: response.searchType,
+          category,
+          resultCount: response.results.length,
+          requestedResults: request.numResults,
+          streamed: Boolean(request.stream),
+        },
+      });
+      return response;
+    } catch (error) {
+      await recordProviderUsage({
+        provider: "exa",
+        operation: request.type === "deep" ? "search.deep" : "search",
+        status: "failed",
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          category,
+          requestedResults: request.numResults,
+          streamed: Boolean(request.stream),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      throw error;
+    }
   }
 
   async answer(input: {
@@ -252,7 +293,7 @@ export class ExaApi {
   }
 
   private async requestJson<T>(path: "/search", request: Record<string, unknown>): Promise<T> {
-    const response = await fetch(`https://api.exa.ai${path}`, {
+    const response = await this.fetchImpl(`https://api.exa.ai${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -283,7 +324,7 @@ export class ExaApi {
     path: "/search",
     request: Record<string, unknown>,
   ): Promise<ExaSearchResponse> {
-    const response = await fetch(`https://api.exa.ai${path}`, {
+    const response = await this.fetchImpl(`https://api.exa.ai${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

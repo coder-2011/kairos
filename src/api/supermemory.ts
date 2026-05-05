@@ -5,6 +5,7 @@ import type {
   HeartbeatToolTrace,
 } from "../agents/heartbeat/types.js";
 import { retryFetch } from "../global/retry.js";
+import { recordProviderUsage } from "../global/usage.js";
 
 export type SupermemoryConfig = {
   apiKey?: string;
@@ -310,6 +311,8 @@ export class SupermemoryApi {
     path: string,
     body?: unknown,
   ): Promise<T> {
+    const startedAt = Date.now();
+    const operation = `${method} ${path}`;
     const response = await retryFetch(
       this.fetchImpl,
       `${this.baseUrl}${path}`,
@@ -325,11 +328,47 @@ export class SupermemoryApi {
     );
 
     if (!response.ok) {
-      throw new Error(`Supermemory ${response.status}: ${await response.text()}`);
+      const text = await response.text();
+      await recordProviderUsage({
+        provider: "supermemory",
+        operation,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          error: text.slice(0, 500),
+        },
+      });
+      throw new Error(`Supermemory ${response.status}: ${text}`);
     }
 
-    return response.json() as Promise<T>;
+    const payload = await response.json() as T;
+    await recordProviderUsage({
+      provider: "supermemory",
+      operation,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: summarizeSupermemoryPayload(payload),
+    });
+    return payload;
   }
+}
+
+function summarizeSupermemoryPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const record = payload as Record<string, unknown>;
+  return {
+    resultCount: Array.isArray(record.results) ? record.results.length : undefined,
+    memoryCount: Array.isArray(record.memories) ? record.memories.length : undefined,
+    status: typeof record.status === "string" ? record.status : undefined,
+    timing: typeof record.timing === "number" ? record.timing : undefined,
+    total: typeof record.total === "number" ? record.total : undefined,
+  };
 }
 
 function safeCustomId(value: string): string {

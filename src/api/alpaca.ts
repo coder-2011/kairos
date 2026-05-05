@@ -1,4 +1,5 @@
 import { retryFetch } from "../global/retry.js";
+import { recordProviderUsage } from "../global/usage.js";
 import type { HeartbeatSeedDataProviders } from "../agents/heartbeat/types.js";
 import {
   createPortfolioSnapshotRecord,
@@ -349,6 +350,8 @@ export class AlpacaTradingClient {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<T> {
+    const startedAt = Date.now();
+    const operation = `${method} ${path.split("?")[0]}`;
     const response = await retryFetch(
       this.fetchImpl,
       `${this.baseUrl}${path}`,
@@ -365,16 +368,40 @@ export class AlpacaTradingClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Alpaca ${response.status}: ${await response.text()}`);
+      const text = await response.text();
+      await recordProviderUsage({
+        provider: "alpaca",
+        operation,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: { error: text.slice(0, 500) },
+      });
+      throw new Error(`Alpaca ${response.status}: ${text}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    return contentType.includes("application/json")
+    const payload = contentType.includes("application/json")
       ? ((await response.json()) as T)
       : ((await response.text()) as T);
+    await recordProviderUsage({
+      provider: "alpaca",
+      operation,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: summarizeAlpacaPayload(payload),
+    });
+    return payload;
   }
 
   private async marketDataRequest<T>(path: string): Promise<T> {
+    const startedAt = Date.now();
+    const operation = `GET ${path.split("?")[0]}`;
     const response = await retryFetch(
       this.fetchImpl,
       `${this.marketDataBaseUrl}${path}`,
@@ -390,14 +417,56 @@ export class AlpacaTradingClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Alpaca market data ${response.status}: ${await response.text()}`);
+      const text = await response.text();
+      await recordProviderUsage({
+        provider: "alpaca",
+        operation,
+        status: "failed",
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          marketData: true,
+          error: text.slice(0, 500),
+        },
+      });
+      throw new Error(`Alpaca market data ${response.status}: ${text}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    return contentType.includes("application/json")
+    const payload = contentType.includes("application/json")
       ? ((await response.json()) as T)
       : ((await response.text()) as T);
+    await recordProviderUsage({
+      provider: "alpaca",
+      operation,
+      status: "succeeded",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: {
+        marketData: true,
+        ...summarizeAlpacaPayload(payload),
+      },
+    });
+    return payload;
   }
+}
+
+function summarizeAlpacaPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(payload)) return { itemCount: payload.length };
+  if (!payload || typeof payload !== "object") return undefined;
+  const record = payload as Record<string, unknown>;
+  return {
+    id: typeof record.id === "string" ? record.id : undefined,
+    symbol: typeof record.symbol === "string" ? record.symbol : undefined,
+    status: typeof record.status === "string" ? record.status : undefined,
+    snapshotCount: record.snapshots && typeof record.snapshots === "object"
+      ? Object.keys(record.snapshots).length
+      : undefined,
+  };
 }
 
 export function createAlpacaTradingClient(

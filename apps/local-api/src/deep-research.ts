@@ -20,6 +20,8 @@ import {
   createOpenRouterChatModelForRole,
   createSupermemoryMemoryApi,
   getMemoryContainerTag,
+  openRouterUsageFromAiSdkResult,
+  recordProviderUsage,
 } from "../../../src/global/index.js";
 import { runInformationAgent } from "../../../src/agents/information/index.js";
 import { FinnhubApi } from "../../../src/api/finnhub.js";
@@ -148,6 +150,8 @@ export type DeepResearchRunOptions = {
   systemPrompt?: string;
   memoryQuery?: string;
   maxSteps?: number;
+  maxToolCalls?: number;
+  disabledTools?: string[];
   temperature?: number;
 };
 
@@ -294,7 +298,7 @@ export async function runDeepResearchQuery(
   const toolCalls: RouterToolCallRecord[] = [];
   const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
 
-  const result = await generateText({
+  const result = await meteredGenerateText("deep_research.query", {
     model: createDeepResearchOpenRouterModel(model, reasoningEffort),
     system: deepResearchSystemPrompt(),
     messages: [
@@ -427,11 +431,15 @@ export async function runDeepResearchChatMessage(
   ];
 
   try {
-    const result = await generateText({
+    const result = await meteredGenerateText("deep_research.message", {
       model: createDeepResearchOpenRouterModel(model, reasoningEffort),
       system: options.systemPrompt ?? deepResearchSystemPrompt(),
       messages: modelMessages as never,
-      tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
+      tools: createDeepResearchTools(context, toolCalls, {
+        reasoningEffort,
+        maxToolCalls: options.maxToolCalls,
+        disabledTools: options.disabledTools,
+      }),
       stopWhen: stepCountIs(options.maxSteps ?? 8),
       temperature: options.temperature ?? 0.2,
     });
@@ -537,7 +545,9 @@ async function runDeepResearchMessageStream(
         }
       };
 
+      const streamStartedAt = Date.now();
       try {
+        let finalStreamPart: unknown;
         const result = streamText({
           model: createDeepResearchOpenRouterModel(model, reasoningEffort),
           system: deepResearchSystemPrompt(),
@@ -548,6 +558,9 @@ async function runDeepResearchMessageStream(
         });
 
         for await (const part of result.fullStream) {
+          if (part.type === "finish") {
+            finalStreamPart = part;
+          }
           if (part.type === "text-delta" && part.text) {
             assistantTextRaw += part.text;
             sendEvent("assistant_delta", { text: part.text });
@@ -564,6 +577,13 @@ async function runDeepResearchMessageStream(
             }
           }
         }
+        await recordProviderUsage(
+          openRouterUsageFromAiSdkResult(finalStreamPart ?? result, {
+            operation: "deep_research.stream",
+            status: "succeeded",
+            durationMs: Date.now() - streamStartedAt,
+          }),
+        );
 
         const assistantText = assistantTextRaw.trim().length
           ? assistantTextRaw.trim()
@@ -590,10 +610,21 @@ async function runDeepResearchMessageStream(
         });
         closeController();
       } catch (error) {
+        await recordProviderUsage({
+          provider: "openrouter",
+          operation: "deep_research.stream",
+          status: "failed",
+          durationMs: Date.now() - streamStartedAt,
+          quotaUnits: 1,
+          unit: "request",
+          metadata: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         const message = error instanceof Error ? error.message : "Unknown error.";
         if (isClosedControllerError(error)) {
           try {
-            const fallback = await generateText({
+            const fallback = await meteredGenerateText("deep_research.stream_fallback", {
               model: createDeepResearchOpenRouterModel(model, reasoningEffort),
               system: deepResearchSystemPrompt(),
               messages: modelMessages as never,
@@ -686,6 +717,37 @@ function createDeepResearchOpenRouterModel(
   return openrouter.chat(model, {
     reasoning: effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : undefined,
   });
+}
+
+async function meteredGenerateText(
+  operation: string,
+  options: Parameters<typeof generateText>[0],
+): Promise<Awaited<ReturnType<typeof generateText>>> {
+  const startedAt = Date.now();
+  try {
+    const result = await generateText(options);
+    await recordProviderUsage(
+      openRouterUsageFromAiSdkResult(result, {
+        operation,
+        status: "succeeded",
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+    return result;
+  } catch (error) {
+    await recordProviderUsage({
+      provider: "openrouter",
+      operation,
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      quotaUnits: 1,
+      unit: "request",
+      metadata: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+    throw error;
+  }
 }
 
 function resolveDeepResearchReasoningEffort(
@@ -863,15 +925,28 @@ function formatBranchProfileForPrompt(profile: JsonRecord): string {
 function createDeepResearchTools(
   context: DeepResearchContext,
   traces: RouterToolCallRecord[],
-  options: { reasoningEffort?: KairosReasoningEffort } = {},
+  options: {
+    reasoningEffort?: KairosReasoningEffort;
+    maxToolCalls?: number;
+    disabledTools?: string[];
+  } = {},
 ): ToolSet {
   const exa = process.env.EXA_API_KEY ? new ExaApi() : undefined;
   const supermemory = process.env.SUPERMEMORY_API_KEY ? new SupermemoryApi() : undefined;
   const globalMemory = process.env.SUPERMEMORY_API_KEY ? createSupermemoryMemoryApi() : undefined;
   const finnhub = process.env.FINNHUB_API_KEY ? new FinnhubApi() : undefined;
+  const disabledTools = new Set(options.disabledTools ?? []);
+  const deepResearchTool = <TInput extends z.ZodTypeAny, TOutput>(
+    name: string,
+    config: {
+      description: string;
+      inputSchema: TInput;
+      execute: (input: z.infer<TInput>) => Promise<TOutput>;
+    },
+  ) => tracedTool(traces, name, config, { maxToolCalls: options.maxToolCalls });
 
-  return {
-    supermemory_search_all: tracedTool(traces, "supermemory_search_all", {
+  const tools: ToolSet = {
+    supermemory_search_all: deepResearchTool("supermemory_search_all", {
       description:
         "Search saved Kairos/Supermemory context across prior conversations, preferences, private notes, remembered companies, laws, branches, and past decisions. Use early when user-specific context could steer the investigation or prevent repeated work. Do not use for fresh public facts, citations, or market data; corroborate public claims with Exa/Finnhub/source tools. Returns memory snippets that should be treated as private context, not public evidence.",
       inputSchema: z.object({
@@ -889,7 +964,7 @@ function createDeepResearchTools(
         });
       },
     }),
-    supermemory_branch_profiles: tracedTool(traces, "supermemory_branch_profiles", {
+    supermemory_branch_profiles: deepResearchTool("supermemory_branch_profiles", {
       description:
         "Load Kairos branch/law profiles when saved monitoring context could shape a deep-research answer. Use to identify relevant laws, watched assets, branch-specific false positives, or durable user preferences. Do not use for fresh market facts or citations; pair with public-source tools for public claims. Empty branch-created-only profiles are filtered out.",
       inputSchema: z.object({
@@ -928,7 +1003,7 @@ function createDeepResearchTools(
         };
       },
     }),
-    exa_search: tracedTool(traces, "exa_search", {
+    exa_search: deepResearchTool("exa_search", {
       description: "Search current public web/news sources for concrete public facts. Use for companies, markets, supply chains, competitors, products, earnings, filings, catalysts, and recent claims. Do not use for private Kairos memory, specific URL extraction, or broad multi-source synthesis; use the matching tool instead. When the user gives a date window, pass startPublishedDate and endPublishedDate in YYYY-MM-DD format. Returns capped source summaries and URLs; verify dates and source quality.",
       inputSchema: z.object({
         query: z.string().min(1).describe("Focused search query with entity, claim, and timeframe when relevant. Example: NVDA Blackwell supply constraint April 2026."),
@@ -951,7 +1026,7 @@ function createDeepResearchTools(
         });
       },
     }),
-    exa_research: tracedTool(traces, "exa_research", {
+    exa_research: deepResearchTool("exa_research", {
       description: "Run deeper public web research for source-backed synthesis across multiple sources. Prefer for broad market maps, overlooked public companies, supply-chain questions, technical ecosystems, materiality checks, and cited synthesis. Do not use when a focused search or source read is enough. Returns synthesized public evidence with citations where available, not a trade recommendation.",
       inputSchema: z.object({
         query: z.string().min(1).describe("Research question with scope and desired comparison/materiality angle. Example: Which public companies benefit if US grid interconnect demand accelerates?"),
@@ -988,7 +1063,7 @@ function createDeepResearchTools(
         };
       },
     }),
-    exa_contents: tracedTool(traces, "exa_contents", {
+    exa_contents: deepResearchTool("exa_contents", {
       description: "Read and summarize specific URLs. Use when the exact source text matters, such as filings, press releases, articles, or user-supplied links. Do not use for source discovery or broad synthesis without URLs. Returns extracted text/summaries and URL metadata; prefer it over headline-only evidence when facts conflict.",
       inputSchema: z.object({
         urls: z.array(z.string().url()).min(1).max(5).describe("Specific URLs to read. Use no more than five at once."),
@@ -999,7 +1074,7 @@ function createDeepResearchTools(
         return exa.contents({ urls, maxCharacters });
       },
     }),
-    information_agent: tracedTool(traces, "information_agent", {
+    information_agent: deepResearchTool("information_agent", {
       description: "Delegate a focused market-context lookup to the Kairos information workflow. Use when the deep-research answer needs a compact cited pass across Exa, Finnhub, and Supermemory context. Do not use for final conclusions, trade execution, or questions already answered by gathered sources. Returns concise evidence synthesis with citations and uncertainty notes.",
       inputSchema: z.object({
         query: z.string().min(1).describe("Focused market-context request with ticker/entity, catalyst, and what to verify. Example: Verify whether PLTR has a new material federal contract this week."),
@@ -1029,13 +1104,45 @@ function createDeepResearchTools(
       },
     }),
   };
+
+  for (const toolName of disabledTools) {
+    delete tools[toolName];
+  }
+
+  return tools;
 }
 
 function structuredModelProvider(model: ReturnType<typeof createOpenRouterChatModelForRole>) {
   return {
     withStructuredOutput: <T>(schema: unknown) => ({
-      invoke: (input: unknown) =>
-        model.withStructuredOutput(schema as Record<string, unknown>).invoke(input as never) as Promise<T>,
+      invoke: async (input: unknown) => {
+        const startedAt = Date.now();
+        try {
+          const output = await model.withStructuredOutput(schema as Record<string, unknown>).invoke(input as never) as T;
+          await recordProviderUsage({
+            provider: "openrouter",
+            operation: "langchain.structured_output",
+            status: "succeeded",
+            durationMs: Date.now() - startedAt,
+            quotaUnits: 1,
+            unit: "request",
+          });
+          return output;
+        } catch (error) {
+          await recordProviderUsage({
+            provider: "openrouter",
+            operation: "langchain.structured_output",
+            status: "failed",
+            durationMs: Date.now() - startedAt,
+            quotaUnits: 1,
+            unit: "request",
+            metadata: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+          throw error;
+        }
+      },
     }),
   };
 }
@@ -1044,12 +1151,27 @@ function tracedTool<TInput extends z.ZodTypeAny, TOutput>(traces: RouterToolCall
   description: string;
   inputSchema: TInput;
   execute: (input: z.infer<TInput>) => Promise<TOutput>;
+}, options: {
+  maxToolCalls?: number;
 }) {
   return tool({
     description: config.description,
     inputSchema: config.inputSchema,
     execute: async (input: z.infer<TInput>) => {
       const startedAt = new Date().toISOString();
+      if (options.maxToolCalls !== undefined && traces.length >= options.maxToolCalls) {
+        const message = `Deep Research tool call budget exhausted (${options.maxToolCalls}). Answer with the evidence already gathered.`;
+        traces.push({
+          id: randomUUID(),
+          name,
+          status: "failed",
+          summary: message,
+          input: compactJson(input),
+          error: message,
+          createdAt: startedAt,
+        });
+        throw new Error(message);
+      }
       try {
         const output = await config.execute(input);
         traces.push({
@@ -1140,7 +1262,7 @@ function resolveDeepResearchModel(model: string | undefined): string {
 async function generateDeepResearchTitle(text: string): Promise<string | undefined> {
   if (!process.env.OPENROUTER_API_KEY) return buildTitle(text);
   try {
-    const result = await generateText({
+    const result = await meteredGenerateText("deep_research.title", {
       model: createDeepResearchOpenRouterModel("google/gemma-4-31b-it"),
       system: "Name this research chat. Return 2-5 plain words. No punctuation.",
       prompt: text.slice(0, 1200),

@@ -12,6 +12,8 @@ import {
   observeAgentError,
   observeAgentEvent,
   type AgentObserver,
+  openRouterUsageFromAiSdkResult,
+  recordProviderUsage,
 } from "../../global/index.js";
 import { buildHeartbeatUserMessage, HEARTBEAT_SYSTEM_PROMPT } from "./prompt.js";
 import {
@@ -198,19 +200,51 @@ export function createHeartbeatGraph(deps: HeartbeatAgentDependencies) {
       },
       state.seedBundle.timestamp,
     );
-    const result = await runModel({
-      model: deps.model,
-      system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
-      prompt: buildHeartbeatUserMessage(state.seedBundle),
-      tools: filterHeartbeatTools(deps.tools, deps.enabledTools),
-      stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
-      output: Output.object({
-        schema: heartbeatOutputSchema,
-        name: "heartbeat_output",
-        description:
-          "Compact heartbeat triage decision for whether this branch should escalate.",
-      }),
-    });
+    const modelStartedAt = Date.now();
+    let result: Awaited<ReturnType<HeartbeatGenerateText>>;
+    try {
+      result = await runModel({
+        model: deps.model,
+        system: deps.prompts?.systemPrompt ?? HEARTBEAT_SYSTEM_PROMPT,
+        prompt: buildHeartbeatUserMessage(state.seedBundle),
+        tools: filterHeartbeatTools(deps.tools, deps.enabledTools),
+        stopWhen: stepCountIs(deps.maxToolSteps ?? 3),
+        output: Output.object({
+          schema: heartbeatOutputSchema,
+          name: "heartbeat_output",
+          description:
+            "Compact heartbeat triage decision for whether this branch should escalate.",
+        }),
+      });
+      await recordProviderUsage(
+        openRouterUsageFromAiSdkResult(result, {
+          operation: "heartbeat.generateText",
+          status: "succeeded",
+          runId,
+          branchId: state.branch.id,
+          durationMs: Date.now() - modelStartedAt,
+          metadata: {
+            maxToolSteps: deps.maxToolSteps ?? 3,
+            toolStepCount: result.steps?.length,
+          },
+        }),
+      );
+    } catch (error) {
+      await recordProviderUsage({
+        provider: "openrouter",
+        operation: "heartbeat.generateText",
+        status: "failed",
+        runId,
+        branchId: state.branch.id,
+        durationMs: Date.now() - modelStartedAt,
+        quotaUnits: 1,
+        unit: "request",
+        metadata: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      throw error;
+    }
     const parsed = heartbeatOutputSchema.parse(result.output);
     const output = {
       ...parsed,
