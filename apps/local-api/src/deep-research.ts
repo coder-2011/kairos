@@ -1284,6 +1284,12 @@ async function mirrorDeepResearchConversation(
     await new SupermemoryApi().writeConversation({
       containerTag: "kairos_deep_research",
       customId: `kairos:deep_research:${chatId}:${assistantMessage.id}`,
+      content: [
+        "This is a Kairos Deep Research conversation transcript.",
+        "It may include Telegram or web-app research requests, user context, images, sources, and assistant conclusions.",
+        "Treat it as global research/chat memory unless a branch, law, ticker, or monitoring lane is explicitly mentioned.",
+        "Use this memory to preserve user preferences, prior research conclusions, corrections, and reusable context; do not treat it as public factual evidence without corroboration.",
+      ].join("\n"),
       messages: [
         { role: "user", content: userMessage.text ?? "", timestamp: userMessage.createdAt },
         { role: "assistant", content: assistantMessage.text ?? "", timestamp: assistantMessage.createdAt },
