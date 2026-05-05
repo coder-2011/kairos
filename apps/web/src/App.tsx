@@ -2439,16 +2439,15 @@ function ApiDashboard({
       </header>
 
       <section className="api-stat-grid" aria-label="API totals">
-        <ApiStat icon="payments" label="Spend" value={formatUsageCost(totals.costUsd)} />
-        <ApiStat icon="hub" label="Requests" value={formatCount(totals.requests)} />
-        <ApiStat icon="token" label="Tokens" value={formatCount(totals.tokens)} />
+        <ApiStat label="Spend" value={formatUsageCost(totals.costUsd)} />
+        <ApiStat label="Requests" value={formatCount(totals.requests)} />
+        <ApiStat label="Tokens" value={formatCount(totals.tokens)} />
         <ApiStat
           danger={totals.failed > 0}
-          icon="error"
           label="Failures"
           value={formatCount(totals.failed)}
         />
-        <ApiStat icon="timer" label="Avg Latency" value={formatLatency(totals.avgDurationMs)} />
+        <ApiStat label="Avg Latency" value={formatLatency(totals.avgDurationMs)} />
       </section>
 
       <section className="api-dashboard-grid">
@@ -2574,18 +2573,15 @@ function ApiDashboard({
 
 function ApiStat({
   danger,
-  icon,
   label,
   value,
 }: {
   danger?: boolean;
-  icon: string;
   label: string;
   value: string;
 }) {
   return (
     <div className={`api-stat ${danger ? "danger" : ""}`}>
-      <Icon name={icon} />
       <span>{label}</span>
       <b>{value}</b>
     </div>
