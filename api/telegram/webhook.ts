@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { waitUntil } from "@vercel/functions";
 
 import { createLocalApi } from "../../apps/local-api/src/server.js";
 
@@ -22,22 +23,36 @@ export default async function handler(
   request: VercelRequest,
   response: VercelResponse,
 ) {
-  const { handler: fetchHandler } = await api;
-  const webRequest = await toWebRequest(request);
-  const apiResponse = await fetchHandler(webRequest);
+  const maybeGlobal = globalThis as typeof globalThis & {
+    __kairosWaitUntil?: (promise: Promise<unknown>) => void;
+  };
+  const previousWaitUntil = maybeGlobal.__kairosWaitUntil;
+  maybeGlobal.__kairosWaitUntil = (promise) => waitUntil(promise);
 
-  response.status(apiResponse.status);
-  apiResponse.headers.forEach((value, key) => {
-    response.setHeader(key, value);
-  });
+  try {
+    const { handler: fetchHandler } = await api;
+    const webRequest = await toWebRequest(request);
+    const apiResponse = await fetchHandler(webRequest);
 
-  if (!apiResponse.body) {
-    response.end();
-    return;
+    response.status(apiResponse.status);
+    apiResponse.headers.forEach((value, key) => {
+      response.setHeader(key, value);
+    });
+
+    if (!apiResponse.body) {
+      response.end();
+      return;
+    }
+
+    const body = Buffer.from(await apiResponse.arrayBuffer());
+    response.send(body);
+  } finally {
+    if (previousWaitUntil) {
+      maybeGlobal.__kairosWaitUntil = previousWaitUntil;
+    } else {
+      delete maybeGlobal.__kairosWaitUntil;
+    }
   }
-
-  const body = Buffer.from(await apiResponse.arrayBuffer());
-  response.send(body);
 }
 
 async function toWebRequest(request: VercelRequest): Promise<Request> {
