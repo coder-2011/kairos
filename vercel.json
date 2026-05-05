@@ -9,6 +9,10 @@
   },
   "rewrites": [
     {
+      "source": "/telegram/:path*",
+      "destination": "/api/telegram/:path*"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

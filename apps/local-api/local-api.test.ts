@@ -12,7 +12,8 @@ import {
   type LocalApiContext,
 } from "./src/server.js";
 import type { PaperTradingBroker } from "../../src/trading/index.js";
-import type { TradingSmsNotifier } from "../../src/notifications/index.js";
+import type { TradingTelegramNotifier } from "../../src/notifications/index.js";
+import { TelegramBotClient } from "../../src/api/telegram.js";
 import type { SupermemoryMirror, SupermemoryMirrorRecord } from "../../src/global/index.js";
 
 const baseUrl = "http://kairos.local";
@@ -1975,7 +1976,7 @@ describe("local API handler", () => {
     expect(intents.body.tradeIntents).toHaveLength(0);
   });
 
-  it("sends an SMS notification when confidence crosses the notify threshold", async () => {
+  it("sends a Telegram notification when confidence crosses the notify threshold", async () => {
     const sent: unknown[] = [];
     const { requestJson } = makeClient({
       notificationSender: {
@@ -1983,9 +1984,9 @@ describe("local API handler", () => {
           sent.push(input);
           return {
             body: "PLTR alert 90%",
-            provider: "twilio",
-            sid: "SM_test",
-            status: "queued",
+            provider: "telegram",
+            chatId: "12345",
+            messageId: 7,
             sent: true,
           };
         },
@@ -2006,7 +2007,45 @@ describe("local API handler", () => {
     const messages = await requestJson("GET", "/messages");
     expect(messages.body.messages.map((message: { type: string }) => message.type)).toEqual([
       "threshold_notify",
-      "sms_notification_sent",
+      "telegram_notification_sent",
+    ]);
+  });
+
+  it("binds Telegram chats from a verified /start webhook", async () => {
+    const telegramRequests: unknown[] = [];
+    const { requestJson } = makeClient({
+      telegramBot: new TelegramBotClient({
+        token: "bot_token",
+        webhookSecret: "secret",
+        fetchImpl: async (_url, init) => {
+          telegramRequests.push(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify({
+            ok: true,
+            result: { message_id: 42, chat: { id: 12345, type: "private" } },
+          }), { headers: { "content-type": "application/json" } });
+        },
+      }),
+      headers: { "x-telegram-bot-api-secret-token": "secret" },
+    });
+
+    const response = await requestJson("POST", "/telegram/webhook", {
+      update_id: 1,
+      message: {
+        message_id: 10,
+        date: 1,
+        text: "/start",
+        chat: { id: 12345, type: "private", username: "naman" },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, action: "bound" });
+    expect(telegramRequests).toEqual([
+      {
+        chat_id: "12345",
+        text: expect.stringContaining("Kairos Telegram alerts are connected"),
+        disable_web_page_preview: true,
+      },
     ]);
   });
 
@@ -2318,7 +2357,8 @@ function makeClient(options: {
   createDebate?: LocalApiContext["createDebate"];
   tradingBroker?: PaperTradingBroker;
   marketSymbolProvider?: LocalApiContext["marketSymbolProvider"];
-  notificationSender?: TradingSmsNotifier;
+  notificationSender?: TradingTelegramNotifier;
+  telegramBot?: TelegramBotClient;
   supermemoryMirror?: SupermemoryMirror;
   omitLocalRequestHeader?: boolean;
   localApiToken?: string;
@@ -2352,6 +2392,7 @@ function makeClient(options: {
     tradingBroker: options.tradingBroker,
     marketSymbolProvider: options.marketSymbolProvider,
     notificationSender: options.notificationSender,
+    telegramBot: options.telegramBot,
     supermemoryMirror: options.supermemoryMirror,
     debateCancelStates: new Map<string, { canceled: boolean }>(),
   };

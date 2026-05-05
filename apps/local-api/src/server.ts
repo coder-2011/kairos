@@ -61,10 +61,15 @@ import {
   type CreateTradeIntentInput,
 } from "../../../src/trading/index.js";
 import {
-  createTradingSmsNotifierFromEnv,
-  type TradingSmsNotificationInput,
-  type TradingSmsNotifier,
+  createTradingTelegramNotifierFromEnv,
+  type TradingTelegramNotificationInput,
+  type TradingTelegramNotifier,
 } from "../../../src/notifications/index.js";
+import {
+  createTelegramBotClient,
+  type TelegramBotClient,
+  type TelegramUpdate,
+} from "../../../src/api/telegram.js";
 import { createRuntimeStore } from "./runtime.js";
 import {
   MemoryKairosStore,
@@ -95,7 +100,8 @@ export type LocalApiDependencies = {
   retrieveUrlContents?: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: TradingBroker;
   marketSymbolProvider?: MarketSymbolProvider;
-  notificationSender?: TradingSmsNotifier;
+  notificationSender?: TradingTelegramNotifier;
+  telegramBot?: TelegramBotClient;
   supermemoryMirror?: SupermemoryMirror;
 };
 
@@ -115,7 +121,8 @@ export type LocalApiContext = {
   retrieveUrlContents: (input: RouterUrlRetrieveInput) => Promise<RouterExtractedSource[]>;
   tradingBroker?: TradingBroker;
   marketSymbolProvider?: MarketSymbolProvider;
-  notificationSender?: TradingSmsNotifier;
+  notificationSender?: TradingTelegramNotifier;
+  telegramBot?: TelegramBotClient;
   supermemoryMirror?: SupermemoryMirror;
   debateCancelStates: Map<string, DebateCancelState>;
 };
@@ -293,6 +300,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
   const store = createSupermemoryMirroredStore(rawStore, supermemoryMirror, {
     required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
   });
+  const telegramBot = options.dependencies?.telegramBot ?? createTelegramBotClient();
   return {
     store,
     runHeartbeat: options.dependencies?.runHeartbeat ?? runConfiguredHeartbeat,
@@ -303,7 +311,12 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     marketSymbolProvider: options.dependencies?.marketSymbolProvider,
     notificationSender:
       options.dependencies?.notificationSender ??
-      createTradingSmsNotifierFromEnv(),
+      createTradingTelegramNotifierFromEnv(
+        process.env,
+        telegramBot,
+        () => findActiveTelegramChatId(store),
+      ),
+    telegramBot,
     supermemoryMirror,
     debateCancelStates,
   };
@@ -673,6 +686,15 @@ async function handleLocalApiRequest(
         case "health":
           return json({ ok: true, service: "kairos-local-api", mode: "local" });
 
+        case "telegramWebhook":
+          return await handleTelegramWebhook(context, request);
+
+        case "telegramStatus":
+          return await telegramStatus(context);
+
+        case "configureTelegramWebhook":
+          return await configureTelegramWebhook(context, await readJson(request));
+
         case "listOpenRouterModels": {
           let models: Awaited<ReturnType<typeof listOpenRouterModels>> = [];
           try {
@@ -821,6 +843,7 @@ async function authorizeLocalApiRequest(
 ): Promise<Response | undefined> {
   if (request.method === "OPTIONS") return undefined;
   if (url.pathname === "/" || url.pathname === "/health") return undefined;
+  if (request.method === "POST" && url.pathname === "/telegram/webhook") return undefined;
 
   if (!isLocalApiAuthEnabled()) {
     return authorizeUnauthenticatedLocalRequest(request);
@@ -1248,7 +1271,7 @@ async function applyTradingPolicyToDebate(
           citations: decision.citations,
         },
       });
-      await sendTradingSmsNotification(context, {
+      await sendTradingTelegramNotification(context, {
         branchId: branch?.id,
         lawId: branch?.lawId,
         runId: run.id,
@@ -1456,7 +1479,7 @@ async function applyTradingPolicyToDebate(
       citations: decision.citations,
     },
   });
-  await sendTradingSmsNotification(context, {
+  await sendTradingTelegramNotification(context, {
     branchId: branch?.id,
     lawId: branch?.lawId,
     runId: run.id,
@@ -2286,7 +2309,7 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
       confidence: input.confidence,
       metadata: { policy },
     });
-    await sendTradingSmsNotification(context, {
+    await sendTradingTelegramNotification(context, {
       branchId: input.branchId,
       lawId: input.lawId,
       runId: input.sourceRunId,
@@ -2356,7 +2379,7 @@ async function createTradeIntent(context: LocalApiContext, body: unknown): Promi
     confidence: input.confidence,
     metadata: { policy },
   });
-  await sendTradingSmsNotification(context, {
+  await sendTradingTelegramNotification(context, {
     branchId: input.branchId,
     lawId: input.lawId,
     runId: input.sourceRunId,
@@ -2481,9 +2504,9 @@ async function submitPaperTradeIntent(
   }, 201);
 }
 
-async function sendTradingSmsNotification(
+async function sendTradingTelegramNotification(
   context: LocalApiContext,
-  input: TradingSmsNotificationInput,
+  input: TradingTelegramNotificationInput,
   messageContext: {
     branchId?: string;
     lawId?: string;
@@ -2499,9 +2522,9 @@ async function sendTradingSmsNotification(
   try {
     const result = await context.notificationSender.send(input);
     await context.store.createMessage({
-      type: "sms_notification_sent",
+      type: "telegram_notification_sent",
       severity: "info",
-      title: "SMS notification sent",
+      title: "Telegram notification sent",
       body: result.body,
       branchId: messageContext.branchId,
       lawId: messageContext.lawId,
@@ -2510,16 +2533,16 @@ async function sendTradingSmsNotification(
       confidence: messageContext.confidence,
       metadata: {
         provider: result.provider,
-        sid: result.sid,
-        status: result.status,
+        chatId: result.chatId,
+        messageId: result.messageId,
       },
     });
   } catch (error) {
     await context.store.createMessage({
-      type: "sms_notification_failed",
+      type: "telegram_notification_failed",
       severity: "warning",
-      title: "SMS notification failed",
-      body: error instanceof Error ? error.message : "Unknown SMS notification error.",
+      title: "Telegram notification failed",
+      body: error instanceof Error ? error.message : "Unknown Telegram notification error.",
       branchId: messageContext.branchId,
       lawId: messageContext.lawId,
       sourceRunId: messageContext.sourceRunId,
@@ -2527,6 +2550,146 @@ async function sendTradingSmsNotification(
       confidence: messageContext.confidence,
     });
   }
+}
+
+const telegramWebhookConfigSchema = z.object({
+  url: z.string().url(),
+  allowedUpdates: z.array(z.string().min(1)).optional(),
+  dropPendingUpdates: z.boolean().optional(),
+});
+
+async function telegramStatus(context: LocalApiContext): Promise<Response> {
+  const activeChatId = await findActiveTelegramChatId(context.store);
+  if (!context.telegramBot?.configured) {
+    return json({
+      configured: false,
+      activeChatId,
+      message: "Telegram bot is not configured. Set TELEGRAM_BOT_TOKEN.",
+    });
+  }
+
+  let bot: unknown;
+  let webhook: unknown;
+  try {
+    [bot, webhook] = await Promise.all([
+      context.telegramBot.getMe(),
+      context.telegramBot.getWebhookInfo(),
+    ]);
+  } catch (error) {
+    return json({
+      configured: true,
+      activeChatId,
+      error: error instanceof Error ? error.message : "Unknown Telegram status error.",
+    }, 502);
+  }
+
+  return json({ configured: true, activeChatId, bot, webhook });
+}
+
+async function configureTelegramWebhook(context: LocalApiContext, body: unknown): Promise<Response> {
+  if (!context.telegramBot) {
+    return json({ error: "not_configured", message: "Telegram bot client is not available." }, 503);
+  }
+  const input = telegramWebhookConfigSchema.parse(body);
+  const ok = await context.telegramBot.setWebhook({
+    url: input.url,
+    allowedUpdates: input.allowedUpdates,
+    dropPendingUpdates: input.dropPendingUpdates,
+  });
+  return json({ ok });
+}
+
+async function handleTelegramWebhook(context: LocalApiContext, request: Request): Promise<Response> {
+  const bot = context.telegramBot;
+  if (!bot?.configured) {
+    return json({ error: "not_configured", message: "Telegram bot is not configured." }, 503);
+  }
+  if (!bot.verifyWebhookSecret(request.headers.get("x-telegram-bot-api-secret-token"))) {
+    return json({ error: "unauthorized", message: "Invalid Telegram webhook secret." }, 401);
+  }
+
+  const update = await readJson(request) as TelegramUpdate;
+  const message = update.message ?? update.edited_message ?? update.channel_post ?? update.callback_query?.message;
+  const chatId = message?.chat?.id === undefined ? undefined : String(message.chat.id);
+  const text = message?.text?.trim() ?? update.callback_query?.data?.trim() ?? "";
+  if (!chatId) {
+    return json({ ok: true, ignored: true });
+  }
+
+  if (/^\/start(?:\s|$)/i.test(text)) {
+    await upsertTelegramBinding(context.store, update, true);
+    await bot.sendMessage({
+      chatId,
+      text: "Kairos Telegram alerts are connected. I will only send notifications and status replies; trading still requires Kairos-side safeguards.",
+      disableWebPagePreview: true,
+    });
+    return json({ ok: true, action: "bound" });
+  }
+
+  if (/^\/stop(?:\s|$)/i.test(text)) {
+    await upsertTelegramBinding(context.store, update, false);
+    await bot.sendMessage({ chatId, text: "Kairos Telegram alerts are disabled for this chat." });
+    return json({ ok: true, action: "disabled" });
+  }
+
+  if (/^\/status(?:\s|$)/i.test(text)) {
+    const activeChatId = await findActiveTelegramChatId(context.store);
+    await bot.sendMessage({
+      chatId,
+      text: activeChatId === chatId
+        ? "Kairos Telegram alerts are active for this chat."
+        : "Kairos Telegram is connected, but this chat is not the active alert target.",
+    });
+    return json({ ok: true, action: "status" });
+  }
+
+  if (text.startsWith("/")) {
+    await bot.sendMessage({
+      chatId,
+      text: "Supported Kairos commands: /start, /stop, /status.",
+    });
+  }
+
+  return json({ ok: true });
+}
+
+async function upsertTelegramBinding(
+  store: KairosLocalStore,
+  update: TelegramUpdate,
+  active: boolean,
+): Promise<void> {
+  const message = update.message ?? update.edited_message ?? update.channel_post ?? update.callback_query?.message;
+  const chat = message?.chat;
+  if (!chat) return;
+  const now = new Date().toISOString();
+  const chatId = String(chat.id);
+  await upsertApiControlRecord(store, {
+    id: `telegram:chat:${chatId}`,
+    kind: "telegram_binding",
+    createdAt: now,
+    updatedAt: now,
+    data: {
+      active,
+      chatId,
+      chatType: chat.type,
+      title: chat.title,
+      username: chat.username,
+      firstName: chat.first_name,
+      lastName: chat.last_name,
+      updateId: update.update_id,
+    },
+  });
+}
+
+async function findActiveTelegramChatId(store: KairosLocalStore): Promise<string | undefined> {
+  const records = await listApiControlRecords(store, {
+    kind: "telegram_binding",
+    idPrefix: "telegram:chat:",
+  });
+  const active = records
+    .filter((record) => record.data?.active === true && typeof record.data.chatId === "string")
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  return active?.data?.chatId as string | undefined;
 }
 
 async function streamRunEvents(context: LocalApiContext, runId: string): Promise<Response> {
@@ -4128,6 +4291,9 @@ function normalizePortfolioAccountForFrontend(account: unknown): JsonRecord {
 
 type Route =
   | { name: "health"; params: Record<string, never> }
+  | { name: "telegramWebhook"; params: Record<string, never> }
+  | { name: "telegramStatus"; params: Record<string, never> }
+  | { name: "configureTelegramWebhook"; params: Record<string, never> }
   | { name: "listOpenRouterModels"; params: Record<string, never> }
   | { name: "capabilityPreflight"; params: Record<string, never> }
   | { name: "listMarketSymbols"; params: Record<string, never> }
@@ -4163,6 +4329,9 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
   if (method === "GET" && (pathname === "/" || pathname === "/health")) return { name: "health", params: {} };
+  if (method === "POST" && pathname === "/telegram/webhook") return { name: "telegramWebhook", params: {} };
+  if (method === "GET" && pathname === "/telegram/status") return { name: "telegramStatus", params: {} };
+  if (method === "POST" && pathname === "/telegram/webhook/configure") return { name: "configureTelegramWebhook", params: {} };
   if (method === "GET" && pathname === "/openrouter/models") return { name: "listOpenRouterModels", params: {} };
   if (method === "GET" && pathname === "/capabilities/preflight") return { name: "capabilityPreflight", params: {} };
   if (method === "GET" && pathname === "/market/symbols") return { name: "listMarketSymbols", params: {} };

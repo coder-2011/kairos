@@ -200,7 +200,7 @@ export type RunEventSubscriber = (event: RunEventRecord) => void;
 
 export type ApiControlRecord = {
   id: string;
-  kind: "rate_limit_hit" | "idempotency_response" | "job_lease";
+  kind: "rate_limit_hit" | "idempotency_response" | "job_lease" | "telegram_binding";
   createdAt: string;
   updatedAt: string;
   expiresAt?: string;
@@ -833,7 +833,7 @@ function blockingExternalServiceForEvent(
   if (event.type.includes("exa") || errorText.includes("exa")) return "exa";
   if (event.type.includes("alpaca") || errorText.includes("alpaca")) return "alpaca";
   if (event.type.includes("finnhub") || errorText.includes("finnhub")) return "finnhub";
-  if (event.type.includes("twilio") || errorText.includes("twilio")) return "twilio";
+  if (event.type.includes("telegram") || errorText.includes("telegram")) return "telegram";
   if (event.type.includes("tool.failed") || event.type.includes("tool_call.failed")) return "external_tool";
   if (errorText.includes("openrouter") || errorText.includes("model")) return "openrouter";
   return undefined;
