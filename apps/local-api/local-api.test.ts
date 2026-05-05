@@ -2447,6 +2447,7 @@ function makeClient(options: {
     telegramBot: options.telegramBot,
     supermemoryMirror: options.supermemoryMirror,
     debateCancelStates: new Map<string, { canceled: boolean }>(),
+    now: () => new Date("2026-05-03T12:00:00.000Z"),
   };
   const handler = createLocalApiHandler(context);
 
