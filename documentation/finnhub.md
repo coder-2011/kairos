@@ -1,3 +1,62 @@
+# Kairos Finnhub Access Audit
+
+Last reviewed: 2026-05-05.
+
+Sources used: Finnhub official docs pages under `https://finnhub.io/docs/api/...`, the captured Finnhub documentation below, `src/global/finnhub-catalog.ts`, and the current `FinnhubApi` wrapper in `src/api/finnhub.ts`.
+
+Important interpretation:
+- `Free` below means the Finnhub docs/catalog do not mark the endpoint as `Premium`. It still requires a Finnhub API key and can still hit plan/rate limits.
+- `High Usage` means non-premium but especially rate-limit sensitive in Finnhub docs. Do not treat it as costless for frequent agent loops.
+- `Premium` means the docs/catalog mark the endpoint as requiring paid or approved premium access.
+- `Implemented` means Kairos already has a named `FinnhubApi` wrapper and information-agent catalog entry.
+- `Can make` means the captured docs/catalog show a non-premium endpoint that could be added later, but it still needs endpoint-specific request/response research before implementation.
+
+## Information-agent Finnhub tools already implemented
+
+| Tool | Endpoint | Finnhub access marking | Kairos status | Notes |
+| --- | --- | --- | --- | --- |
+| `finnhub_quote` | `/quote` | Free / High Usage | Implemented | Useful for immediate price context; rate-limit sensitive. |
+| `finnhub_company_news` | `/company-news` | Free / High Usage | Implemented | Useful for ticker news and catalyst checks; rate-limit sensitive. |
+| `finnhub_basic_financials` | `/stock/metric` | Free / High Usage | Implemented | Useful for valuation and company-scale context; rate-limit sensitive. |
+| `finnhub_company_earnings` | `/stock/earnings` | Free | Implemented | Earnings surprises/history. |
+| `finnhub_company_peers` | `/stock/peers` | Free | Implemented | Peer ticker discovery only; follow-up research still needed. |
+| `finnhub_company_profile` | `/stock/profile2` | Free | Implemented | This is Company Profile 2, the free profile endpoint. |
+| `finnhub_earnings_calendar` | `/calendar/earnings` | Free | Implemented | Calendar data; confirm dates when trade timing matters. |
+| `finnhub_filings` | `/stock/filings` | Free | Implemented | Recent SEC filing metadata and URLs. |
+| `finnhub_financials_reported` | `/stock/financials-reported` | Free | Implemented | As-reported financial statements. |
+| `finnhub_insider_transactions` | `/stock/insider-transactions` | Free | Implemented | Insider transaction records. |
+| `finnhub_recommendation_trends` | `/stock/recommendation` | Free | Implemented | Broad analyst recommendation distribution. |
+
+## Non-premium Finnhub endpoints that can be made later
+
+These are documented/cataloged as non-premium in the captured docs, but Kairos does not currently expose them as named information-agent tools. Add only when there is a concrete consumer because each needs response-shape handling, input validation, summary logic, and tests.
+
+| Candidate tool | Endpoint | Access marking | Implementation note |
+| --- | --- | --- | --- |
+| `finnhub_symbol_lookup` | `/search` | Free | Can make for ticker/entity disambiguation. |
+| `finnhub_stock_symbols` | `/stock/symbol` | Free | Can make for exchange symbol catalog lookup; likely cache-heavy. |
+| `finnhub_market_status` | `/stock/market-status` | Free | Can make for market-open context. |
+| `finnhub_market_holiday` | `/stock/market-holiday` | Free | Can make for scheduling context. |
+| `finnhub_general_news` | `/news` | Free | Can make for market-wide news, but Exa may be better for cited public web discovery. |
+| `finnhub_insider_sentiment` | `/stock/insider-sentiment` | Free | Can make if insider sentiment becomes a branch/law input. |
+| `finnhub_ipo_calendar` | `/calendar/ipo` | Free | Can make for IPO/event-calendar laws. |
+| `finnhub_forex_exchanges` | `/forex/exchange` | Free | Can make if FX support becomes product scope. |
+| `finnhub_forex_symbols` | `/forex/symbol` | Free | Can make if FX support becomes product scope. |
+| `finnhub_crypto_exchanges` | `/crypto/exchange` | Free | Can make if crypto support becomes product scope. |
+| `finnhub_crypto_symbols` | `/crypto/symbol` | Free | Can make if crypto support becomes product scope. |
+| `finnhub_uspto_patent` | `/stock/uspto-patent` | Free | Can make for patent/IP catalyst laws. |
+| `finnhub_visa_application` | `/stock/visa-application` | Free | Can make for hiring/headcount or immigration-signal laws. |
+| `finnhub_lobbying` | `/stock/lobbying` | Free | Can make for policy/lobbying catalyst laws. |
+| `finnhub_usa_spending` | `/stock/usa-spending` | Free | Can make for government-contract laws. |
+| `finnhub_fda_calendar` | `/fda-advisory-committee-calendar` | Free | Can make for biotech/FDA event laws. |
+| `finnhub_country_metadata` | `/country` | Free | Can make for metadata only; low priority for trading research. |
+
+## Finnhub endpoints intentionally treated as premium-gated
+
+The current information-agent premium tools match the captured Finnhub docs/catalog: stock candles, aggregate technical indicators, EPS estimates, news sentiment, ownership, press releases, social sentiment, supply-chain relationships, and upgrade/downgrade. Keep them behind `finnhubPremiumAccess` unless the official docs change.
+
+---
+
 ☰ [![pattern-logo](https://static.finnhub.io/img/finnhub_2020-05-09_20_51/logo/logo-gradient2.png)](https://finnhub.io/)
 
 ×

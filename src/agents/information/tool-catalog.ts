@@ -69,7 +69,7 @@ export const INFORMATION_TOOL_CATALOG: readonly InformationToolMetadata[] = [
     avoidWhen: "Do not use for historical trend, volume analysis, or fundamental context; pair with candles, news, or financials when those are needed.",
     input: "Uppercase ticker symbol. Examples: PLTR, AAPL, NVDA.",
     returns: "Current quote fields such as current price, change, percent change, open, high, and low. Treat missing fields as data-quality signals.",
-    configuration: "Frontend can enable/disable this named tool.",
+    configuration: "Frontend can enable/disable this named tool. Finnhub documents this as non-premium but High Usage, so treat it as rate-limit sensitive.",
   },
   {
     name: "finnhub_company_news",
@@ -80,7 +80,7 @@ export const INFORMATION_TOOL_CATALOG: readonly InformationToolMetadata[] = [
     avoidWhen: "Do not use for broad web discovery, filings-only checks, or source text extraction; use Exa or filings when those fit better.",
     input: "Uppercase ticker symbol. Examples: PLTR, AAPL, NVDA.",
     returns: "A capped list of headlines, summaries, sources, dates, and URLs. Check freshness and avoid treating repeated wire copies as independent evidence.",
-    configuration: "Frontend can enable/disable this named tool.",
+    configuration: "Frontend can enable/disable this named tool. Finnhub documents this as non-premium but High Usage, so treat it as rate-limit sensitive.",
   },
   {
     name: "finnhub_stock_candles",
@@ -113,7 +113,7 @@ export const INFORMATION_TOOL_CATALOG: readonly InformationToolMetadata[] = [
     avoidWhen: "Do not use for new event discovery, intraday price action, or detailed as-reported statements.",
     input: "Uppercase ticker symbol. Examples: PLTR, AAPL, NVDA.",
     returns: "Metric snapshots. Use to frame magnitude and quality; confirm stale or missing metrics with other sources when important.",
-    configuration: "Frontend can enable/disable this named tool.",
+    configuration: "Frontend can enable/disable this named tool. Finnhub documents this as non-premium but High Usage, so treat it as rate-limit sensitive.",
   },
   {
     name: "finnhub_company_earnings",
