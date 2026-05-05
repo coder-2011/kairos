@@ -138,8 +138,8 @@ const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }>
   { id: "deepResearch", label: "Deep Research", icon: "travel_explore" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
-  { id: "apiDashboard", label: "API Monitor", icon: "query_stats" },
   { id: "runDeepDive", label: "Runs", icon: "timeline" },
+  { id: "apiDashboard", label: "API Monitor", icon: "query_stats" },
 ];
 
 const promptFields: Array<{
