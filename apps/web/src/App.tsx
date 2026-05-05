@@ -42,6 +42,7 @@ import {
   getRuns,
   getRouterChats,
   getRouterMessages,
+  getUsageEvents,
   deleteRouterChat as deleteRouterChatApi,
   getSemanticTradeSymbols,
   getTradeSymbols,
@@ -66,12 +67,13 @@ import {
   type RouterToolCallRecord,
   type TradeIntentRecord,
   type TradeSymbolRecord,
+  type UsageEventRecord,
   type WebBranchConfig,
 } from "./api";
 import { DeepResearchView } from "./deep-research";
 import { MarkdownText } from "./MarkdownText";
 
-type View = "branches" | "router" | "deepResearch" | "monitoring" | "portfolio" | "runDeepDive" | "config";
+type View = "branches" | "router" | "deepResearch" | "monitoring" | "portfolio" | "apiDashboard" | "runDeepDive" | "config";
 type LoadState = "loading" | "api" | "offline";
 type ThemeMode = "light" | "dark";
 type PromptConfigKey = keyof NonNullable<WebBranchConfig["prompts"]>;
@@ -86,10 +88,12 @@ type AppRoute = {
 
 function readRouteFromHash(): AppRoute {
   const hash = typeof window === "undefined" ? "" : window.location.hash;
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const [viewSegment, idSegment] = hash.replace(/^#\/?/, "").split("/");
-  const view = routeViews.includes(viewSegment as View)
-    ? (viewSegment as View)
-    : "branches";
+  const view =
+    readRouteView(viewSegment) ??
+    readRouteView(pathname.replace(/^\/+/, "").split("/")[0]) ??
+    "branches";
 
   return {
     view,
@@ -105,19 +109,28 @@ function routeHash(route: AppRoute): string {
   if ((route.view === "monitoring" || route.view === "runDeepDive") && route.runId) {
     return `#/${route.view}/${encodeURIComponent(route.runId)}`;
   }
+  if (route.view === "apiDashboard") {
+    return "#/api-dashboard";
+  }
   return `#/${route.view}`;
+}
+
+function readRouteView(segment: string | undefined): View | undefined {
+  if (!segment) return undefined;
+  if (segment === "api-dashboard") return "apiDashboard";
+  return routeViews.includes(segment as View) ? (segment as View) : undefined;
 }
 
 function scrollActiveViewToTop() {
   window.requestAnimationFrame(() => {
     const activeView = document.querySelector<HTMLElement>(
-      ".config-canvas, .canvas, .router-canvas, .portfolio-canvas, .run-deep-dive, .split-canvas, .monitoring-command-center",
+      ".config-canvas, .api-dashboard-canvas, .canvas, .router-canvas, .portfolio-canvas, .run-deep-dive, .split-canvas, .monitoring-command-center",
     );
     activeView?.scrollTo({ top: 0, left: 0 });
   });
 }
 
-const routeViews: View[] = ["branches", "router", "deepResearch", "monitoring", "portfolio", "runDeepDive", "config"];
+const routeViews: View[] = ["branches", "router", "deepResearch", "monitoring", "portfolio", "apiDashboard", "runDeepDive", "config"];
 
 const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }> = [
   { id: "branches", label: "Branch List", icon: "account_tree" },
@@ -125,6 +138,7 @@ const views: Array<{ id: Exclude<View, "config">; label: string; icon: string }>
   { id: "deepResearch", label: "Deep Research", icon: "travel_explore" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring" },
   { id: "portfolio", label: "Portfolio", icon: "account_balance" },
+  { id: "apiDashboard", label: "API Monitor", icon: "query_stats" },
   { id: "runDeepDive", label: "Runs", icon: "timeline" },
 ];
 
@@ -257,6 +271,8 @@ export function App() {
   const [tradeSymbols, setTradeSymbols] = useState<TradeSymbolRecord[]>([]);
   const [tradeSymbolLoadState, setTradeSymbolLoadState] =
     useState<LoadState>("loading");
+  const [usageEvents, setUsageEvents] = useState<UsageEventRecord[]>([]);
+  const [usageLoadState, setUsageLoadState] = useState<LoadState>("loading");
   const [routerChats, setRouterChats] = useState<RouterChatRecord[]>([]);
   const [selectedRouterChatId, setSelectedRouterChatId] = useState("");
   const [routerMessages, setRouterMessages] = useState<RouterMessageRecord[]>([]);
@@ -610,6 +626,11 @@ export function App() {
   }, [canLoadBackendData, view]);
 
   useEffect(() => {
+    if (!canLoadBackendData || view !== "apiDashboard") return;
+    void refreshApiUsageData();
+  }, [canLoadBackendData, view]);
+
+  useEffect(() => {
     if (!canLoadBackendData || view !== "router") return;
     void refreshRouterChats();
   }, [canLoadBackendData, view]);
@@ -751,6 +772,19 @@ export function App() {
       setPortfolioLoadState(nextPortfolio.status === "offline" ? "offline" : "api");
     } catch {
       setPortfolioLoadState("offline");
+    }
+  }
+
+  async function refreshApiUsageData() {
+    setUsageLoadState("loading");
+
+    try {
+      const nextUsageEvents = await getUsageEvents({ limit: 500 });
+      setUsageEvents(nextUsageEvents);
+      setUsageLoadState("api");
+    } catch {
+      setUsageEvents([]);
+      setUsageLoadState("offline");
     }
   }
 
@@ -1038,6 +1072,13 @@ export function App() {
             portfolio={portfolio}
             tradeIntents={tradeIntents}
             onRefresh={() => void refreshPortfolioData()}
+          />
+        )}
+        {view === "apiDashboard" && (
+          <ApiDashboard
+            loadState={usageLoadState}
+            usageEvents={usageEvents}
+            onRefresh={() => void refreshApiUsageData()}
           />
         )}
         {view === "runDeepDive" && (
@@ -2306,6 +2347,220 @@ function PortfolioView({
         </div>
       </aside>
     </main>
+  );
+}
+
+function ApiDashboard({
+  loadState,
+  usageEvents,
+  onRefresh,
+}: {
+  loadState: LoadState;
+  usageEvents: UsageEventRecord[];
+  onRefresh: () => void;
+}) {
+  const [providerFilter, setProviderFilter] = useState("all");
+  const providers = [...new Set(usageEvents.map((event) => event.provider))]
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+  const filteredEvents =
+    providerFilter === "all"
+      ? usageEvents
+      : usageEvents.filter((event) => event.provider === providerFilter);
+  const totals = createUsageSummary(usageEvents);
+  const filteredTotals = createUsageSummary(filteredEvents);
+  const providerSummaries = createUsageProviderSummaries(usageEvents);
+  const recentEvents = [...filteredEvents]
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .slice(0, 80);
+
+  return (
+    <main className="api-dashboard-canvas">
+      <header className="api-dashboard-head">
+        <div>
+          <div className="mono-label">Provider Spend And Quotas</div>
+          <h1>API Monitor</h1>
+        </div>
+        <div className="api-dashboard-actions">
+          <select
+            aria-label="Provider"
+            onChange={(event) => setProviderFilter(event.target.value)}
+            value={providerFilter}
+          >
+            <option value="all">All providers</option>
+            {providers.map((provider) => (
+              <option key={provider} value={provider}>
+                {formatProviderName(provider)}
+              </option>
+            ))}
+          </select>
+          <button className="command-button primary" onClick={onRefresh} type="button">
+            <Icon name="refresh" />
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      <section className="api-stat-grid" aria-label="API totals">
+        <ApiStat icon="payments" label="Spend" value={formatUsageCost(totals.costUsd)} />
+        <ApiStat icon="hub" label="Requests" value={formatCount(totals.requests)} />
+        <ApiStat icon="token" label="Tokens" value={formatCount(totals.tokens)} />
+        <ApiStat
+          danger={totals.failed > 0}
+          icon="error"
+          label="Failures"
+          value={formatCount(totals.failed)}
+        />
+        <ApiStat icon="timer" label="Avg Latency" value={formatLatency(totals.avgDurationMs)} />
+      </section>
+
+      <section className="api-dashboard-grid">
+        <div className="data-panel api-provider-panel">
+          <div className="pane-head">
+            <div>
+              <div className="mono-label">Provider Rollup</div>
+              <h2>{providerSummaries.length} Providers</h2>
+            </div>
+          </div>
+          {loadState === "loading" ? (
+            <EmptyPanel icon="sync" title="Loading API Events" message="Fetching usage records." />
+          ) : loadState === "offline" ? (
+            <EmptyPanel icon="cloud_off" title="API Monitor Offline" message="Usage events are unavailable." />
+          ) : providerSummaries.length === 0 ? (
+            <EmptyPanel icon="query_stats" title="No API Events" message="No provider usage has been recorded." />
+          ) : (
+            <div className="api-provider-grid">
+              {providerSummaries.map((provider) => (
+                <button
+                  className={`api-provider-card ${providerFilter === provider.provider ? "active" : ""}`}
+                  key={provider.provider}
+                  onClick={() => setProviderFilter(provider.provider)}
+                  type="button"
+                >
+                  <div className="api-provider-card-head">
+                    <span className={`provider-dot ${provider.failed > 0 ? "failed" : "ok"}`} />
+                    <b>{formatProviderName(provider.provider)}</b>
+                    <span>{formatUsageCost(provider.costUsd)}</span>
+                  </div>
+                  <div className="api-provider-card-grid">
+                    <span>Calls <b>{formatCount(provider.requests)}</b></span>
+                    <span>Failures <b>{formatCount(provider.failed)}</b></span>
+                    <span>Tokens <b>{formatCount(provider.tokens)}</b></span>
+                    <span>Latency <b>{formatLatency(provider.avgDurationMs)}</b></span>
+                  </div>
+                  <small>{provider.latestAt ? formatDateTime(provider.latestAt) : "-"}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="data-panel api-recent-panel">
+          <div className="pane-head">
+            <div>
+              <div className="mono-label">Recent Calls</div>
+              <h2>{providerFilter === "all" ? "All Providers" : formatProviderName(providerFilter)}</h2>
+            </div>
+            <div className="api-filter-total">
+              <span>{formatUsageCost(filteredTotals.costUsd)}</span>
+              <b>{formatCount(filteredTotals.requests)} calls</b>
+            </div>
+          </div>
+          {recentEvents.length === 0 ? (
+            <EmptyPanel icon="receipt_long" title="No Calls In View" message="Change the provider filter or refresh." />
+          ) : (
+            <div className="api-table-wrap">
+              <table className="branch-table api-usage-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Provider</th>
+                    <th>Operation</th>
+                    <th>Status</th>
+                    <th>Model</th>
+                    <th className="right">Cost</th>
+                    <th className="right">Tokens</th>
+                    <th className="right">Latency</th>
+                    <th>Request</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td data-label="Time">{timeOnly(event.timestamp)}</td>
+                      <td data-label="Provider">{formatProviderName(event.provider)}</td>
+                      <td className="truncate-cell" data-label="Operation" title={event.operation}>
+                        {event.operation}
+                      </td>
+                      <td data-label="Status">
+                        <span className={`api-call-status ${event.status}`}>
+                          <span />
+                          {titleize(event.status)}
+                        </span>
+                      </td>
+                      <td className="truncate-cell" data-label="Model" title={event.model ?? ""}>
+                        {event.model ?? "-"}
+                      </td>
+                      <td className="right" data-label="Cost">{formatUsageCost(event.costUsd)}</td>
+                      <td className="right" data-label="Tokens">{formatCount(readUsageTokens(event))}</td>
+                      <td className="right" data-label="Latency">{formatLatency(event.durationMs)}</td>
+                      <td className="truncate-cell" data-label="Request" title={event.requestId ?? event.providerRequestId ?? ""}>
+                        {event.requestId ?? event.providerRequestId ?? "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <aside className="data-panel api-side-panel">
+          <div className="pane-head">
+            <div>
+              <div className="mono-label">Meter Coverage</div>
+              <h2>Signals</h2>
+            </div>
+          </div>
+          <div className="api-signal-list">
+            <ApiSignal label="Dollar Events" value={formatCount(usageEvents.filter((event) => isFiniteNumber(event.costUsd)).length)} />
+            <ApiSignal label="Quota Events" value={formatCount(usageEvents.filter((event) => isFiniteNumber(event.quotaUnits)).length)} />
+            <ApiSignal label="Model Events" value={formatCount(usageEvents.filter((event) => Boolean(event.model)).length)} />
+            <ApiSignal label="Run Linked" value={formatCount(usageEvents.filter((event) => Boolean(event.runId)).length)} />
+            <ApiSignal label="Branch Linked" value={formatCount(usageEvents.filter((event) => Boolean(event.branchId)).length)} />
+          </div>
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function ApiStat({
+  danger,
+  icon,
+  label,
+  value,
+}: {
+  danger?: boolean;
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={`api-stat ${danger ? "danger" : ""}`}>
+      <Icon name={icon} />
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}
+
+function ApiSignal({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="api-signal">
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
   );
 }
 
@@ -4473,6 +4728,131 @@ function formatMoneyValue(value: unknown) {
         style: "currency",
       }).format(numberValue)
     : "-";
+}
+
+type UsageSummary = {
+  requests: number;
+  failed: number;
+  costUsd: number;
+  tokens: number;
+  avgDurationMs?: number;
+};
+
+type UsageProviderSummary = UsageSummary & {
+  provider: string;
+  latestAt?: string;
+};
+
+function createUsageSummary(events: UsageEventRecord[]): UsageSummary {
+  const durations = events
+    .map((event) => event.durationMs)
+    .filter(isFiniteNumber);
+
+  return {
+    requests: events.length,
+    failed: events.filter((event) => event.status === "failed").length,
+    costUsd: sumNumbers(events.map((event) => event.costUsd)),
+    tokens: sumNumbers(events.map(readUsageTokens)),
+    avgDurationMs:
+      durations.length > 0
+        ? durations.reduce((total, value) => total + value, 0) / durations.length
+        : undefined,
+  };
+}
+
+function createUsageProviderSummaries(events: UsageEventRecord[]): UsageProviderSummary[] {
+  const grouped = new Map<string, UsageEventRecord[]>();
+  for (const event of events) {
+    const provider = event.provider || "unknown";
+    grouped.set(provider, [...(grouped.get(provider) ?? []), event]);
+  }
+
+  return [...grouped.entries()]
+    .map(([provider, providerEvents]) => ({
+      ...createUsageSummary(providerEvents),
+      provider,
+      latestAt: providerEvents
+        .map((event) => event.timestamp)
+        .sort((left, right) => Date.parse(right) - Date.parse(left))[0],
+    }))
+    .sort(
+      (left, right) =>
+        right.costUsd - left.costUsd ||
+        right.requests - left.requests ||
+        left.provider.localeCompare(right.provider),
+    );
+}
+
+function readUsageTokens(event: UsageEventRecord): number | undefined {
+  if (isFiniteNumber(event.totalTokens)) return event.totalTokens;
+  const tokenParts = [event.inputTokens, event.outputTokens, event.reasoningTokens]
+    .filter(isFiniteNumber);
+  return tokenParts.length > 0
+    ? tokenParts.reduce((total, value) => total + value, 0)
+    : undefined;
+}
+
+function sumNumbers(values: Array<number | undefined>): number {
+  return values.filter(isFiniteNumber).reduce((total, value) => total + value, 0);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatUsageCost(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  if (!isFiniteNumber(numberValue)) return "-";
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: numberValue > 0 && numberValue < 0.01 ? 4 : 2,
+    minimumFractionDigits: numberValue > 0 && numberValue < 0.01 ? 4 : 2,
+    style: "currency",
+  }).format(numberValue);
+}
+
+function formatCount(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  return isFiniteNumber(numberValue)
+    ? new Intl.NumberFormat("en-US", { notation: "compact" }).format(numberValue)
+    : "-";
+}
+
+function formatLatency(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : undefined;
+
+  if (!isFiniteNumber(numberValue)) return "-";
+  if (numberValue < 1000) return `${Math.round(numberValue)}ms`;
+  return `${(numberValue / 1000).toFixed(1)}s`;
+}
+
+function formatProviderName(value: string) {
+  const labels: Record<string, string> = {
+    alpaca: "Alpaca",
+    exa: "Exa",
+    finnhub: "Finnhub",
+    openrouter: "OpenRouter",
+    supermemory: "Supermemory",
+    telegram: "Telegram",
+  };
+  return labels[value] ?? titleize(value);
 }
 
 function formatPercentValue(value: unknown) {

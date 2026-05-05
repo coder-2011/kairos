@@ -194,6 +194,30 @@ export type TradeIntentRecord = JsonRecord & {
   rationale?: string;
 };
 
+export type UsageEventRecord = {
+  id: string;
+  provider: string;
+  operation: string;
+  status: "succeeded" | "failed" | "unknown";
+  timestamp: string;
+  requestId?: string;
+  runId?: string;
+  branchId?: string;
+  providerRequestId?: string;
+  statusCode?: number;
+  durationMs?: number;
+  model?: string;
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+  quotaUnits?: number;
+  unit?: string;
+  metadata?: JsonRecord;
+};
+
 const apiBaseUrl =
   import.meta.env.VITE_KAIROS_API_URL?.replace(/\/$/, "") ??
   "http://127.0.0.1:4321";
@@ -234,6 +258,24 @@ export async function createBranch(input: {
 
 export async function getRuns(): Promise<RunRecord[]> {
   return request<{ runs: RunRecord[] }>("/runs").then((response) => response.runs);
+}
+
+export async function getUsageEvents(input: {
+  provider?: string;
+  runId?: string;
+  branchId?: string;
+  requestId?: string;
+  limit?: number;
+} = {}): Promise<UsageEventRecord[]> {
+  const params = new URLSearchParams();
+  if (input.provider) params.set("provider", input.provider);
+  if (input.runId) params.set("runId", input.runId);
+  if (input.branchId) params.set("branchId", input.branchId);
+  if (input.requestId) params.set("requestId", input.requestId);
+  if (input.limit !== undefined) params.set("limit", String(input.limit));
+  return request<{ usageEvents: UsageEventRecord[] }>(
+    `/usage-events${params.size > 0 ? `?${params.toString()}` : ""}`,
+  ).then((response) => response.usageEvents);
 }
 
 export async function getRun(runId: string): Promise<RunRecord> {
