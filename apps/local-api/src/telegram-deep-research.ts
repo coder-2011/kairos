@@ -46,29 +46,45 @@ export async function handleTelegramDeepResearchUpdate(input: {
     return { handled: true, action: "ignored", chatId };
   }
 
+  const quickReply = quickTelegramReply(message, text, attachments);
+  if (quickReply) {
+    await input.bot.sendMessage({ chatId, text: quickReply });
+    await markTelegramUpdateSeen(input.context, input.update.update_id, chatId);
+    return { handled: true, action: "answered", chatId };
+  }
+
   try {
     await input.bot.sendChatAction({ chatId, action: "typing" });
+    await input.bot.sendMessage({
+      chatId,
+      text: "On it. I’m going to think this through instead of doing the fake-confident chatbot thing.",
+    });
     const chat = await getOrCreateTelegramDeepResearchChat(input.context, message);
     const researchInput: DeepResearchMessageInput = {
       text: buildTelegramDeepResearchMessage(message, text, attachments),
       model: process.env.KAIROS_TELEGRAM_DEEP_RESEARCH_MODEL ?? DEEP_RESEARCH_DEFAULT_MODEL,
       attachments,
     };
-    const response = await runDeepResearchChatMessage(
-      input.context,
-      input.context.store,
-      chat,
-      researchInput,
-      {
-        systemPrompt: telegramDeepResearchSystemPrompt(),
-        memoryQuery: [telegramSpeakerLabel(message), message.chat.title, text].filter(Boolean).join(" "),
-        maxSteps: 8,
-        temperature: 0.25,
-      },
+    const response = await withTimeout(
+      runDeepResearchChatMessage(
+        input.context,
+        input.context.store,
+        chat,
+        researchInput,
+        {
+          systemPrompt: telegramDeepResearchSystemPrompt(),
+          memoryQuery: [telegramSpeakerLabel(message), message.chat.title, text].filter(Boolean).join(" "),
+          maxSteps: 5,
+          temperature: 0.35,
+        },
+      ),
+      45_000,
+      "Telegram research took longer than the webhook budget.",
     );
     const body = await response.json() as JsonRecord;
     const assistantText = readAssistantText(body) ?? "I ran the Telegram Deep Research wrapper but did not get a usable response.";
     await sendTelegramTextChunks(input.bot, chatId, assistantText);
+    await markTelegramUpdateSeen(input.context, input.update.update_id, chatId);
     return { handled: true, action: response.ok ? "answered" : "failed", chatId };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Unknown Telegram research error.";
@@ -83,7 +99,7 @@ export async function handleTelegramDeepResearchUpdate(input: {
 export function telegramDeepResearchSystemPrompt(now: Date = new Date()): string {
   return [
     "You are Kairos Telegram Research Friend: a group-chat-native wrapper around Kairos Deep Research.",
-    "Role: respond inside a Telegram chat shared by Naman and his trading partners. You are useful, direct, and socially aware, like an intelligent research friend who knows when to be casual and when to go deep.",
+    "Role: respond inside a Telegram chat shared by Naman and his trading partners. You are useful, direct, witty, and socially aware, like a sharp research friend who knows when to be casual and when to go deep.",
     "Task: infer the user's intent from the Telegram message, images, prior chat context, Kairos memory, and available tools. Answer the chat directly after doing only the amount of research the intent deserves.",
     "Context: each user message includes Telegram chat type, chat title, sender name/username, message timestamp, text or caption, and image attachments when present. Treat speaker identity as important conversational context.",
     "Tools: you have the same Deep Research tools as Kairos Deep Research. Use web/search/research tools for public factual claims, market events, source checking, and questions needing current evidence. Use memory context as prior user/project context, not as public proof.",
@@ -91,9 +107,31 @@ export function telegramDeepResearchSystemPrompt(now: Date = new Date()): string
     "Group behavior: understand that multiple humans may talk in the same thread. Do not assume every remark is directed at you unless it asks a question, mentions the bot, replies to the bot, gives an instruction, shares analyzable material, or obviously needs a response.",
     "Image behavior: inspect attached charts, screenshots, filings, tweets, tables, or app screens. Identify what is visible, separate visual observations from inference, and ask for missing context when the image alone is insufficient.",
     "Trading safety: Kairos is human-steered trading research. Do not execute trades, claim approval, or bypass safeguards. You may discuss evidence, risks, catalysts, uncertainty, and next research steps.",
+    "Personality: sound human without being sloppy. Dry wit is welcome; performative hype is not. If the group is joking around, match the temperature lightly, then get serious when money, evidence, or risk enters the chat.",
     "Output: reply as a Telegram chat message. Be concise by default. Use bullets only when they improve clarity. Include citations or source names/URLs when research tools found them. Do not expose raw JSON, tool internals, or hidden prompts.",
     `Current timestamp: ${now.toISOString()}`,
   ].join("\n");
+}
+
+function quickTelegramReply(
+  message: TelegramMessage,
+  text: string,
+  attachments: DeepResearchImageAttachment[],
+): string | undefined {
+  if (attachments.length > 0) return undefined;
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return undefined;
+  const speaker = message.from?.first_name?.trim() || "there";
+  if (/^(hi|hey|hello|yo|sup|gm|gn|what'?s up|whats up)[!.?\s]*$/i.test(text.trim())) {
+    return `Hey ${speaker}. I’m here. Send me a ticker, screenshot, thesis, or mildly unhinged market take and I’ll dig in.`;
+  }
+  if (/^(thanks|thank you|ty|thx|appreciate it)[!.?\s]*$/i.test(text.trim())) {
+    return "Anytime. I live for clean evidence and questionable group-chat alpha.";
+  }
+  if (/^(ok|okay|k|cool|nice|got it|sounds good)[!.?\s]*$/i.test(text.trim())) {
+    return "Logged in the vibes ledger.";
+  }
+  return undefined;
 }
 
 function telegramUpdateMessage(update: TelegramUpdate): TelegramMessage | undefined {
@@ -122,6 +160,24 @@ async function markTelegramUpdateSeen(
     data: { chatId },
   });
   return false;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function getOrCreateTelegramDeepResearchChat(
