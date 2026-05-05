@@ -15,10 +15,13 @@ export async function buildHeartbeatSeedBundle(
   now: Date = new Date(),
 ): Promise<HeartbeatSeedBundle> {
   const timestamp = now.toISOString();
+  const generalMarketNewsWindowDays =
+    branch.seededData?.generalMarketNewsWindowDays ?? 20;
   const request: HeartbeatSeedRequest = {
     branch,
     timestamp,
     seedWindowDays: branch.heartbeat.seedWindowDays,
+    generalMarketNewsWindowDays,
     supermemoryContainerTag: getSupermemoryContainerTag(branch),
     supermemoryProfileContainerTag: getSupermemoryProfileContainerTag(branch),
   };
@@ -28,14 +31,18 @@ export async function buildHeartbeatSeedBundle(
     recentVolume,
     tickerMovement,
     supermemoryContext,
+    deepResearchMemoryContext,
     newsHeadlinesAndSummaries,
+    generalMarketNews,
     priorDecisions,
   ] = await Promise.all([
     providers.getCurrentPrice?.(request) ?? null,
     providers.getRecentVolume?.(request) ?? null,
     providers.getTickerMovement?.(request) ?? null,
     providers.getSupermemoryContext?.(request) ?? null,
+    providers.getDeepResearchMemoryContext?.(request) ?? null,
     providers.getNewsHeadlinesAndSummaries?.(request) ?? null,
+    providers.getGeneralMarketNews?.(request) ?? null,
     providers.getPriorDecisions?.(request) ?? [],
   ]);
 
@@ -67,6 +74,7 @@ export async function buildHeartbeatSeedBundle(
     law: branch.law,
     assets: branch.assets,
     seedWindowDays: branch.heartbeat.seedWindowDays,
+    generalMarketNewsWindowDays,
     supermemoryContainerTag: request.supermemoryContainerTag,
     supermemoryProfileContainerTag: request.supermemoryProfileContainerTag,
     defaultSources: {
@@ -74,7 +82,9 @@ export async function buildHeartbeatSeedBundle(
       recentVolume,
       tickerMovement,
       supermemoryContext,
+      deepResearchMemoryContext,
       newsHeadlinesAndSummaries,
+      generalMarketNews,
     },
     priorDecisions,
     optionalData,

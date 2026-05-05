@@ -125,6 +125,7 @@ describe("heartbeat debate handoff", () => {
       tickerMovement: true,
       supermemoryContext: true,
       newsHeadlinesAndSummaries: true,
+      generalMarketNews: true,
     });
   });
 });
@@ -161,12 +162,14 @@ function seedBundle(): HeartbeatSeedBundle {
     supermemoryContainerTag: "branch_branch_a",
     supermemoryProfileContainerTag: "branch_profile_branch_a",
     seedWindowDays: 30,
+    generalMarketNewsWindowDays: 20,
     defaultSources: {
       currentPrice: true,
       recentVolume: true,
       tickerMovement: true,
       supermemoryContext: true,
       newsHeadlinesAndSummaries: true,
+      generalMarketNews: true,
     },
     priorDecisions: [],
     optionalData: {

@@ -1,3 +1,5 @@
+import type { HeartbeatTimingConfig } from "../../global/heartbeat-timing.js";
+
 export type HeartbeatDecision = "no_escalation" | "escalate";
 
 export type HeartbeatOutput = {
@@ -38,14 +40,18 @@ export type HeartbeatSeedSource =
   | "recentVolume"
   | "tickerMovement"
   | "supermemoryContext"
-  | "newsHeadlinesAndSummaries";
+  | "deepResearchMemoryContext"
+  | "newsHeadlinesAndSummaries"
+  | "generalMarketNews";
 
 export const defaultHeartbeatSeedSources: readonly HeartbeatSeedSource[] = [
   "currentPrice",
   "recentVolume",
   "tickerMovement",
   "supermemoryContext",
+  "deepResearchMemoryContext",
   "newsHeadlinesAndSummaries",
+  "generalMarketNews",
 ] as const;
 
 export type BranchConfig = {
@@ -58,10 +64,16 @@ export type BranchConfig = {
     intervalMinutes: number;
     seedWindowDays: number;
     model: string;
+    timing?: HeartbeatTimingConfig;
     maxSearchCalls?: number;
     maxMemoryQueries?: number;
   };
   seededData?: {
+    /**
+     * Finnhub market news is returned as the latest feed with no server-side
+     * date range. Filter the general category locally to this branch window.
+     */
+    generalMarketNewsWindowDays?: number;
     /**
      * Future UI-configured inputs. Keep this generic because the optional
      * source list is expected to grow substantially.
@@ -85,7 +97,7 @@ export type BranchConfig = {
 
 export type NewsHeadlineSummary = {
   title: string;
-  summary: string;
+  summary?: string;
   source?: string;
   publishedAt?: string;
   url?: string;
@@ -105,9 +117,10 @@ export type HeartbeatSeedBundle = {
   law: string;
   assets: string[];
   seedWindowDays: number;
+  generalMarketNewsWindowDays: number;
   supermemoryContainerTag: string;
   supermemoryProfileContainerTag: string;
-  defaultSources: Record<HeartbeatSeedSource, unknown | null>;
+  defaultSources: Partial<Record<HeartbeatSeedSource, unknown | null>>;
   priorDecisions: HeartbeatPriorDecision[];
   optionalData: Record<string, unknown>;
 };
@@ -116,6 +129,7 @@ export type HeartbeatSeedRequest = {
   branch: BranchConfig;
   timestamp: string;
   seedWindowDays: number;
+  generalMarketNewsWindowDays: number;
   supermemoryContainerTag: string;
   supermemoryProfileContainerTag: string;
 };
@@ -129,7 +143,13 @@ export type HeartbeatSeedDataProviders = {
   getRecentVolume?: (request: HeartbeatSeedRequest) => Promise<unknown>;
   getTickerMovement?: (request: HeartbeatSeedRequest) => Promise<unknown>;
   getSupermemoryContext?: (request: HeartbeatSeedRequest) => Promise<unknown>;
+  getDeepResearchMemoryContext?: (
+    request: HeartbeatSeedRequest,
+  ) => Promise<unknown>;
   getNewsHeadlinesAndSummaries?: (
+    request: HeartbeatSeedRequest,
+  ) => Promise<NewsHeadlineSummary[] | unknown>;
+  getGeneralMarketNews?: (
     request: HeartbeatSeedRequest,
   ) => Promise<NewsHeadlineSummary[] | unknown>;
   getPriorDecisions?: (

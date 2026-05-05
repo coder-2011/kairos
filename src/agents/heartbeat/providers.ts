@@ -7,6 +7,8 @@ import type { HeartbeatSeedDataProviders } from "./types.js";
 
 type HeartbeatMemorySeedApi = Pick<GlobalMemoryApi, "getHeartbeatContext" | "search">;
 
+const DEEP_RESEARCH_CONTAINER_TAG = "kairos_deep_research";
+
 export function createHeartbeatSeedProviders(input: {
   alpaca?: Pick<AlpacaTradingClient, "getStockSnapshots">;
   finnhub?: FinnhubApi;
@@ -32,6 +34,21 @@ export function createHeartbeatSeedProviders(input: {
             query: [branch.law, ...branch.assets].join("\n"),
           })
       : finnhubProviders.getSupermemoryContext,
+    getDeepResearchMemoryContext: memory
+      ? ({ branch }) =>
+          memory.search({
+            q: [
+              "Relevant Kairos Deep Research conversations, Telegram research, user corrections, prior conclusions, and reusable context for this monitoring branch.",
+              `Branch ID: ${branch.id}`,
+              `Branch law: ${branch.law}`,
+              `Assets: ${branch.assets.join(", ")}`,
+            ].join("\n"),
+            containerTag: DEEP_RESEARCH_CONTAINER_TAG,
+            limit: 6,
+            rerank: true,
+            searchMode: "hybrid",
+          })
+      : undefined,
     getPriorDecisions: memory
       ? async ({ branch, supermemoryProfileContainerTag }) => {
           const response = await memory.search({

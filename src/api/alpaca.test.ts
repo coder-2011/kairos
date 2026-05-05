@@ -315,6 +315,7 @@ describe("AlpacaTradingClient", () => {
       },
       timestamp: "2026-05-03T12:00:00.000Z",
       seedWindowDays: 30,
+      generalMarketNewsWindowDays: 20,
       supermemoryContainerTag: "branch_pltr",
       supermemoryProfileContainerTag: "branch_profile_pltr",
     };

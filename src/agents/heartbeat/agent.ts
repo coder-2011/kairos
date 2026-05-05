@@ -293,6 +293,7 @@ function validateSeedBundleCompleteness(
     "tickerMovement",
     "supermemoryContext",
     "newsHeadlinesAndSummaries",
+    "generalMarketNews",
   ];
   const missingSources = requiredSources.filter((source) => {
     const value = seedBundle.defaultSources[source];

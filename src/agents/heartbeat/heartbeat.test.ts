@@ -52,6 +52,7 @@ function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
     law: "law",
     assets: ["PLTR"],
     seedWindowDays: 30,
+    generalMarketNewsWindowDays: 20,
     supermemoryContainerTag: "branch_branch",
     supermemoryProfileContainerTag: "branch_profile_branch",
     defaultSources: {
@@ -59,7 +60,9 @@ function emptySeedBundle(output: HeartbeatOutput): HeartbeatSeedBundle {
       recentVolume: null,
       tickerMovement: null,
       supermemoryContext: null,
+      deepResearchMemoryContext: null,
       newsHeadlinesAndSummaries: null,
+      generalMarketNews: null,
     },
     priorDecisions: [],
     optionalData: {},
@@ -99,6 +102,12 @@ describe("heartbeat seed bundle", () => {
             summary: "Potentially material deal headline.",
           },
         ]),
+        getGeneralMarketNews: vi.fn(async () => [
+          {
+            title: "Geopolitical headline",
+            summary: "General market news relevant to watched assets.",
+          },
+        ]),
         getPriorDecisions,
       },
       fixedNow,
@@ -110,6 +119,7 @@ describe("heartbeat seed bundle", () => {
       law: branch.law,
       assets: ["PLTR"],
       seedWindowDays: 30,
+      generalMarketNewsWindowDays: 20,
       supermemoryContainerTag: "branch_pltr_enterprise_deals",
       supermemoryProfileContainerTag: "branch_profile_pltr_enterprise_deals",
       defaultSources: {
@@ -120,6 +130,11 @@ describe("heartbeat seed bundle", () => {
           rawContainerTag: "branch_pltr_enterprise_deals",
           profileContainerTag: "branch_profile_pltr_enterprise_deals",
         },
+        generalMarketNews: [
+          {
+            title: "Geopolitical headline",
+          },
+        ],
       },
       priorDecisions: [
         {
@@ -776,7 +791,7 @@ describe("API clients", () => {
     expect(result.results[0]?.summary).toBe("market-relevant highlight");
   });
 
-  it("uses Finnhub for quote, candles, and company news seed providers", async () => {
+  it("uses Finnhub for quote, candles, company news, and general market news seed providers", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/quote")) {
@@ -784,6 +799,34 @@ describe("API clients", () => {
       }
       if (url.pathname.endsWith("/stock/candle")) {
         return jsonResponse({ s: "ok", c: [90, 100], v: [10, 20], t: [1, 2] });
+      }
+      if (url.pathname.endsWith("/news")) {
+        expect(url.searchParams.get("category")).toBe("general");
+        expect(url.searchParams.has("from")).toBe(false);
+        expect(url.searchParams.has("to")).toBe(false);
+        return jsonResponse([
+          {
+            datetime: 1777771300,
+            headline: "General market headline",
+            summary: "Geopolitical market summary",
+            source: "Reuters",
+            url: "https://example.com/geopolitics",
+          },
+          {
+            datetime: Date.parse("2026-05-01T12:00:00.000Z") / 1000,
+            headline: "General market headline without summary",
+            summary: "",
+            source: "AP",
+            url: "https://example.com/headline-only",
+          },
+          {
+            datetime: Date.parse("2026-04-20T12:00:00.000Z") / 1000,
+            headline: "Stale general market headline",
+            summary: "Older general market summary",
+            source: "Archive",
+            url: "https://example.com/older-geopolitics",
+          },
+        ]);
       }
       return jsonResponse([
         {
@@ -800,7 +843,19 @@ describe("API clients", () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
     const providers = createFinnhubHeartbeatSeedProviders(finnhub);
-    const branch = branchConfig({ id: "pltr", assets: ["PLTR"] });
+    const branch = branchConfig({
+      id: "pltr",
+      assets: ["PLTR"],
+      heartbeat: {
+        enabled: true,
+        intervalMinutes: 5,
+        seedWindowDays: 30,
+        model: "openrouter/qwen-9b",
+      },
+      seededData: {
+        generalMarketNewsWindowDays: 7,
+      },
+    });
 
     const seed = await buildHeartbeatSeedBundle(branch, providers, fixedNow);
 
@@ -817,6 +872,21 @@ describe("API clients", () => {
         source: "Wire",
       },
     ]);
+    expect(seed.defaultSources.generalMarketNews).toMatchObject([
+      {
+        title: "General market headline",
+        summary: "Geopolitical market summary",
+        source: "Reuters",
+      },
+      {
+        title: "General market headline without summary",
+        source: "AP",
+      },
+    ]);
+    expect(seed.defaultSources.generalMarketNews).toHaveLength(2);
+    expect(
+      (seed.defaultSources.generalMarketNews as Array<Record<string, unknown>>)[1],
+    ).not.toHaveProperty("summary");
   });
 
   it("prefers Alpaca for heartbeat ticker seeds while retaining Finnhub news", async () => {
@@ -830,6 +900,17 @@ describe("API clients", () => {
             summary: "PLTR summary",
             source: "Wire",
             url: "https://example.com",
+          },
+        ]);
+      }
+      if (url.pathname.endsWith("/news")) {
+        return jsonResponse([
+          {
+            datetime: 1777771300,
+            headline: "General market headline",
+            summary: "Geopolitical market summary",
+            source: "Reuters",
+            url: "https://example.com/geopolitics",
           },
         ]);
       }
@@ -864,6 +945,9 @@ describe("API clients", () => {
     });
     expect(seed.defaultSources.newsHeadlinesAndSummaries).toMatchObject([
       { title: "PLTR headline", source: "Wire" },
+    ]);
+    expect(seed.defaultSources.generalMarketNews).toMatchObject([
+      { title: "General market headline", source: "Reuters" },
     ]);
   });
 

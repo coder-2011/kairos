@@ -4701,9 +4701,14 @@ function defaultBranchConfig(): WebBranchConfig {
   return {
     assets: [],
     heartbeat: {
+      enabled: true,
       intervalMinutes: 5,
       seedWindowDays: 30,
       maxToolSteps: 3,
+      timing: {
+        ...DEFAULT_HEARTBEAT_TIMING_CONFIG,
+        activeDays: [...DEFAULT_HEARTBEAT_TIMING_CONFIG.activeDays],
+      },
     },
     seededData: {
       generalMarketNewsWindowDays: 20,
@@ -4767,9 +4772,11 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
     ...config,
     assets: config.assets ?? readAssets(branch),
     heartbeat: {
+      enabled: heartbeat.enabled ?? true,
       intervalMinutes: heartbeat.intervalMinutes ?? legacyInterval ?? 5,
       seedWindowDays: heartbeat.seedWindowDays ?? 30,
       maxToolSteps: heartbeat.maxToolSteps ?? 3,
+      timing: normalizeHeartbeatTimingDraft(heartbeat.timing),
     },
     seededData: {
       ...config.seededData,

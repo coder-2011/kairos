@@ -1,4 +1,7 @@
-import type { HeartbeatSeedDataProviders } from "../agents/heartbeat/types.js";
+import type {
+  HeartbeatSeedDataProviders,
+  NewsHeadlineSummary,
+} from "../agents/heartbeat/types.js";
 import { retryFetch } from "../global/retry.js";
 import { recordProviderUsage } from "../global/usage.js";
 
@@ -19,6 +22,11 @@ type FinnhubPackageClient = {
     symbol: string,
     from: string,
     to: string,
+    callback: FinnhubCallback<FinnhubNewsItem[]>,
+  ) => void;
+  marketNews?: (
+    category: FinnhubMarketNewsCategory,
+    minId: number,
     callback: FinnhubCallback<FinnhubNewsItem[]>,
   ) => void;
   quote: (symbol: string, callback: FinnhubCallback<FinnhubQuote>) => void;
@@ -104,6 +112,8 @@ export type FinnhubApiRequest = {
   body?: unknown;
 };
 
+export type FinnhubMarketNewsCategory = "general" | "forex" | "crypto" | "merger";
+
 export type FinnhubQuote = {
   c: number;
   d?: number;
@@ -177,6 +187,23 @@ export class FinnhubApi {
     }
 
     return this.get("/company-news", input);
+  }
+
+  marketNews(input: {
+    category?: FinnhubMarketNewsCategory;
+    minId?: number;
+  } = {}): Promise<FinnhubNewsItem[]> {
+    const category = input.category ?? "general";
+    if (this.packageClient?.marketNews) {
+      return callbackMethod((callback) =>
+        this.packageClient!.marketNews!(category, input.minId ?? 0, callback),
+      );
+    }
+
+    return this.get("/news", {
+      category,
+      minId: input.minId === undefined ? undefined : String(input.minId),
+    });
   }
 
   stockCandles(input: {
@@ -520,6 +547,40 @@ function summarizeFinnhubPayload(payload: unknown): Record<string, unknown> | un
   };
 }
 
+function filterFinnhubNewsItemsByWindow(
+  items: FinnhubNewsItem[],
+  seedWindowDays: number,
+  timestamp: string,
+): FinnhubNewsItem[] {
+  const windowEndMs = Date.parse(timestamp);
+  if (!Number.isFinite(windowEndMs) || !Number.isFinite(seedWindowDays)) {
+    return items;
+  }
+
+  const windowStartMs = windowEndMs - Math.max(0, seedWindowDays) * DAY_MS;
+  return items.filter((item) => {
+    const publishedAtMs = item.datetime * 1000;
+    return (
+      Number.isFinite(publishedAtMs) &&
+      publishedAtMs >= windowStartMs &&
+      publishedAtMs <= windowEndMs
+    );
+  });
+}
+
+function mapFinnhubNewsItem(item: FinnhubNewsItem): NewsHeadlineSummary {
+  const mapped: NewsHeadlineSummary = {
+    title: item.headline,
+    source: item.source,
+    publishedAt: new Date(item.datetime * 1000).toISOString(),
+    url: item.url,
+  };
+  if (item.summary) {
+    mapped.summary = item.summary;
+  }
+  return mapped;
+}
+
 export function createFinnhubHeartbeatSeedProviders(
   finnhub: FinnhubApi,
 ): HeartbeatSeedDataProviders {
@@ -571,19 +632,23 @@ export function createFinnhubHeartbeatSeedProviders(
       const nestedNews = await Promise.all(
         branch.assets.map((symbol) =>
           finnhub.companyNews({ symbol, from, to }).then((items) =>
-            items.map((item) => ({
-              title: item.headline,
-              summary: item.summary,
-              source: item.source,
-              publishedAt: new Date(item.datetime * 1000).toISOString(),
-              url: item.url,
-            })),
+            items.map(mapFinnhubNewsItem),
           ),
         ),
       );
 
       return nestedNews.flat();
     },
+    getGeneralMarketNews: async ({ generalMarketNewsWindowDays, timestamp }) =>
+      finnhub
+        .marketNews({ category: "general" })
+        .then((items) =>
+          filterFinnhubNewsItemsByWindow(
+            items,
+            generalMarketNewsWindowDays,
+            timestamp,
+          ).map(mapFinnhubNewsItem),
+        ),
     getOptionalData: ({ branch, sourceKey, seedWindowDays, timestamp }) => {
       return mapAssets(branch.assets, (symbol) =>
         getOptionalFinnhubSource(finnhub, sourceKey, symbol, seedWindowDays, timestamp),

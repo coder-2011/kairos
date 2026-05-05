@@ -27,6 +27,7 @@ export const branchConfigSchema = z
       .strict(),
     seededData: z
       .object({
+        generalMarketNewsWindowDays: z.number().int().positive().default(20),
         optionalSources: z.record(z.string(), z.boolean()).optional(),
       })
       .strict()
@@ -48,6 +49,7 @@ export const heartbeatSeedBundleSchema = z
     law: z.string(),
     assets: z.array(z.string()),
     seedWindowDays: z.number().int().positive(),
+    generalMarketNewsWindowDays: z.number().int().positive(),
     supermemoryContainerTag: z.string(),
     supermemoryProfileContainerTag: z.string(),
     defaultSources: z.object({
@@ -55,7 +57,9 @@ export const heartbeatSeedBundleSchema = z
       recentVolume: z.unknown().nullable(),
       tickerMovement: z.unknown().nullable(),
       supermemoryContext: z.unknown().nullable(),
+      deepResearchMemoryContext: z.unknown().nullable(),
       newsHeadlinesAndSummaries: z.unknown().nullable(),
+      generalMarketNews: z.unknown().nullable(),
     }),
     priorDecisions: z.array(
       z

@@ -25,10 +25,14 @@ The user message contains one JSON package:
 - seed_bundle: the runtime-built package for this branch
 - seed_bundle.supermemoryProfileContainerTag: branch-specific Supermemory
   profile tag for memory/profile tool calls
+- seed_bundle.defaultSources.deepResearchMemoryContext: global Deep Research
+  and Telegram research memory relevant to this branch; use as context, not as
+  a branch-owned write target
 - seed_bundle.priorDecisions: prior Kairos decisions retrieved for duplicate checks
 
 Use seeded data as main context: branch law, assets, price, volume, ticker
-movement, Supermemory context, headlines/summaries, and optional branch data.
+movement, branch Supermemory context, global Deep Research memory context,
+company headlines/summaries, general market news, and optional branch data.
 
 # Evidence Rules
 Read the whole package. Treat missing/null/stale/contradictory/failed payloads
