@@ -43,11 +43,37 @@ export type TelegramChat = {
   last_name?: string;
 };
 
+export type TelegramPhotoSize = {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+};
+
+export type TelegramDocument = {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+};
+
+export type TelegramFile = {
+  file_id: string;
+  file_unique_id: string;
+  file_size?: number;
+  file_path?: string;
+};
+
 export type TelegramMessage = {
   message_id: number;
   date: number;
   chat: TelegramChat;
   text?: string;
+  caption?: string;
+  photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
   from?: TelegramUser;
 };
 
@@ -146,6 +172,40 @@ export class TelegramBotClient {
       chatId: String(result.chat.id),
       date: result.date,
     };
+  }
+
+  async sendChatAction(input: { chatId?: string; action?: string }): Promise<boolean> {
+    const chatId = input.chatId ?? this.defaultChatId;
+    this.validateSendConfigured(chatId);
+    return this.request<boolean>("sendChatAction", {
+      chat_id: chatId,
+      action: input.action ?? "typing",
+    });
+  }
+
+  async getFile(fileId: string): Promise<TelegramFile> {
+    this.validateBotConfigured();
+    return this.request<TelegramFile>("getFile", { file_id: fileId });
+  }
+
+  async downloadFile(filePath: string): Promise<ArrayBuffer> {
+    this.validateBotConfigured();
+    const response = await this.fetchImpl(`${this.baseUrl}/file/bot${this.token}/${filePath}`);
+    if (!response.ok) {
+      throw new TelegramBotApiError(`Telegram file download failed: ${response.status} ${await response.text()}`, {
+        errorCode: response.status,
+      });
+    }
+    return response.arrayBuffer();
+  }
+
+  async downloadFileAsDataUrl(fileId: string, mimeType: string): Promise<string> {
+    const file = await this.getFile(fileId);
+    if (!file.file_path) {
+      throw new TelegramBotApiError("Telegram getFile returned no file_path.");
+    }
+    const bytes = await this.downloadFile(file.file_path);
+    return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
   }
 
   async setWebhook(input: { url: string; secretToken?: string; allowedUpdates?: string[]; dropPendingUpdates?: boolean }): Promise<boolean> {

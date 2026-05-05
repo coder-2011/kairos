@@ -200,7 +200,7 @@ export type RunEventSubscriber = (event: RunEventRecord) => void;
 
 export type ApiControlRecord = {
   id: string;
-  kind: "rate_limit_hit" | "idempotency_response" | "job_lease" | "telegram_binding";
+  kind: "rate_limit_hit" | "idempotency_response" | "job_lease" | "telegram_binding" | "telegram_update";
   createdAt: string;
   updatedAt: string;
   expiresAt?: string;

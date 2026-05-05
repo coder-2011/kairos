@@ -92,6 +92,7 @@ import {
   runDeepResearchQuery,
   type DeepResearchContext,
 } from "./deep-research.js";
+import { handleTelegramDeepResearchUpdate } from "./telegram-deep-research.js";
 
 export type LocalApiDependencies = {
   store?: KairosLocalStore;
@@ -2648,9 +2649,11 @@ async function handleTelegramWebhook(context: LocalApiContext, request: Request)
       chatId,
       text: "Supported Kairos commands: /start, /stop, /status.",
     });
+    return json({ ok: true, action: "help" });
   }
 
-  return json({ ok: true });
+  const result = await handleTelegramDeepResearchUpdate({ context, bot, update });
+  return json({ ok: true, action: result.action, handled: result.handled });
 }
 
 async function upsertTelegramBinding(

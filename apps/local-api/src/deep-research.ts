@@ -47,7 +47,7 @@ export type DeepResearchContext = {
   store: KairosLocalStore;
 };
 
-type DeepResearchStore = Pick<
+export type DeepResearchStore = Pick<
   KairosLocalStore,
   | "listDeepResearchChats"
   | "createDeepResearchChat"
@@ -141,6 +141,15 @@ const messageCreateSchema = z.object({
     .optional()
     .default([]),
 });
+
+export type DeepResearchMessageInput = z.infer<typeof messageCreateSchema>;
+
+export type DeepResearchRunOptions = {
+  systemPrompt?: string;
+  memoryQuery?: string;
+  maxSteps?: number;
+  temperature?: number;
+};
 
 const chatCreateSchema = z.object({
   id: z.string().min(1).optional(),
@@ -368,7 +377,17 @@ async function runDeepResearchMessage(
   context: DeepResearchContext,
   store: DeepResearchStore,
   chat: DeepResearchChatRecord,
-  input: z.infer<typeof messageCreateSchema>,
+  input: DeepResearchMessageInput,
+): Promise<Response> {
+  return runDeepResearchChatMessage(context, store, chat, input);
+}
+
+export async function runDeepResearchChatMessage(
+  context: DeepResearchContext,
+  store: DeepResearchStore,
+  chat: DeepResearchChatRecord,
+  input: DeepResearchMessageInput,
+  options: DeepResearchRunOptions = {},
 ): Promise<Response> {
   const model = resolveDeepResearchModel(input.model);
   const reasoningEffort = resolveDeepResearchReasoningEffort(model, input.reasoningEffort);
@@ -382,7 +401,11 @@ async function runDeepResearchMessage(
   });
   const previousMessages = await store.listDeepResearchMessages(chat.id);
   const toolCalls: RouterToolCallRecord[] = [];
-  const memoryContext = await buildDeepResearchMemoryContext(context, input.text, toolCalls);
+  const memoryContext = await buildDeepResearchMemoryContext(
+    context,
+    options.memoryQuery ?? input.text,
+    toolCalls,
+  );
   const modelMessages = [
     ...previousMessages
       .filter((message) => message.id !== userMessage.id)
@@ -406,11 +429,11 @@ async function runDeepResearchMessage(
   try {
     const result = await generateText({
       model: createDeepResearchOpenRouterModel(model, reasoningEffort),
-      system: deepResearchSystemPrompt(),
+      system: options.systemPrompt ?? deepResearchSystemPrompt(),
       messages: modelMessages as never,
       tools: createDeepResearchTools(context, toolCalls, { reasoningEffort }),
-      stopWhen: stepCountIs(8),
-      temperature: 0.2,
+      stopWhen: stepCountIs(options.maxSteps ?? 8),
+      temperature: options.temperature ?? 0.2,
     });
     const assistantText = result.text?.trim();
     const reasoning = extractDeepResearchReasoning(result);
