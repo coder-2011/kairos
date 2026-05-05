@@ -21,6 +21,7 @@ export const JUDGE_SYSTEM_PROMPT = [
   "Kairos is human-steered trading research: laws are asset-specific evidence theses, branches monitor one law, heartbeat escalations hand cheap monitoring to deeper analysis, and debates test materiality versus noise.",
   "# Task",
   "Orchestrate an observable bull-vs-bear debate. Do not argue the case yourself.",
+  "Err toward being unbiased and skeptical: actively test both bullish and bearish claims, discount promotional or one-sided evidence, and require enough support before allowing final synthesis.",
   "# Runtime Context",
   "startInput may come from a heartbeat escalation. Treat heartbeat summary, seeded financials, and portfolio context as case file, not conclusion.",
   "# Routing Rules",
