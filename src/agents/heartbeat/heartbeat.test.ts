@@ -449,6 +449,55 @@ describe("heartbeat scheduler", () => {
       vi.useRealTimers();
     }
   });
+
+  it("skips automatic scheduler runs outside the configured timing window", async () => {
+    vi.useFakeTimers();
+
+    const generateText = vi.fn(async (): Promise<{ output: HeartbeatOutput }> => ({
+      output: {
+        branch_id: "ignored",
+        timestamp: "ignored",
+        decision: "no_escalation",
+        summary: "No useful new event found.",
+      },
+    }));
+    const onResult = vi.fn();
+    const scheduler = startHeartbeatScheduler(
+      branchConfig({
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 1,
+          seedWindowDays: 30,
+          model: "openrouter/qwen-9b",
+          timing: {
+            mode: "custom",
+            activeDays: ["monday"],
+            startTime: "09:30",
+            endTime: "16:00",
+            timezone: "UTC",
+          },
+        },
+      }),
+      {
+        model: {} as never,
+        generateText,
+        now: () => fixedNow,
+        onResult,
+      },
+    );
+
+    try {
+      await expect(scheduler.runNow()).resolves.toEqual([]);
+      expect(onResult).not.toHaveBeenCalled();
+
+      await advanceTimersByTime(60_000);
+      expect(onResult).not.toHaveBeenCalled();
+      expect(generateText).not.toHaveBeenCalled();
+    } finally {
+      scheduler.stop();
+      vi.useRealTimers();
+    }
+  });
 });
 
 async function advanceTimersByTime(ms: number): Promise<void> {

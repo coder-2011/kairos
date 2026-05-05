@@ -201,9 +201,19 @@ describe("runtime schemas", () => {
     const config = kairosBranchAgentConfigSchema.parse({
         assets: ["PLTR"],
         heartbeat: {
+          enabled: false,
           intervalMinutes: 5,
           seedWindowDays: 30,
           maxToolSteps: 3,
+          timing: {
+            mode: "open_market",
+            activeDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+            startTime: "09:30",
+            endTime: "16:00",
+            startDate: "2026-05-05",
+            endDate: "2026-06-05",
+            timezone: "America/New_York",
+          },
         },
         prompts: {
           debateBullSystemPrompt: "Argue the bull case.",
@@ -240,6 +250,14 @@ describe("runtime schemas", () => {
       });
 
     expect(config).toMatchObject({
+      heartbeat: {
+        enabled: false,
+        timing: {
+          mode: "open_market",
+          startTime: "09:30",
+          endTime: "16:00",
+        },
+      },
       tools: {
         finnhubPremiumAccess: true,
       },

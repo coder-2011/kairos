@@ -19,6 +19,7 @@ import {
   type SupermemoryMirror,
   type SupermemoryMirrorRecord,
 } from "../../src/global/index.js";
+import type { BranchRecord } from "./src/store.js";
 
 const baseUrl = "http://kairos.local";
 const originalAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
@@ -1825,10 +1826,29 @@ describe("local API handler", () => {
       }) as typeof fetch,
     });
     const { requestJson } = makeClient({ store });
+    const heartbeatTimingConfig = {
+      mode: "open_market",
+      activeDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      startTime: "09:30",
+      endTime: "16:00",
+      startDate: "2026-05-05",
+      endDate: "2026-06-05",
+      timezone: "America/New_York",
+    };
 
     const created = await requestJson("POST", "/branches", {
       id: "branch_supabase",
       name: "Supabase branch",
+      config: {
+        assets: ["PLTR"],
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 10,
+          seedWindowDays: 30,
+          maxToolSteps: 2,
+          timing: heartbeatTimingConfig,
+        },
+      },
     });
     const run = await requestJson("POST", "/branches/branch_supabase/heartbeat-runs", {
       input: { ticker: "PLTR" },
@@ -1891,6 +1911,11 @@ describe("local API handler", () => {
     });
 
     expect(created.status).toBe(201);
+    expect(created.body.branch.config.heartbeat.timing).toEqual(heartbeatTimingConfig);
+    expect(
+      (records.get("branches:branch_supabase")?.record as BranchRecord)
+        .config?.heartbeat?.timing,
+    ).toEqual(heartbeatTimingConfig);
     expect(events.body.events.map((event: { type: string }) => event.type)).toEqual([
       "run.started",
       "heartbeat.seeded",
