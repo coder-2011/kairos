@@ -2,6 +2,10 @@ import type {
   KairosBranchAgentConfig,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
+import type {
+  CreateProviderUsageEventInput,
+  ProviderUsageEvent,
+} from "../../../src/global/usage.js";
 import {
   createBrokerOrderRecord,
   createPortfolioSnapshotRecord,
@@ -66,6 +70,17 @@ export type RunEventRecord = {
   type: string;
   timestamp: string;
   payload: JsonRecord;
+};
+
+export type UsageEventRecord = ProviderUsageEvent;
+export type CreateUsageEventInput = CreateProviderUsageEventInput;
+
+export type ListUsageEventOptions = {
+  provider?: string;
+  runId?: string;
+  branchId?: string;
+  requestId?: string;
+  limit?: number;
 };
 
 export type RouterAttachmentRecord = {
@@ -219,6 +234,8 @@ export type KairosLocalStore = {
   updateRun(id: string, input: Partial<Pick<RunRecord, "status" | "output" | "metadata" | "lifecycle">>): Promise<RunRecord | undefined>;
   listRunEvents(runId: string): Promise<RunEventRecord[]>;
   appendRunEvent(runId: string, input: AppendRunEventInput): Promise<RunEventRecord>;
+  listUsageEvents?(input?: ListUsageEventOptions): Promise<UsageEventRecord[]>;
+  createUsageEvent?(input: CreateUsageEventInput | UsageEventRecord): Promise<UsageEventRecord>;
   subscribeToRunEvents?(runId: string, subscriber: RunEventSubscriber): () => void;
   listRouterChats(): Promise<RouterChatRecord[]>;
   deleteRouterChat(id: string): Promise<boolean>;
@@ -262,6 +279,7 @@ export class MemoryKairosStore implements KairosLocalStore {
   private brokerOrders = new Map<string, BrokerOrder>();
   private portfolioSnapshots = new Map<string, PortfolioSnapshot>();
   private apiControlRecords = new Map<string, ApiControlRecord>();
+  private usageEvents = new Map<string, UsageEventRecord>();
   private subscribers = new Map<string, Set<RunEventSubscriber>>();
   private sequence = 0;
 
@@ -394,6 +412,28 @@ export class MemoryKairosStore implements KairosLocalStore {
     for (const subscriber of this.subscribers.get(runId) ?? []) {
       subscriber(event);
     }
+    return event;
+  }
+
+  async listUsageEvents(input: ListUsageEventOptions = {}): Promise<UsageEventRecord[]> {
+    const events = [...this.usageEvents.values()]
+      .filter((event) => matches(input.provider, event.provider))
+      .filter((event) => matches(input.runId, event.runId))
+      .filter((event) => matches(input.branchId, event.branchId))
+      .filter((event) => matches(input.requestId, event.requestId))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    return input.limit === undefined ? events : events.slice(0, Math.max(0, input.limit));
+  }
+
+  async createUsageEvent(
+    input: CreateUsageEventInput | UsageEventRecord,
+  ): Promise<UsageEventRecord> {
+    const event: UsageEventRecord = {
+      ...input,
+      id: input.id ?? this.nextId("usage"),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+    };
+    this.usageEvents.set(event.id, event);
     return event;
   }
 
@@ -857,6 +897,10 @@ function readString(value: unknown): string | undefined {
 
 function sortByCreatedAt<T extends { createdAt: string }>(records: T[]): T[] {
   return records.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function matches<T>(expected: T | undefined, actual: T | undefined): boolean {
+  return expected === undefined || expected === actual;
 }
 
 export function buildRouterChatTitle(input: {

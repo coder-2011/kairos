@@ -27,16 +27,19 @@ import {
   type CreateDeepResearchMessageInput,
   type CreateBranchInput,
   type CreateRunInput,
+  type CreateUsageEventInput,
   type CreateRouterChatInput,
   type CreateRouterMessageInput,
   type DeepResearchChatRecord,
   type DeepResearchMessageRecord,
   type KairosLocalStore,
+  type ListUsageEventOptions,
   type RouterChatRecord,
   type RouterMessageRecord,
   type RunEventRecord,
   type RunRecord,
   type UpdateBranchInput,
+  type UsageEventRecord,
 } from "./store.js";
 
 type SupabaseRecordRow<T> = {
@@ -63,7 +66,8 @@ type Collection =
   | "trade_intents"
   | "broker_orders"
   | "portfolio_snapshots"
-  | "api_controls";
+  | "api_controls"
+  | "usage_events";
 
 export class SupabaseKairosStore implements KairosLocalStore {
   private readonly client: SupabaseRecordClient;
@@ -429,6 +433,29 @@ export class SupabaseKairosStore implements KairosLocalStore {
     const snapshot = createPortfolioSnapshotRecord(input);
     await this.client.upsert("portfolio_snapshots", snapshot.id, snapshot);
     return snapshot;
+  }
+
+  async listUsageEvents(input: ListUsageEventOptions = {}): Promise<UsageEventRecord[]> {
+    const filters: Record<string, string> = {};
+    if (input.provider) filters["record->>provider"] = `eq.${input.provider}`;
+    if (input.runId) filters["record->>runId"] = `eq.${input.runId}`;
+    if (input.branchId) filters["record->>branchId"] = `eq.${input.branchId}`;
+    if (input.requestId) filters["record->>requestId"] = `eq.${input.requestId}`;
+    const events = await this.client.list<UsageEventRecord>("usage_events", filters);
+    const sorted = events.sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    return input.limit === undefined ? sorted : sorted.slice(0, Math.max(0, input.limit));
+  }
+
+  async createUsageEvent(
+    input: CreateUsageEventInput | UsageEventRecord,
+  ): Promise<UsageEventRecord> {
+    const event: UsageEventRecord = {
+      ...input,
+      id: input.id ?? randomUUID(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+    };
+    await this.client.upsert("usage_events", event.id, event);
+    return event;
   }
 
   async listApiControlRecords(input: {

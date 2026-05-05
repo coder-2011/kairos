@@ -19,17 +19,20 @@ import type {
   CreateDeepResearchChatInput,
   CreateDeepResearchMessageInput,
   CreateRunInput,
+  CreateUsageEventInput,
   CreateRouterChatInput,
   CreateRouterMessageInput,
   DeepResearchChatRecord,
   DeepResearchMessageRecord,
   KairosLocalStore,
+  ListUsageEventOptions,
   RouterChatRecord,
   RouterMessageRecord,
   RunEventRecord,
   RunEventSubscriber,
   RunRecord,
   UpdateBranchInput,
+  UsageEventRecord,
 } from "./store.js";
 
 export function createSupermemoryMirroredStore(
@@ -364,6 +367,23 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       customId: `kairos:portfolio_snapshot:${snapshot.id}`,
     });
     return snapshot;
+  }
+
+  listUsageEvents(input?: ListUsageEventOptions): Promise<UsageEventRecord[]> {
+    return this.store.listUsageEvents?.(input) ?? Promise.resolve([]);
+  }
+
+  createUsageEvent(
+    input: CreateUsageEventInput | UsageEventRecord,
+  ): Promise<UsageEventRecord> {
+    if (!this.store.createUsageEvent) {
+      return Promise.resolve({
+        ...input,
+        id: input.id ?? `usage_${Date.now().toString(36)}`,
+        timestamp: input.timestamp ?? new Date().toISOString(),
+      });
+    }
+    return this.store.createUsageEvent(input);
   }
 
   private mirrorBranch(type: string, branch: BranchRecord): Promise<void> {

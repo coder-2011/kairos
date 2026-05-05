@@ -14,7 +14,11 @@ import {
 import type { PaperTradingBroker } from "../../src/trading/index.js";
 import type { TradingTelegramNotifier } from "../../src/notifications/index.js";
 import { TelegramBotClient } from "../../src/api/telegram.js";
-import type { SupermemoryMirror, SupermemoryMirrorRecord } from "../../src/global/index.js";
+import {
+  recordProviderUsage,
+  type SupermemoryMirror,
+  type SupermemoryMirrorRecord,
+} from "../../src/global/index.js";
 
 const baseUrl = "http://kairos.local";
 const originalAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
@@ -78,6 +82,54 @@ describe("local API handler", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
+  });
+
+  it("persists provider usage events through the request-scoped store sink", async () => {
+    const { requestJson } = makeClient({
+      headers: { "x-request-id": "usage_request_1" },
+      runHeartbeat: async ({ branchId }) => {
+        await recordProviderUsage({
+          provider: "openrouter",
+          operation: "heartbeat.generateText",
+          status: "succeeded",
+          branchId,
+          providerRequestId: "generation_1",
+          model: "openai/gpt-5.1-mini",
+          costUsd: 0.0042,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+        });
+        return {
+          output: { branchId, decision: "monitor" },
+          events: [{ type: "heartbeat.decision", payload: { decision: "monitor" } }],
+        };
+      },
+    });
+
+    await requestJson("POST", "/branches", {
+      id: "branch_usage",
+      name: "Usage branch",
+    });
+    const heartbeat = await requestJson("POST", "/branches/branch_usage/heartbeat-runs", {
+      input: { ticker: "PLTR" },
+    });
+    const usage = await requestJson("GET", "/usage-events?provider=openrouter&limit=5");
+
+    expect(heartbeat.status).toBe(201);
+    expect(usage.status).toBe(200);
+    expect(usage.body.usageEvents).toHaveLength(1);
+    expect(usage.body.usageEvents[0]).toMatchObject({
+      provider: "openrouter",
+      operation: "heartbeat.generateText",
+      status: "succeeded",
+      requestId: "usage_request_1",
+      branchId: "branch_usage",
+      providerRequestId: "generation_1",
+      model: "openai/gpt-5.1-mini",
+      costUsd: 0.0042,
+      totalTokens: 120,
+    });
   });
 
   it("requires a local request header when Supabase auth is disabled", async () => {

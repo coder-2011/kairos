@@ -35,9 +35,12 @@ import {
   type CreateDeepResearchChatInput,
   type CreateDeepResearchMessageInput,
   type CreateRunInput,
+  type CreateUsageEventInput,
   type KairosLocalStore,
+  type ListUsageEventOptions,
   type RunEventRecord,
   type RunRecord,
+  type UsageEventRecord,
   type DeepResearchChatRecord,
   type DeepResearchMessageRecord,
   type RouterChatRecord,
@@ -432,6 +435,30 @@ class RuntimeStoreAdapter implements KairosLocalStore {
     return this.tradingStore.createPortfolioSnapshot(input);
   }
 
+  async listUsageEvents(input: ListUsageEventOptions = {}): Promise<UsageEventRecord[]> {
+    const events = await this.readUsageEvents();
+    const filtered = events
+      .filter((event) => matches(input.provider, event.provider))
+      .filter((event) => matches(input.runId, event.runId))
+      .filter((event) => matches(input.branchId, event.branchId))
+      .filter((event) => matches(input.requestId, event.requestId))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    return input.limit === undefined ? filtered : filtered.slice(0, Math.max(0, input.limit));
+  }
+
+  async createUsageEvent(
+    input: CreateUsageEventInput | UsageEventRecord,
+  ): Promise<UsageEventRecord> {
+    const event: UsageEventRecord = {
+      ...input,
+      id: input.id ?? randomUUID(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+    };
+    await mkdir(dirname(this.usageEventsPath), { recursive: true });
+    await writeFile(this.usageEventsPath, `${JSON.stringify(event)}\n`, { flag: "a" });
+    return event;
+  }
+
   private async updateRunLifecycleFromEvent(
     runId: string,
     event: RunEventRecord,
@@ -504,6 +531,10 @@ class RuntimeStoreAdapter implements KairosLocalStore {
 
   private get deepResearchDir(): string {
     return join(this.store.rootDir, "deep-research");
+  }
+
+  private get usageEventsPath(): string {
+    return join(this.store.rootDir, "usage-events", "events.jsonl");
   }
 
   private deepResearchChatPath(chatId: string): string {
@@ -606,6 +637,19 @@ class RuntimeStoreAdapter implements KairosLocalStore {
         .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line) as T);
+    } catch (error) {
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+  }
+
+  private async readUsageEvents(): Promise<UsageEventRecord[]> {
+    try {
+      const text = await readFile(this.usageEventsPath, "utf8");
+      return text
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as UsageEventRecord);
     } catch (error) {
       if (isNotFoundError(error)) return [];
       throw error;
@@ -719,6 +763,10 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value
     : undefined;
+}
+
+function matches<T>(expected: T | undefined, actual: T | undefined): boolean {
+  return expected === undefined || expected === actual;
 }
 
 function isNotFoundError(error: unknown): boolean {

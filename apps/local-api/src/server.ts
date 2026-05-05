@@ -40,9 +40,12 @@ import {
   createSupermemoryMirror,
   getMemoryContainerTag,
   listOpenRouterModels,
+  openRouterUsageFromChatCompletionPayload,
+  recordProviderUsage,
   resolveDebateAgentConfig,
   resolveInformationAgentConfig,
   resolveKairosModelConfig,
+  withUsageContext,
   isProbablyOpenRouterToolCapableModel,
   type KairosModelRole,
   type KairosBranchAgentConfig,
@@ -363,44 +366,52 @@ export function createLocalApiHandler(context: LocalApiContext): (request: Reque
         method: request.method,
         path: url.pathname,
       },
-      async () => {
-        let response: Response;
-        try {
-          const rateLimitResponse = await checkRateLimit(context.store, request, url);
-          if (rateLimitResponse) {
-            response = rateLimitResponse;
-          } else {
-            const idempotencyFailure = idempotencyKeyFailure(request, url);
-            if (idempotencyFailure) {
-              response = idempotencyFailure;
+      () => withUsageContext(
+        {
+          requestId,
+          sink: async (event) => {
+            await context.store.createUsageEvent?.(event);
+          },
+        },
+        async () => {
+          let response: Response;
+          try {
+            const rateLimitResponse = await checkRateLimit(context.store, request, url);
+            if (rateLimitResponse) {
+              response = rateLimitResponse;
             } else {
-              const idempotencyKey = idempotencyCacheKey(request, url);
-              const cached = idempotencyKey
-                ? await readCachedIdempotentResponse(context.store, idempotencyKey)
-                : undefined;
-              if (cached) {
-                response = cached;
+              const idempotencyFailure = idempotencyKeyFailure(request, url);
+              if (idempotencyFailure) {
+                response = idempotencyFailure;
               } else {
-                response = await handleLocalApiRequest(context, request);
-                if (idempotencyKey) {
-                  response = await cacheIdempotentResponse(context.store, idempotencyKey, response);
+                const idempotencyKey = idempotencyCacheKey(request, url);
+                const cached = idempotencyKey
+                  ? await readCachedIdempotentResponse(context.store, idempotencyKey)
+                  : undefined;
+                if (cached) {
+                  response = cached;
+                } else {
+                  response = await handleLocalApiRequest(context, request);
+                  if (idempotencyKey) {
+                    response = await cacheIdempotentResponse(context.store, idempotencyKey, response);
+                  }
                 }
               }
             }
+          } catch (error) {
+            console.error("[kairos] local api uncaught error", {
+              requestId,
+              method: request.method,
+              path: url.pathname,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            response = json({ error: "internal_error", message: "Internal server error." }, 500);
           }
-        } catch (error) {
-          console.error("[kairos] local api uncaught error", {
-            requestId,
-            method: request.method,
-            path: url.pathname,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          response = json({ error: "internal_error", message: "Internal server error." }, 500);
-        }
-        const secured = withSecurityHeaders(withCors(response, request), request);
-        logLocalApiRequest(secured, request, url);
-        return secured;
-      },
+          const secured = withSecurityHeaders(withCors(response, request), request);
+          logLocalApiRequest(secured, request, url);
+          return secured;
+        },
+      ),
     );
   };
 }
@@ -776,6 +787,19 @@ async function handleLocalApiRequest(
           if (!run) return json({ error: "not_found", message: "Run not found." }, 404);
           return json({ events: await context.store.listRunEvents(route.params.runId) });
         }
+
+        case "listUsageEvents":
+          return json({
+            usageEvents: context.store.listUsageEvents
+              ? await context.store.listUsageEvents({
+                  provider: readOptionalSearchParam(url.searchParams, "provider"),
+                  runId: readOptionalSearchParam(url.searchParams, "runId"),
+                  branchId: readOptionalSearchParam(url.searchParams, "branchId"),
+                  requestId: readOptionalSearchParam(url.searchParams, "requestId"),
+                  limit: readPositiveIntegerSearchParam(url.searchParams, "limit"),
+                })
+              : [],
+          });
 
         case "triggerHeartbeat":
           return await triggerHeartbeat(context, route.params.branchId, await readJson(request));
@@ -2060,6 +2084,7 @@ async function callGemmaChatTitleModel(
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || !text.trim()) return undefined;
 
+  const startedAt = Date.now();
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -2083,11 +2108,32 @@ async function callGemmaChatTitleModel(
     }),
   });
 
-  if (!response.ok) return undefined;
+  if (!response.ok) {
+    await recordOpenRouterChatCompletionUsage({
+      payload: undefined,
+      operation: "router.title",
+      model,
+      status: "failed",
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+    });
+    return undefined;
+  }
 
   const payload = (await response.json()) as {
+    id?: string;
+    model?: string;
+    usage?: unknown;
     choices?: Array<{ message?: { content?: string } }>;
   };
+  await recordOpenRouterChatCompletionUsage({
+    payload,
+    operation: "router.title",
+    model,
+    status: "succeeded",
+    statusCode: response.status,
+    durationMs: Date.now() - startedAt,
+  });
   return cleanRouterChatTitle(payload.choices?.[0]?.message?.content);
 }
 
@@ -2098,6 +2144,18 @@ function cleanRouterChatTitle(value: string | undefined): string | undefined {
     .trim();
   if (!title) return undefined;
   return title.length > 48 ? `${title.slice(0, 45).trimEnd()}...` : title;
+}
+
+async function recordOpenRouterChatCompletionUsage(input: {
+  payload: unknown;
+  operation: string;
+  model?: string;
+  status: "succeeded" | "failed" | "unknown";
+  statusCode?: number;
+  durationMs?: number;
+  metadata?: JsonRecord;
+}): Promise<void> {
+  await recordProviderUsage(openRouterUsageFromChatCompletionPayload(input));
 }
 
 async function getPortfolio(
@@ -3681,8 +3739,34 @@ function structuredModelProvider(
 ): StructuredDebateModelProvider & StructuredInformationModelProvider {
   return {
     withStructuredOutput: <T>(schema: unknown) => ({
-      invoke: (input: unknown) =>
-        (model.withStructuredOutput as (schema: unknown) => { invoke: (input: unknown) => Promise<T> })(schema).invoke(input),
+      invoke: async (input: unknown) => {
+        const startedAt = Date.now();
+        try {
+          const output = await (model.withStructuredOutput as (schema: unknown) => { invoke: (input: unknown) => Promise<T> })(schema).invoke(input);
+          await recordProviderUsage({
+            provider: "openrouter",
+            operation: "langchain.structured_output",
+            status: "succeeded",
+            durationMs: Date.now() - startedAt,
+            quotaUnits: 1,
+            unit: "request",
+          });
+          return output;
+        } catch (error) {
+          await recordProviderUsage({
+            provider: "openrouter",
+            operation: "langchain.structured_output",
+            status: "failed",
+            durationMs: Date.now() - startedAt,
+            quotaUnits: 1,
+            unit: "request",
+            metadata: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+          throw error;
+        }
+      },
     }),
   };
 }
@@ -4319,6 +4403,7 @@ type Route =
   | { name: "appendInterjection"; params: { runId: string } }
   | { name: "cancelRun"; params: { runId: string } }
   | { name: "streamRunEvents"; params: { runId: string } }
+  | { name: "listUsageEvents"; params: Record<string, never> }
   | { name: "getPortfolio"; params: Record<string, never> }
   | { name: "refreshPortfolio"; params: Record<string, never> }
   | { name: "listMessages"; params: Record<string, never> }
@@ -4387,6 +4472,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   if (segments.length === 3 && segments[0] === "runs" && segments[2] === "interjections" && method === "POST") {
     return { name: "appendInterjection", params: { runId: segments[1] } };
   }
+  if (segments.length === 1 && segments[0] === "usage-events" && method === "GET") return { name: "listUsageEvents", params: {} };
   if (segments.length === 1 && segments[0] === "debates" && method === "POST") return { name: "createDebate", params: {} };
   if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "drain" && method === "POST") return { name: "drainJobs", params: {} };
 
@@ -4397,6 +4483,24 @@ async function readJson(request: Request): Promise<unknown> {
   const text = await readTextWithLimit(request, maxJsonBodyBytes());
   if (!text.trim()) return {};
   return JSON.parse(text);
+}
+
+function readOptionalSearchParam(
+  searchParams: URLSearchParams,
+  name: string,
+): string | undefined {
+  const value = searchParams.get(name)?.trim();
+  return value ? value : undefined;
+}
+
+function readPositiveIntegerSearchParam(
+  searchParams: URLSearchParams,
+  name: string,
+): number | undefined {
+  const value = searchParams.get(name);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 async function readTextWithLimit(request: Request, maxBytes: number): Promise<string> {
@@ -4564,13 +4668,20 @@ function redactSensitiveResponseValues(value: unknown, seen = new WeakSet<object
   const redacted = Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      SENSITIVE_RESPONSE_KEY_PATTERN.test(key)
+      isSensitiveResponseKey(key)
         ? "[redacted]"
         : redactSensitiveResponseValues(item, seen),
     ]),
   );
   seen.delete(value);
   return redacted;
+}
+
+function isSensitiveResponseKey(key: string): boolean {
+  if (/^(?:input|output|total|reasoning|cachedInput)Tokens$/.test(key)) {
+    return false;
+  }
+  return SENSITIVE_RESPONSE_KEY_PATTERN.test(key);
 }
 
 function isLoopbackOrigin(origin: string): boolean {
