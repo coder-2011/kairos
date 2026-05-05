@@ -53,12 +53,16 @@ export async function handleTelegramDeepResearchUpdate(input: {
 
   const quickReply = quickTelegramReply(message, promptText, attachments);
   if (quickReply) {
-    await input.bot.sendMessage({ chatId, text: quickReply });
+    const reacted = await reactToTelegramMessage(input.bot, message, quickReply);
+    if (!reacted) {
+      await input.bot.sendMessage({ chatId, text: fallbackQuickTelegramText(message, promptText) });
+    }
     await markTelegramUpdateSeen(input.context, input.update.update_id, chatId);
     return { handled: true, action: "answered", chatId };
   }
 
   try {
+    await reactToTelegramMessage(input.bot, message, "🤔");
     await input.bot.sendChatAction({ chatId, action: "typing" });
     const task = runTelegramResearchAndReply(input, message, promptText, attachments, chatId);
     const waitUntil = telegramWaitUntil();
@@ -163,21 +167,42 @@ function quickTelegramReply(
   message: TelegramMessage,
   text: string,
   attachments: DeepResearchImageAttachment[],
-): string | undefined {
+): "👍" | undefined {
   if (attachments.length > 0) return undefined;
   const normalized = text.trim().toLowerCase();
   if (!normalized) return undefined;
+  if (/^(thanks|thank you|ty|thx|appreciate it)[!.?\s]*$/i.test(text.trim())) {
+    return "👍";
+  }
+  if (/^(ok|okay|k|cool|nice|got it|sounds good)[!.?\s]*$/i.test(text.trim())) {
+    return "👍";
+  }
+  return undefined;
+}
+
+function fallbackQuickTelegramText(message: TelegramMessage, text: string): string {
   const speaker = message.from?.first_name?.trim() || "there";
   if (/^(hi|hey|hello|yo|sup|gm|gn|what'?s up|whats up)[!.?\s]*$/i.test(text.trim())) {
     return `Hey ${speaker}. I’m here. Send me a ticker, screenshot, thesis, or mildly unhinged market take and I’ll dig in.`;
   }
-  if (/^(thanks|thank you|ty|thx|appreciate it)[!.?\s]*$/i.test(text.trim())) {
-    return "Anytime. I live for clean evidence and questionable group-chat alpha.";
+  return "Got it.";
+}
+
+async function reactToTelegramMessage(
+  bot: TelegramBotClient,
+  message: TelegramMessage,
+  emoji: "👍" | "🤔",
+): Promise<boolean> {
+  try {
+    await bot.setMessageReaction({
+      chatId: String(message.chat.id),
+      messageId: message.message_id,
+      emoji,
+    });
+    return true;
+  } catch {
+    return false;
   }
-  if (/^(ok|okay|k|cool|nice|got it|sounds good)[!.?\s]*$/i.test(text.trim())) {
-    return "Logged in the vibes ledger.";
-  }
-  return undefined;
 }
 
 function shouldRespondInTelegramChat(message: TelegramMessage, text: string): boolean {

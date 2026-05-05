@@ -22,6 +22,8 @@ export type TelegramSendMessageResult = {
   date?: number;
 };
 
+export type TelegramReactionEmoji = "👍" | "🤔";
+
 export type TelegramWebhookInfo = {
   url: string;
   pending_update_count: number;
@@ -183,6 +185,24 @@ export class TelegramBotClient {
     return this.request<boolean>("sendChatAction", {
       chat_id: chatId,
       action: input.action ?? "typing",
+    });
+  }
+
+  async setMessageReaction(input: {
+    chatId?: string;
+    messageId: number;
+    emoji?: TelegramReactionEmoji;
+    isBig?: boolean;
+  }): Promise<boolean> {
+    const chatId = input.chatId ?? this.defaultChatId;
+    this.validateSendConfigured(chatId);
+    return this.request<boolean>("setMessageReaction", {
+      chat_id: chatId,
+      message_id: input.messageId,
+      reaction: input.emoji
+        ? [{ type: "emoji", emoji: input.emoji }]
+        : [],
+      ...(input.isBig === undefined ? {} : { is_big: input.isBig }),
     });
   }
 
