@@ -1,1 +1,1 @@
-export * from "./trading-sms.js";
+export * from "./trading-telegram.js";
