@@ -14,6 +14,13 @@ import type {
   KairosConfigModelRole,
   KairosReasoningEffort,
 } from "../../../src/global/agent-config.js";
+import {
+  DEFAULT_HEARTBEAT_TIMING_CONFIG,
+  HEARTBEAT_ALL_DAYS,
+  type HeartbeatActiveDay,
+  type HeartbeatTimingConfig,
+  type HeartbeatTimingMode,
+} from "../../../src/global/heartbeat-timing.js";
 import type { KairosSession } from "./auth";
 import {
   getSupabaseAuthConfiguredError,
@@ -235,6 +242,37 @@ const tradingActionOptions: Array<{
   { label: "Notify", value: "notify" },
   { label: "Both", value: "both" },
 ];
+
+const heartbeatTimingModeOptions: Array<{
+  label: string;
+  value: HeartbeatTimingMode;
+}> = [
+  { label: "Open market •", value: "open_market" },
+  { label: "Custom window", value: "custom" },
+  { label: "Always active", value: "always" },
+];
+
+const heartbeatDayOptions: Array<{
+  key: HeartbeatActiveDay;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: "monday", label: "Monday", shortLabel: "Mon" },
+  { key: "tuesday", label: "Tuesday", shortLabel: "Tue" },
+  { key: "wednesday", label: "Wednesday", shortLabel: "Wed" },
+  { key: "thursday", label: "Thursday", shortLabel: "Thu" },
+  { key: "friday", label: "Friday", shortLabel: "Fri" },
+  { key: "saturday", label: "Saturday", shortLabel: "Sat" },
+  { key: "sunday", label: "Sunday", shortLabel: "Sun" },
+];
+
+const heartbeatTimezoneOptions = [
+  "America/New_York",
+  "America/Los_Angeles",
+  "UTC",
+] as const;
+
+const heartbeatTimeOptions = createHeartbeatTimeOptions();
 
 const defaultInformationToolPolicies = Object.fromEntries(
   [
@@ -3042,6 +3080,8 @@ function BranchConfig({
 
   const heartbeatInterval = config.heartbeat?.intervalMinutes ?? 5;
   const seedWindowDays = config.heartbeat?.seedWindowDays ?? 30;
+  const generalMarketNewsWindowDays =
+    config.seededData?.generalMarketNewsWindowDays ?? 20;
   const heartbeatMaxToolSteps = config.heartbeat?.maxToolSteps ?? 3;
   const debateMaxTurns = config.budgets?.debateMaxTurns ?? 6;
   const debateMaxToolCalls = config.budgets?.debateMaxToolCalls ?? 5;
@@ -3071,14 +3111,60 @@ function BranchConfig({
       config.thresholds?.paperTradeDraftConfidence ??
       0.9) * 100,
   );
+  const heartbeatEnabled = config.heartbeat?.enabled ?? true;
+  const heartbeatTiming = normalizeHeartbeatTimingDraft(config.heartbeat?.timing);
+  const heartbeatDateOptions = createHeartbeatDateOptions([
+    heartbeatTiming.startDate,
+    heartbeatTiming.endDate,
+  ]);
+  const timingWindowDisabled = !heartbeatEnabled || heartbeatTiming.mode === "always";
   const heartbeatBlocked = capabilityPreflight?.checks.some((check) =>
     check.status === "blocked" &&
     ["branch", "law", "openrouter_key"].includes(check.id)
-  ) ?? capabilityLoadState !== "api";
+  ) || !heartbeatEnabled || capabilityLoadState !== "api";
   const debateBlocked = capabilityPreflight?.checks.some((check) =>
     check.status === "blocked" &&
     ["branch", "law", "openrouter_key"].includes(check.id)
   ) ?? capabilityLoadState !== "api";
+
+  function updateHeartbeatConfig(
+    nextHeartbeat: NonNullable<WebBranchConfig["heartbeat"]>,
+  ) {
+    setConfig((current) => ({
+      ...current,
+      heartbeat: {
+        ...current.heartbeat,
+        ...nextHeartbeat,
+      },
+    }));
+  }
+
+  function updateHeartbeatTiming(nextTiming: Partial<HeartbeatTimingConfig>) {
+    setConfig((current) => ({
+      ...current,
+      heartbeat: {
+        ...current.heartbeat,
+        timing: {
+          ...normalizeHeartbeatTimingDraft(current.heartbeat?.timing),
+          ...nextTiming,
+        },
+      },
+    }));
+  }
+
+  function updateHeartbeatDay(day: HeartbeatActiveDay, active: boolean) {
+    const activeDays = new Set(heartbeatTiming.activeDays);
+    if (active) {
+      activeDays.add(day);
+    } else {
+      activeDays.delete(day);
+    }
+    updateHeartbeatTiming({
+      activeDays: heartbeatDayOptions
+        .map((option) => option.key)
+        .filter((option) => activeDays.has(option)),
+    });
+  }
 
   return (
     <main className="config-canvas">
@@ -3456,22 +3542,6 @@ function BranchConfig({
           />
         </FieldLabel>
         <div className="config-grid">
-          <FieldLabel label="Heartbeat Interval Minutes">
-            <input
-              min="1"
-              onChange={(event) =>
-                setConfig((current) => ({
-                  ...current,
-                  heartbeat: {
-                    ...current.heartbeat,
-                    intervalMinutes: Number(event.target.value),
-                  },
-                }))
-              }
-              type="number"
-              value={heartbeatInterval}
-            />
-          </FieldLabel>
           <FieldLabel label="Seed Window Days">
             <input
               min="1"
@@ -3568,6 +3638,22 @@ function BranchConfig({
               value={informationMaxToolCalls}
             />
           </FieldLabel>
+          <FieldLabel label="General News Window Days">
+            <input
+              min="1"
+              onChange={(event) =>
+                setConfig((current) => ({
+                  ...current,
+                  seededData: {
+                    ...current.seededData,
+                    generalMarketNewsWindowDays: Number(event.target.value),
+                  },
+                }))
+              }
+              type="number"
+              value={generalMarketNewsWindowDays}
+            />
+          </FieldLabel>
         </div>
         <div>
           <div className="field-label">ESCALATION AND REVIEW THRESHOLDS</div>
@@ -3600,6 +3686,167 @@ function BranchConfig({
             />
           </div>
         </div>
+        <section className="heartbeat-timing-panel">
+          <div className="heartbeat-timing-head">
+            <h2>Timing for heartbeat</h2>
+            <span className={`risk-pill ${heartbeatEnabled ? "enabled" : ""}`}>
+              {heartbeatEnabled ? "ON" : "OFF"}
+            </span>
+          </div>
+          <div className="heartbeat-timing-grid">
+            <FieldLabel label="Heartbeat">
+              <select
+                aria-label="Heartbeat active status"
+                onChange={(event) =>
+                  updateHeartbeatConfig({
+                    enabled: event.target.value === "on",
+                  })
+                }
+                value={heartbeatEnabled ? "on" : "off"}
+              >
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Cadence">
+              <select
+                aria-label="Heartbeat cadence"
+                disabled={!heartbeatEnabled}
+                onChange={(event) =>
+                  updateHeartbeatConfig({
+                    intervalMinutes: Number(event.target.value),
+                  })
+                }
+                value={String(heartbeatInterval)}
+              >
+                {[1, 2, 5, 10, 15, 30, 60].map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    Every {minutes}m
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Schedule">
+              <select
+                aria-label="Heartbeat schedule"
+                disabled={!heartbeatEnabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({
+                    mode: event.target.value as HeartbeatTimingMode,
+                  })
+                }
+                value={heartbeatTiming.mode}
+              >
+                {heartbeatTimingModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Time Zone">
+              <select
+                aria-label="Heartbeat time zone"
+                disabled={!heartbeatEnabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({ timezone: event.target.value })
+                }
+                value={heartbeatTiming.timezone}
+              >
+                {heartbeatTimezoneOptions.map((timezone) => (
+                  <option key={timezone} value={timezone}>
+                    {timezone}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Start Time">
+              <select
+                aria-label="Heartbeat start time"
+                disabled={timingWindowDisabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({ startTime: event.target.value })
+                }
+                value={heartbeatTiming.startTime}
+              >
+                {heartbeatTimeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="End Time">
+              <select
+                aria-label="Heartbeat end time"
+                disabled={timingWindowDisabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({ endTime: event.target.value })
+                }
+                value={heartbeatTiming.endTime}
+              >
+                {heartbeatTimeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Active From">
+              <select
+                aria-label="Heartbeat active from date"
+                disabled={!heartbeatEnabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({
+                    startDate: event.target.value || undefined,
+                  })
+                }
+                value={heartbeatTiming.startDate ?? ""}
+              >
+                {heartbeatDateOptions.map((option) => (
+                  <option key={`start-${option.value || "none"}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Active Through">
+              <select
+                aria-label="Heartbeat active through date"
+                disabled={!heartbeatEnabled}
+                onChange={(event) =>
+                  updateHeartbeatTiming({
+                    endDate: event.target.value || undefined,
+                  })
+                }
+                value={heartbeatTiming.endDate ?? ""}
+              >
+                {heartbeatDateOptions.map((option) => (
+                  <option key={`end-${option.value || "none"}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+          </div>
+          <div className="heartbeat-day-grid">
+            {heartbeatDayOptions.map((day) => (
+              <FieldLabel key={day.key} label={day.shortLabel}>
+                <select
+                  aria-label={`${day.label} heartbeat activity`}
+                  disabled={timingWindowDisabled}
+                  onChange={(event) =>
+                    updateHeartbeatDay(day.key, event.target.value === "on")
+                  }
+                  value={heartbeatTiming.activeDays.includes(day.key) ? "on" : "off"}
+                >
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </FieldLabel>
+            ))}
+          </div>
+        </section>
       </div>
     </main>
   );
@@ -4458,6 +4705,9 @@ function defaultBranchConfig(): WebBranchConfig {
       seedWindowDays: 30,
       maxToolSteps: 3,
     },
+    seededData: {
+      generalMarketNewsWindowDays: 20,
+    },
     prompts: {
       heartbeatSystemPrompt: HEARTBEAT_SYSTEM_PROMPT,
       debateJudgeSystemPrompt: JUDGE_SYSTEM_PROMPT,
@@ -4520,6 +4770,11 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
       intervalMinutes: heartbeat.intervalMinutes ?? legacyInterval ?? 5,
       seedWindowDays: heartbeat.seedWindowDays ?? 30,
       maxToolSteps: heartbeat.maxToolSteps ?? 3,
+    },
+    seededData: {
+      ...config.seededData,
+      generalMarketNewsWindowDays:
+        config.seededData?.generalMarketNewsWindowDays ?? 20,
     },
     prompts: {
       ...config.prompts,

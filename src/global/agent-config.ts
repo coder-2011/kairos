@@ -4,6 +4,7 @@ import {
   finnhubEndpointCatalogForAccess,
   type FinnhubRestEndpointMetadata,
 } from "./finnhub-catalog.js";
+import { heartbeatTimingConfigSchema } from "./heartbeat-timing.js";
 import { tradingConfigSchema } from "../trading/schemas.js";
 
 export const kairosModelRoleSchema = z.enum([
@@ -130,14 +131,17 @@ export const kairosBranchAgentConfigSchema = z
     riskLevel: z.enum(["low", "medium", "high"]).optional(),
     heartbeat: z
       .object({
+        enabled: z.boolean().optional(),
         intervalMinutes: z.number().positive().optional(),
         seedWindowDays: z.number().int().positive().optional(),
         maxToolSteps: z.number().int().min(0).optional(),
+        timing: heartbeatTimingConfigSchema.optional(),
       })
       .strict()
       .optional(),
     seededData: z
       .object({
+        generalMarketNewsWindowDays: z.number().int().positive().optional(),
         optionalSources: z.record(z.string(), z.boolean()).optional(),
       })
       .strict()

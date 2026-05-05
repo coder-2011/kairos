@@ -38,7 +38,10 @@ import {
   kairosBranchAgentConfigSchema,
   createSupermemoryMemoryApi,
   createSupermemoryMirror,
+  DEFAULT_HEARTBEAT_TIMING_CONFIG,
   getMemoryContainerTag,
+  heartbeatTimingSummary,
+  isHeartbeatTimingActiveAt,
   listOpenRouterModels,
   openRouterUsageFromChatCompletionPayload,
   recordProviderUsage,
@@ -107,6 +110,7 @@ export type LocalApiDependencies = {
   notificationSender?: TradingTelegramNotifier;
   telegramBot?: TelegramBotClient;
   supermemoryMirror?: SupermemoryMirror;
+  now?: () => Date;
 };
 
 export type LocalApiOptions = {
@@ -129,12 +133,14 @@ export type LocalApiContext = {
   telegramBot?: TelegramBotClient;
   supermemoryMirror?: SupermemoryMirror;
   debateCancelStates: Map<string, DebateCancelState>;
+  now: () => Date;
 };
 
 type HeartbeatTriggerInput = {
   branchId: string;
   payload: JsonRecord;
   branch: BranchRecord;
+  now?: () => Date;
 };
 
 type HeartbeatRunResult = {
@@ -323,6 +329,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     telegramBot,
     supermemoryMirror,
     debateCancelStates,
+    now: options.dependencies?.now ?? (() => new Date()),
   };
 }
 
@@ -1123,6 +1130,17 @@ function buildCapabilityChecks(branch: BranchRecord | undefined): CapabilityChec
     branch?.enabled
       ? check("branch_enabled", "Branch Enabled", "ready", "Branch is enabled.")
       : check("branch_enabled", "Branch Enabled", "warning", "Branch is disabled; manual actions can run, but scheduled monitoring will not."),
+    branch && branchConfig?.heartbeat?.enabled === false
+      ? check("heartbeat_enabled", "Heartbeat Enabled", "warning", "Heartbeat is turned off for this branch.")
+      : check("heartbeat_enabled", "Heartbeat Enabled", branch ? "ready" : "warning", "Heartbeat is configured to run for this branch."),
+    branch
+      ? check(
+          "heartbeat_timing",
+          "Heartbeat Timing",
+          "ready",
+          heartbeatTimingSummary(branchConfig?.heartbeat?.timing ?? DEFAULT_HEARTBEAT_TIMING_CONFIG),
+        )
+      : check("heartbeat_timing", "Heartbeat Timing", "warning", "No branch timing is selected."),
     (branch ? branchLawText(branch).trim() : "")
       ? check("law", "Law", "ready", "Branch has law text.")
       : check("law", "Law", "blocked", "Branch needs a law before agent runs are meaningful."),
@@ -1221,6 +1239,7 @@ async function executeHeartbeatRun(
       branchId: branch.id,
       payload: runPayload,
       branch,
+      now: context.now,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
@@ -1899,15 +1918,18 @@ async function createRouterMessage(
     });
 
     const branches = await context.store.listBranches();
+    const now = context.now();
     const branchInventory = branches.map((branch) => ({
       id: branch.id,
       text: branchInventoryText(branch),
       enabled: branch.enabled,
+      heartbeatEnabled: isBranchHeartbeatEnabled(branch),
+      heartbeatActive: isBranchHeartbeatActiveForAutomaticRun(branch, now),
     }));
     const inventoryToolCall = createRouterToolCall({
       name: "branch_inventory",
       status: "succeeded",
-      summary: `Loaded ${branchInventory.filter((branch) => branch.enabled).length} enabled branches from ${branchInventory.length} total branches.`,
+      summary: `Loaded ${branchInventory.filter((branch) => branch.heartbeatActive).length} heartbeat-active branches from ${branchInventory.length} total branches.`,
       output: { branches: branchInventory },
     });
     toolCalls.push(inventoryToolCall);
@@ -1916,7 +1938,7 @@ async function createRouterMessage(
       payload: inventoryToolCall,
     });
 
-    const selectedBranchIds = routeToBranches(userMessage.text ?? "", sources, branches);
+    const selectedBranchIds = routeToBranches(userMessage.text ?? "", sources, branches, now);
     await context.store.appendRunEvent(run.id, {
       type: "router.route.selected",
       payload: { branchIds: selectedBranchIds },
@@ -3194,6 +3216,7 @@ async function runConfiguredHeartbeat(input: HeartbeatTriggerInput): Promise<Hea
       ? input.branch.config?.heartbeat?.maxToolSteps ?? 3
       : 0,
     runId: readString(input.payload.runId),
+    now: input.now,
     seedPolicy: { allowPartialSeedBundle: true },
   });
 
@@ -3421,6 +3444,7 @@ function routeToBranches(
   messageText: string,
   sources: RouterExtractedSource[],
   branches: BranchRecord[],
+  now: Date = new Date(),
 ): string[] {
   const submittedText = normalizeText([
     messageText,
@@ -3429,7 +3453,7 @@ function routeToBranches(
   if (!submittedText) return [];
 
   return branches
-    .filter((branch) => branch.enabled)
+    .filter((branch) => isBranchHeartbeatActiveForAutomaticRun(branch, now))
     .filter((branch) => branchMatchesText(branch, submittedText))
     .map((branch) => branch.id);
 }
@@ -3973,6 +3997,22 @@ function branchRunContext(branch: BranchRecord): JsonRecord {
   };
 }
 
+function isBranchHeartbeatEnabled(branch: BranchRecord): boolean {
+  return branch.enabled && branch.config?.heartbeat?.enabled !== false;
+}
+
+function isBranchHeartbeatActiveForAutomaticRun(
+  branch: BranchRecord,
+  now: Date,
+): boolean {
+  if (!isBranchHeartbeatEnabled(branch)) {
+    return false;
+  }
+
+  const timing = branch.config?.heartbeat?.timing;
+  return timing === undefined || isHeartbeatTimingActiveAt(timing, now);
+}
+
 function branchSupermemoryContainerTags(branch: BranchRecord): string[] {
   return [
     branchMemoryContainerTag(branch),
@@ -4006,10 +4046,11 @@ function toHeartbeatBranchConfig(branch: BranchRecord): HeartbeatBranchConfig {
     law: branchLawText(branch),
     assets: config.assets ?? [],
     heartbeat: {
-      enabled: branch.enabled,
+      enabled: isBranchHeartbeatEnabled(branch),
       intervalMinutes: config.heartbeat?.intervalMinutes ?? 5,
       seedWindowDays: config.heartbeat?.seedWindowDays ?? 30,
       model: heartbeatModel,
+      timing: config.heartbeat?.timing ?? DEFAULT_HEARTBEAT_TIMING_CONFIG,
     },
     seededData: config.seededData,
     memory: readJsonRecord(config)?.memory as HeartbeatBranchConfig["memory"],

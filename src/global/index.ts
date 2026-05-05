@@ -2,6 +2,7 @@ export * from "./agent-runtime.js";
 export * from "./agent-config.js";
 export * from "./env.js";
 export * from "./finnhub-catalog.js";
+export * from "./heartbeat-timing.js";
 export * from "./memory.js";
 export * from "./model-config.js";
 export * from "./observability.js";

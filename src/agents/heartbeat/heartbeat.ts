@@ -6,6 +6,7 @@ import {
 import {
   assertOpenRouterToolCapableModel,
   getAgentRunId,
+  isHeartbeatTimingActiveAt,
   observeAgentError,
   observeAgentEvent,
 } from "../../global/index.js";
@@ -129,7 +130,19 @@ export function startHeartbeatScheduler(
     return result;
   };
 
+  const shouldRunBranch = (branch: BranchConfig): boolean => {
+    return branch.heartbeat.enabled &&
+      (
+        branch.heartbeat.timing === undefined ||
+        isHeartbeatTimingActiveAt(branch.heartbeat.timing, deps.now?.() ?? new Date())
+      );
+  };
+
   const runSafely = (branch: BranchConfig): void => {
+    if (!shouldRunBranch(branch)) {
+      return;
+    }
+
     void runBranch(branch).catch((error: unknown) => {
       deps.onError?.(error, branch);
     });
@@ -147,7 +160,7 @@ export function startHeartbeatScheduler(
   );
 
   return {
-    runNow: () => Promise.all(branchList.map(runBranch)),
+    runNow: () => Promise.all(branchList.filter(shouldRunBranch).map(runBranch)),
     stop: () => {
       stopped = true;
       timers.forEach(clearInterval);
