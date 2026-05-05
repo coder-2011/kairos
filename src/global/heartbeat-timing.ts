@@ -91,7 +91,7 @@ export function normalizeHeartbeatTimingConfig(
   return {
     mode,
     activeDays:
-      timing?.activeDays && timing.activeDays.length > 0
+      timing?.activeDays !== undefined
         ? timing.activeDays
         : DEFAULT_HEARTBEAT_TIMING_CONFIG.activeDays,
     startTime: timing?.startTime ?? DEFAULT_HEARTBEAT_TIMING_CONFIG.startTime,
