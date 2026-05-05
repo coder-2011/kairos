@@ -16,7 +16,6 @@ import type {
 } from "../../../src/global/agent-config.js";
 import {
   DEFAULT_HEARTBEAT_TIMING_CONFIG,
-  HEARTBEAT_ALL_DAYS,
   type HeartbeatActiveDay,
   type HeartbeatTimingConfig,
   type HeartbeatTimingMode,
@@ -4841,6 +4840,98 @@ function normalizeBranchConfig(branch: BranchRecord): WebBranchConfig {
   };
 }
 
+function normalizeHeartbeatTimingDraft(
+  timing: HeartbeatTimingConfig | undefined,
+): Required<Pick<
+  HeartbeatTimingConfig,
+  "mode" | "activeDays" | "startTime" | "endTime" | "timezone"
+>> & Pick<HeartbeatTimingConfig, "startDate" | "endDate"> {
+  const mode = timing?.mode ?? DEFAULT_HEARTBEAT_TIMING_CONFIG.mode;
+  return {
+    mode,
+    activeDays:
+      timing?.activeDays && timing.activeDays.length > 0
+        ? timing.activeDays
+        : [...DEFAULT_HEARTBEAT_TIMING_CONFIG.activeDays],
+    startTime:
+      mode === "always"
+        ? "00:00"
+        : timing?.startTime ?? DEFAULT_HEARTBEAT_TIMING_CONFIG.startTime,
+    endTime:
+      mode === "always"
+        ? "23:59"
+        : timing?.endTime ?? DEFAULT_HEARTBEAT_TIMING_CONFIG.endTime,
+    startDate: timing?.startDate,
+    endDate: timing?.endDate,
+    timezone: timing?.timezone ?? DEFAULT_HEARTBEAT_TIMING_CONFIG.timezone,
+  };
+}
+
+function createHeartbeatTimeOptions(): Array<{ value: string; label: string }> {
+  const options: Array<{ value: string; label: string }> = [];
+  for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    options.push({ value, label: formatClockTime(value) });
+  }
+  return options;
+}
+
+function createHeartbeatDateOptions(
+  extraValues: Array<string | undefined>,
+): Array<{ value: string; label: string }> {
+  const today = new Date();
+  const values = new Set(
+    extraValues.filter((value): value is string => Boolean(value)),
+  );
+  const options = [{ value: "", label: "No date limit" }];
+
+  for (let offset = 0; offset <= 365; offset += 1) {
+    const date = new Date(today);
+    date.setHours(12, 0, 0, 0);
+    date.setDate(today.getDate() + offset);
+    const value = toDateSelectValue(date);
+    values.add(value);
+  }
+
+  return [
+    ...options,
+    ...[...values].sort().map((value) => ({
+      value,
+      label: formatDateSelectLabel(value),
+    })),
+  ];
+}
+
+function toDateSelectValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateSelectLabel(value: string): string {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day, 12));
+}
+
+function formatClockTime(value: string): string {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 function stripLegacyRequiredToolPolicies<
   TPolicies extends Record<string, unknown> | undefined,
 >(policies: TPolicies): TPolicies {
@@ -4948,8 +5039,13 @@ function formatHeartbeat(branch: BranchRecord) {
   const value = branch.metadata?.heartbeatMs;
   if (typeof value === "number") return `${value}ms`;
   const interval = branch.config?.heartbeat?.intervalMinutes;
-  if (!branch.enabled) return "-";
-  return typeof interval === "number" ? `${interval}m` : "Not configured";
+  if (!branch.enabled || branch.config?.heartbeat?.enabled === false) return "Off";
+  if (typeof interval !== "number") return "Not configured";
+  const mode = branch.config?.heartbeat?.timing?.mode;
+  if (mode === "open_market") return `${interval}m open market`;
+  if (mode === "custom") return `${interval}m custom`;
+  if (mode === "always") return `${interval}m always`;
+  return `${interval}m`;
 }
 
 function formatConfidence(value: number | undefined) {

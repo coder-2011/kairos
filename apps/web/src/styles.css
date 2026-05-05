@@ -3867,6 +3867,50 @@ select:focus:hover {
   padding: 16px;
 }
 
+.heartbeat-timing-panel {
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-md);
+}
+
+.heartbeat-timing-head {
+  align-items: center;
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.heartbeat-timing-head h2 {
+  color: var(--on-surface);
+  font-size: 18px;
+  line-height: 24px;
+  margin: 0;
+}
+
+.heartbeat-timing-head .risk-pill.enabled {
+  background: var(--primary-fixed);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.heartbeat-timing-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.heartbeat-day-grid {
+  border-top: 1px solid var(--outline-variant);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 16px;
+}
+
 .trading-section {
   display: flex;
   flex-direction: column;
@@ -4582,11 +4626,13 @@ select:focus:hover {
   }
 
   .portfolio-metrics,
-  .trading-grid {
+  .trading-grid,
+  .heartbeat-timing-grid {
     grid-template-columns: 1fr;
   }
 
-  .trading-panel-head {
+  .trading-panel-head,
+  .heartbeat-timing-head {
     align-items: stretch;
     flex-direction: column;
   }
@@ -4635,6 +4681,7 @@ select:focus:hover {
   .model-row,
   .config-grid,
   .threshold-wide,
+  .heartbeat-day-grid,
   .threshold-grid {
     grid-template-columns: 1fr;
   }
