@@ -362,6 +362,7 @@ function entityContextForRecord(record: SupermemoryMirrorRecord): string {
   return [
     "Kairos is a human-steered trading research system.",
     "This record is part of Kairos persistent agent memory.",
+    entityPurposeForRecord(record),
     record.scope ? `Scope: ${record.scope}.` : undefined,
     record.type ? `Type: ${record.type}.` : undefined,
     record.branchId ? `Branch ID: ${record.branchId}.` : undefined,
@@ -370,6 +371,27 @@ function entityContextForRecord(record: SupermemoryMirrorRecord): string {
   ]
     .filter((line): line is string => Boolean(line))
     .join(" ");
+}
+
+function entityPurposeForRecord(record: SupermemoryMirrorRecord): string {
+  switch (record.scope) {
+    case "branch":
+      return "This is a branch-specific monitoring lane; preserve its law, watched assets, thesis, false positives, escalation history, and user corrections.";
+    case "heartbeat":
+      return "This is a lightweight branch heartbeat check; use it for recurring evidence patterns, trigger quality, and escalation context.";
+    case "debate":
+      return "This is an escalation debate or synthesis record; preserve the evidence, disagreement, final decision, uncertainty, and cited rationale.";
+    case "information":
+      return "This is a market information lookup; use it as a source-backed context summary, not as a trade execution instruction.";
+    case "trade_intent":
+      return "This is a proposed trade intent for human review, not an executed order.";
+    case "portfolio":
+      return "This is account or portfolio state; zero positions can be a valid state, and snapshots should be treated as context rather than market evidence.";
+    case "agent_observation":
+      return "This is an observability trace; use it lightly for debugging agent behavior, not as factual market evidence.";
+    default:
+      return "Use this record as Kairos context, and corroborate public market claims with current public sources before relying on them.";
+  }
 }
 
 function compactMemoryForRecord(record: SupermemoryMirrorRecord): string {

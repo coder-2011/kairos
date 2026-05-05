@@ -1280,6 +1280,13 @@ async function mirrorDeepResearchConversation(
   assistantMessage: DeepResearchMessageRecord,
 ): Promise<void> {
   if (!process.env.SUPERMEMORY_API_KEY) return;
+  const transcript = [
+    `User (${userMessage.createdAt}):`,
+    userMessage.text ?? "",
+    "",
+    `Assistant (${assistantMessage.createdAt}):`,
+    assistantMessage.text ?? "",
+  ].join("\n");
   try {
     await new SupermemoryApi().writeConversation({
       containerTag: "kairos_deep_research",
@@ -1289,6 +1296,8 @@ async function mirrorDeepResearchConversation(
         "It may include Telegram or web-app research requests, user context, images, sources, and assistant conclusions.",
         "Treat it as global research/chat memory unless a branch, law, ticker, or monitoring lane is explicitly mentioned.",
         "Use this memory to preserve user preferences, prior research conclusions, corrections, and reusable context; do not treat it as public factual evidence without corroboration.",
+        "",
+        transcript,
       ].join("\n"),
       messages: [
         { role: "user", content: userMessage.text ?? "", timestamp: userMessage.createdAt },

@@ -356,6 +356,16 @@ class SupermemoryMirroredStore implements KairosLocalStore {
     },
   ): Promise<PortfolioSnapshot> {
     const snapshot = await this.store.createPortfolioSnapshot(input);
+    await this.mirrorRecord({
+      type: "portfolio_snapshot.created",
+      scope: "portfolio",
+      artifactId: snapshot.id,
+      timestamp: snapshot.capturedAt,
+      title: "Kairos portfolio snapshot",
+      summary: `Portfolio snapshot with ${snapshot.positions.length} positions.`,
+      data: snapshot,
+      customId: `kairos:portfolio_snapshot:${snapshot.id}`,
+    });
     return snapshot;
   }
 
