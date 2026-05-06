@@ -308,7 +308,7 @@ export async function createLocalApiContext(options: LocalApiOptions = {}): Prom
     options.dependencies?.supermemoryMirror ?? createLocalApiSupermemoryMirror();
   const debateCancelStates = new Map<string, DebateCancelState>();
   const store = createSupermemoryMirroredStore(rawStore, supermemoryMirror, {
-    required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
+    required: readBooleanEnv("KAIROS_SUPERMEMORY_REQUIRED"),
   });
   const telegramBot = options.dependencies?.telegramBot ?? createTelegramBotClient();
   return {
@@ -337,12 +337,15 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
   if (!process.env.SUPERMEMORY_API_KEY) {
     return undefined;
   }
+  if (!readBooleanEnv("KAIROS_SUPERMEMORY_MIRROR_ENABLED")) {
+    return undefined;
+  }
 
   const warningTimestamps = new Map<string, number>();
   const warningQuietMillis = 5 * 60_000;
   return createSupermemoryMirror({
     memory: createSupermemoryMemoryApi(),
-    required: process.env.KAIROS_SUPERMEMORY_REQUIRED === "1",
+    required: readBooleanEnv("KAIROS_SUPERMEMORY_REQUIRED"),
     onError(error, record) {
       const message = error instanceof Error ? error.message : String(error);
       const isQuotaNoise =
@@ -360,6 +363,10 @@ function createLocalApiSupermemoryMirror(): SupermemoryMirror | undefined {
       );
     },
   });
+}
+
+function readBooleanEnv(name: string): boolean {
+  return parseAuthEnabledFlag(process.env[name]) === true;
 }
 
 export function createLocalApiHandler(context: LocalApiContext): (request: Request) => Promise<Response> {
@@ -3279,12 +3286,21 @@ async function mirrorRouterSources(
         source: "router_agent",
         title: `Kairos router ${source.kind}`,
         summary: compactRouterSourceSummary(source),
-        content: source.text,
+        content: compactTextForMemory(source.text, 2_000),
         data: {
           chatId: input.chatId,
           messageId: input.messageId,
-          source,
-          attachments: input.attachments,
+          source: {
+            id: source.id,
+            kind: source.kind,
+            ref: source.ref,
+            textChars: source.text.length,
+          },
+          attachments: input.attachments.map((attachment) => ({
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+          })),
           branchIds: input.branchIds,
         },
         metadata: {
@@ -3304,6 +3320,11 @@ function compactRouterSourceSummary(source: RouterExtractedSource): string {
   const ref = source.ref ? ` ${source.ref}` : "";
   const text = source.text.replace(/\s+/g, " ").trim();
   return `${source.kind}${ref}: ${text.slice(0, 240)}`;
+}
+
+function compactTextForMemory(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength).trimEnd()} [TRUNCATED ${value.length - maxLength} chars]`;
 }
 
 async function extractRouterSources(

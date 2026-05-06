@@ -3,6 +3,7 @@ import type { InformationResult } from "../agents/information/types.js";
 import type { GlobalMemoryApi } from "./memory.js";
 import { GLOBAL_MEMORY_CONTAINER_TAG, getMemoryContainerTag } from "./memory.js";
 import type { AgentObserver } from "./observability.js";
+import { recordProviderUsage } from "./usage.js";
 
 export type SupermemoryMirrorTarget = Pick<
   GlobalMemoryApi,
@@ -38,6 +39,14 @@ export type SupermemoryMirrorOptions = {
    */
   required?: boolean;
   maxContentChars?: number;
+  maxMemoryChars?: number;
+  maxContainerTags?: number;
+  /**
+   * `memory` keeps mirrored records cheap: one compact memory per logical
+   * record. Use `document` only for records where full source text is worth
+   * indexing.
+   */
+  writeMode?: "memory" | "document" | "both";
   onError?: (error: unknown, record: SupermemoryMirrorRecord) => void | Promise<void>;
 };
 
@@ -60,7 +69,10 @@ export type SupermemoryMirror = {
   }): Promise<void>;
 };
 
-const DEFAULT_MAX_CONTENT_CHARS = 200_000;
+const DEFAULT_MAX_CONTENT_CHARS = 4_000;
+const DEFAULT_MAX_MEMORY_CHARS = 900;
+const DEFAULT_MAX_CONTAINER_TAGS = 1;
+const CHARS_PER_TOKEN_ESTIMATE = 4;
 const SECRET_KEY_PATTERN = /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)/i;
 const SECRET_TEXT_PATTERN =
   /\b(api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\n,}]+)/gi;
@@ -71,10 +83,18 @@ export function createSupermemoryMirror(
   const globalContainerTag =
     options.globalContainerTag ?? GLOBAL_MEMORY_CONTAINER_TAG;
   const maxContentChars = options.maxContentChars ?? DEFAULT_MAX_CONTENT_CHARS;
+  const maxMemoryChars = options.maxMemoryChars ?? DEFAULT_MAX_MEMORY_CHARS;
+  const maxContainerTags = options.maxContainerTags ?? DEFAULT_MAX_CONTAINER_TAGS;
+  const writeMode = options.writeMode ?? "memory";
 
   const write = async (record: SupermemoryMirrorRecord): Promise<void> => {
-    const tags = containerTagsForRecord(record, globalContainerTag);
+    const tags = primaryContainerTagsForRecord(
+      record,
+      globalContainerTag,
+      maxContainerTags,
+    );
     const content = truncateContent(formatMirrorRecord(record), maxContentChars);
+    const memoryContent = truncateText(compactMemoryForRecord(record), maxMemoryChars);
     const metadata = compactMetadata({
       type: record.type,
       scope: record.scope,
@@ -90,26 +110,43 @@ export function createSupermemoryMirror(
       ...record.metadata,
     });
 
+    await recordMirrorEstimate(record, {
+      containerCount: tags.length,
+      contentChars: content.value.length,
+      memoryChars: memoryContent.length,
+      writeMode,
+    });
+
     await Promise.all(
-      tags.flatMap((containerTag) => [
-        options.memory.addContent({
-          containerTag,
-          customId: safeCustomId(customIdForRecord(record)),
-          content: content.value,
-          metadata,
-          entityContext: entityContextForRecord(record),
-        }),
-        options.memory.createMemories({
-          containerTag,
-          memories: [
-            {
-              content: compactMemoryForRecord(record),
-              isStatic: false,
+      tags.flatMap((containerTag) => {
+        const writes: Array<Promise<unknown>> = [];
+        if (writeMode === "document" || writeMode === "both") {
+          writes.push(
+            options.memory.addContent({
+              containerTag,
+              customId: safeCustomId(customIdForRecord(record)),
+              content: content.value,
               metadata,
-            },
-          ],
-        }),
-      ]),
+              entityContext: entityContextForRecord(record),
+            }),
+          );
+        }
+        if (writeMode === "memory" || writeMode === "both") {
+          writes.push(
+            options.memory.createMemories({
+              containerTag,
+              memories: [
+                {
+                  content: memoryContent,
+                  isStatic: false,
+                  metadata,
+                },
+              ],
+            }),
+          );
+        }
+        return writes;
+      }),
     );
   };
 
@@ -167,6 +204,7 @@ export function createSupermemoryMirror(
 
     await mirrorBestEffort(record, async (mirroredRecord) => {
         const content = truncateContent(formatMirrorRecord(mirroredRecord), maxContentChars);
+        const memoryContent = truncateText(compactMemoryForRecord(mirroredRecord), maxMemoryChars);
         const metadata = compactMetadata({
           type: mirroredRecord.type,
           scope: mirroredRecord.scope,
@@ -181,28 +219,47 @@ export function createSupermemoryMirror(
           citation_count: result.finalDecision.citations.length,
           content_truncated: content.truncated,
         });
+        const containerTags = primaryContainerTagsForRecord(
+          mirroredRecord,
+          globalContainerTag,
+          maxContainerTags,
+        );
+        await recordMirrorEstimate(mirroredRecord, {
+          containerCount: containerTags.length,
+          contentChars: content.value.length,
+          memoryChars: memoryContent.length,
+          writeMode,
+        });
         await Promise.all(
-          containerTagsForRecord(mirroredRecord, globalContainerTag).flatMap(
-            (containerTag) => [
-              options.memory.writeConversation({
-                containerTag,
-                customId: safeCustomId(mirroredRecord.customId ?? `kairos:debate:${result.debateId}:transcript`),
-                content: content.value,
-                messages: transcriptMessages,
-                metadata,
-              }),
-              options.memory.createMemories({
-                containerTag,
-                memories: [
-                  {
-                    content: compactMemoryForRecord(mirroredRecord),
-                    isStatic: false,
-                    metadata,
-                  },
-                ],
-              }),
-            ],
-          ),
+          containerTags.flatMap((containerTag) => {
+            const writes: Array<Promise<unknown>> = [];
+            if (writeMode === "document" || writeMode === "both") {
+              writes.push(
+                options.memory.writeConversation({
+                  containerTag,
+                  customId: safeCustomId(mirroredRecord.customId ?? `kairos:debate:${result.debateId}:transcript`),
+                  content: content.value,
+                  messages: transcriptMessages,
+                  metadata,
+                }),
+              );
+            }
+            if (writeMode === "memory" || writeMode === "both") {
+              writes.push(
+                options.memory.createMemories({
+                  containerTag,
+                  memories: [
+                    {
+                      content: memoryContent,
+                      isStatic: false,
+                      metadata,
+                    },
+                  ],
+                }),
+              );
+            }
+            return writes;
+          }),
         );
       }, options);
     },
@@ -340,6 +397,24 @@ function containerTagsForRecord(
   return [...tags];
 }
 
+function primaryContainerTagsForRecord(
+  record: SupermemoryMirrorRecord,
+  globalContainerTag: string,
+  maxContainerTags: number,
+): string[] {
+  const tags = containerTagsForRecord(record, globalContainerTag);
+  const sorted = [...tags].sort(
+    (left, right) => tagPriority(left, globalContainerTag) - tagPriority(right, globalContainerTag),
+  );
+  return sorted.slice(0, Math.max(1, maxContainerTags));
+}
+
+function tagPriority(tag: string, globalContainerTag: string): number {
+  if (tag.includes("profile")) return 0;
+  if (tag !== globalContainerTag) return 1;
+  return 2;
+}
+
 function customIdForRecord(record: SupermemoryMirrorRecord): string {
   return (
     record.customId ??
@@ -420,6 +495,57 @@ function truncateContent(
     value: `${value.slice(0, maxContentChars)}\n\n[TRUNCATED ${value.length - maxContentChars} chars]`,
     truncated: true,
   };
+}
+
+function truncateText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars).trimEnd()} [TRUNCATED ${value.length - maxChars} chars]`;
+}
+
+function estimateTokens(chars: number): number {
+  return Math.ceil(chars / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+async function recordMirrorEstimate(
+  record: SupermemoryMirrorRecord,
+  input: {
+    containerCount: number;
+    contentChars: number;
+    memoryChars: number;
+    writeMode: NonNullable<SupermemoryMirrorOptions["writeMode"]>;
+  },
+): Promise<void> {
+  const documentWrites =
+    input.writeMode === "document" || input.writeMode === "both"
+      ? input.containerCount
+      : 0;
+  const memoryWrites =
+    input.writeMode === "memory" || input.writeMode === "both"
+      ? input.containerCount
+      : 0;
+  const estimatedTokens =
+    documentWrites * estimateTokens(input.contentChars) +
+    memoryWrites * estimateTokens(input.memoryChars);
+
+  await recordProviderUsage({
+    provider: "supermemory",
+    operation: "mirror.estimate",
+    status: "unknown",
+    runId: record.runId,
+    branchId: record.branchId,
+    quotaUnits: estimatedTokens,
+    unit: "estimated_tokens",
+    metadata: {
+      type: record.type,
+      scope: record.scope,
+      containerCount: input.containerCount,
+      documentWrites,
+      memoryWrites,
+      contentChars: input.contentChars,
+      memoryChars: input.memoryChars,
+      writeMode: input.writeMode,
+    },
+  });
 }
 
 function compactMetadata(

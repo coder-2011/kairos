@@ -91,7 +91,8 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         timestamp: new Date().toISOString(),
         title: `Kairos branch deleted: ${branch?.name ?? id}`,
         summary: `Deleted branch ${branch?.name ?? id}.`,
-        data: branch ?? { id },
+        data: branch ? compactBranchForMemory(branch) : { id },
+        containerTags: branch ? branchSupermemoryContainerTags(branch) : undefined,
         customId: `kairos:branch:${id}:deleted`,
       });
     }
@@ -128,10 +129,10 @@ class SupermemoryMirroredStore implements KairosLocalStore {
           timestamp: run.updatedAt,
           title: `Kairos debate output ${run.id}`,
           summary: readSummary(run.output),
-        data: {
-          run,
-          output: run.output,
-        },
+          data: {
+            run: compactRunForMemory(run),
+            output: compactJson(run.output),
+          },
           customId: `kairos:run:${run.id}:debate_output:${run.updatedAt}`,
         });
       }
@@ -159,8 +160,8 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       title: `Kairos event ${event.type}`,
       summary: readSummary(event.payload) ?? event.type,
       data: {
-        run,
-        event,
+        run: run ? compactRunForMemory(run) : undefined,
+        event: compactRunEventForMemory(event),
       },
       customId: `kairos:run:${event.runId}:event:${event.id}`,
     });
@@ -189,7 +190,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       artifactId: chat.id,
       title: chat.title ?? `Kairos router chat ${chat.id}`,
       summary: "Router chat created.",
-      data: chat,
+      data: compactJson(chat),
       customId: `kairos:router_chat:${chat.id}`,
     });
     return chat;
@@ -206,7 +207,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
         artifactId: id,
         title: chat?.title ?? `Kairos router chat ${id}`,
         summary: `Deleted router chat ${chat?.title ?? id}.`,
-        data: chat ?? { id },
+        data: chat ? compactJson(chat) : { id },
         customId: `kairos:router_chat:${id}:deleted`,
       });
     }
@@ -236,7 +237,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       summary:
         message.text ??
         `Router message with ${message.attachments?.length ?? 0} attachment(s).`,
-      data: message,
+      data: compactRouterMessageForMemory(message),
       metadata: {
         chat_id: message.chatId,
         attachment_count: message.attachments?.length ?? 0,
@@ -289,7 +290,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: message.createdAt,
       title: message.title,
       summary: message.body,
-      data: message,
+      data: compactJson(message),
       customId: `kairos:message:${message.id}`,
     });
     return message;
@@ -335,7 +336,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: order.createdAt,
       title: `Kairos broker order ${order.symbol}`,
       summary: `${order.side} ${order.symbol} ${order.status}`,
-      data: order,
+      data: compactJson(order),
       customId: `kairos:broker_order:${order.id}`,
     });
     return order;
@@ -363,7 +364,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: snapshot.capturedAt,
       title: "Kairos portfolio snapshot",
       summary: `Portfolio snapshot with ${snapshot.positions.length} positions.`,
-      data: snapshot,
+      data: compactPortfolioSnapshotForMemory(snapshot),
       customId: `kairos:portfolio_snapshot:${snapshot.id}`,
     });
     return snapshot;
@@ -395,7 +396,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: branch.updatedAt,
       title: `Kairos branch ${branch.name}`,
       summary: branch.description ?? readSummary(branch.law) ?? branch.name,
-      data: branch,
+      data: compactBranchForMemory(branch),
       containerTags: branchSupermemoryContainerTags(branch),
       customId: `kairos:branch:${branch.id}:${branch.updatedAt}`,
     });
@@ -411,7 +412,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: run.updatedAt,
       title: `Kairos ${run.kind} run ${run.id}`,
       summary: readSummary(run.output) ?? `${run.kind} run is ${run.status}.`,
-      data: run,
+      data: compactRunForMemory(run),
       metadata: {
         run_kind: run.kind,
         run_status: run.status,
@@ -432,7 +433,7 @@ class SupermemoryMirroredStore implements KairosLocalStore {
       timestamp: intent.updatedAt,
       title: `Kairos trade intent ${intent.symbol}`,
       summary: `${intent.side} ${intent.symbol}: ${intent.reasoning}`,
-      data: intent,
+      data: compactJson(intent),
       metadata: {
         symbol: intent.symbol,
         side: intent.side,
@@ -477,6 +478,172 @@ function readSummary(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function compactBranchForMemory(branch: BranchRecord): Record<string, unknown> {
+  return {
+    id: branch.id,
+    lawId: branch.lawId,
+    name: branch.name,
+    description: branch.description,
+    enabled: branch.enabled,
+    createdAt: branch.createdAt,
+    updatedAt: branch.updatedAt,
+    law: compactJson(branch.law),
+    assets: branch.config?.assets,
+    heartbeat: branch.config?.heartbeat
+      ? {
+        enabled: branch.config.heartbeat.enabled,
+        intervalMinutes: branch.config.heartbeat.intervalMinutes,
+        seedWindowDays: branch.config.heartbeat.seedWindowDays,
+        timing: branch.config.heartbeat.timing,
+      }
+      : undefined,
+    thresholds: branch.config?.thresholds,
+    trading: branch.config?.trading
+      ? {
+        mode: branch.config.trading.mode,
+        notifyOnBuySignal: branch.config.trading.notifyOnBuySignal,
+        symbol: branch.config.trading.symbol,
+        symbols: branch.config.trading.symbols,
+        allowedOrderType: branch.config.trading.allowedOrderType,
+      }
+      : undefined,
+    memory: branch.config?.memory,
+    metadata: compactJson(branch.metadata),
+  };
+}
+
+function compactRunForMemory(run: RunRecord): Record<string, unknown> {
+  return {
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    branchId: run.branchId,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    lifecycle: run.lifecycle
+      ? {
+        stage: run.lifecycle.stage,
+        currentOperation: run.lifecycle.currentOperation,
+        retryable: run.lifecycle.retryable,
+        cancelable: run.lifecycle.cancelable,
+        childRunIds: run.lifecycle.childRunIds,
+        parentRunId: run.lifecycle.parentRunId,
+      }
+      : undefined,
+    inputSummary: compactRunInput(run.input),
+    outputSummary: compactJson(run.output),
+    metadata: compactJson(run.metadata),
+  };
+}
+
+function compactRunInput(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return compactJson(input);
+  }
+  const record = input as Record<string, unknown>;
+  return compactJson({
+    ticker: record.ticker,
+    origin: record.origin,
+    sourceRunId: record.sourceRunId,
+    escalation: record.escalation,
+    branch:
+      record.branch && typeof record.branch === "object" && !Array.isArray(record.branch)
+        ? {
+          id: (record.branch as Record<string, unknown>).id,
+          name: (record.branch as Record<string, unknown>).name,
+          lawId: (record.branch as Record<string, unknown>).lawId,
+          description: (record.branch as Record<string, unknown>).description,
+        }
+        : undefined,
+    sourceCount: Array.isArray(record.sources) ? record.sources.length : undefined,
+    humanInterjectionCount: Array.isArray(record.humanInterjections)
+      ? record.humanInterjections.length
+      : undefined,
+  });
+}
+
+function compactRunEventForMemory(event: RunEventRecord): Record<string, unknown> {
+  return {
+    id: event.id,
+    runId: event.runId,
+    type: event.type,
+    timestamp: event.timestamp,
+    payload: compactEventPayload(event.type, event.payload),
+  };
+}
+
+function compactEventPayload(type: string, payload: unknown): unknown {
+  if (type === "heartbeat.seeded" && payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    return compactJson({
+      branchId: record.branchId,
+      timestamp: record.timestamp,
+      assets: record.assets,
+      sourceCount: Array.isArray(record.sources) ? record.sources.length : undefined,
+      newsCount: Array.isArray(record.news) ? record.news.length : undefined,
+      optionalSourceKeys:
+        record.optionalData && typeof record.optionalData === "object"
+          ? Object.keys(record.optionalData)
+          : undefined,
+      summary: readSummary(record),
+    });
+  }
+  return compactJson(payload);
+}
+
+function compactRouterMessageForMemory(message: RouterMessageRecord): Record<string, unknown> {
+  return {
+    id: message.id,
+    chatId: message.chatId,
+    role: message.role,
+    createdAt: message.createdAt,
+    runId: message.runId,
+    text: truncateString(message.text, 1_000),
+    attachmentCount: message.attachments?.length ?? 0,
+    toolCalls: message.toolCalls?.map((toolCall) => ({
+      id: toolCall.id,
+      name: toolCall.name,
+      status: toolCall.status,
+      summary: truncateString(toolCall.summary, 500),
+      createdAt: toolCall.createdAt,
+    })),
+  };
+}
+
+function compactPortfolioSnapshotForMemory(snapshot: PortfolioSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    provider: snapshot.provider,
+    capturedAt: snapshot.capturedAt,
+    account: compactJson(snapshot.account),
+    positions: snapshot.positions.slice(0, 20).map((position) => compactJson(position)),
+    positionCount: snapshot.positions.length,
+  };
+}
+
+function compactJson(value: unknown, maxStringLength = 1_000): unknown {
+  if (typeof value === "string") {
+    return truncateString(value, maxStringLength);
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => compactJson(item, maxStringLength));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "prompts")
+      .map(([key, entry]) => [key, compactJson(entry, maxStringLength)]),
+  );
+}
+
+function truncateString(value: string | undefined, maxLength: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength).trimEnd()} [TRUNCATED ${value.length - maxLength} chars]`;
 }
 
 function branchSupermemoryContainerTags(branch: BranchRecord): string[] {

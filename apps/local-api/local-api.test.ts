@@ -85,6 +85,27 @@ describe("local API handler", () => {
     expect(response.body).toMatchObject({ ok: true, service: "kairos-local-api" });
   });
 
+  it("does not enable live Supermemory mirroring from required mode alone", async () => {
+    const previousApiKey = process.env.SUPERMEMORY_API_KEY;
+    const previousMirrorEnabled = process.env.KAIROS_SUPERMEMORY_MIRROR_ENABLED;
+    const previousRequired = process.env.KAIROS_SUPERMEMORY_REQUIRED;
+    const dataDir = await mkdtemp(join(tmpdir(), "kairos-no-supermemory-mirror-"));
+    process.env.SUPERMEMORY_API_KEY = "test-supermemory-key";
+    process.env.KAIROS_SUPERMEMORY_REQUIRED = "1";
+    delete process.env.KAIROS_SUPERMEMORY_MIRROR_ENABLED;
+
+    try {
+      const { context } = await createLocalApi({ dataDir });
+
+      expect(context.supermemoryMirror).toBeUndefined();
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+      restoreEnv("SUPERMEMORY_API_KEY", previousApiKey);
+      restoreEnv("KAIROS_SUPERMEMORY_MIRROR_ENABLED", previousMirrorEnabled);
+      restoreEnv("KAIROS_SUPERMEMORY_REQUIRED", previousRequired);
+    }
+  });
+
   it("persists provider usage events through the request-scoped store sink", async () => {
     const { requestJson } = makeClient({
       headers: { "x-request-id": "usage_request_1" },
@@ -1207,10 +1228,15 @@ describe("local API handler", () => {
           id: "doc_1",
           name: "contract.pdf",
           mimeType: "application/pdf",
-          path: "/tmp/contract.pdf",
         },
       ],
       branchIds: ["branch_pltr_contracts"],
+      source: {
+        id: "doc_1",
+        kind: "pdf",
+        ref: "doc_1",
+        textChars: 53,
+      },
     });
     expect(routerSources.at(-1)?.containerTags).toEqual(
       expect.arrayContaining([
@@ -1749,6 +1775,16 @@ describe("local API handler", () => {
         "branch_profile_branch_memory",
       ]),
     });
+    expect(
+      JSON.stringify(mirrored.find((record) => record.type === "branch.created")?.data),
+    ).not.toContain("SystemPrompt");
+    const heartbeatSeeded = mirrored.find((record) => record.type === "heartbeat.seeded");
+    expect(heartbeatSeeded?.data).toMatchObject({
+      event: {
+        type: "heartbeat.seeded",
+      },
+    });
+    expect(JSON.stringify(heartbeatSeeded?.data)).not.toContain("\"input\":");
   });
 
   it("keeps local API writes working when Supermemory mirroring fails", async () => {

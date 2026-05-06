@@ -10,7 +10,7 @@ import {
 } from "./supermemory-mirror.js";
 
 describe("Supermemory mirror", () => {
-  it("writes redacted branch records to global, branch document, and branch profile containers", async () => {
+  it("writes compact redacted records to the primary branch profile container", async () => {
     const writes: Array<{
       kind?: string;
       containerTag: string;
@@ -38,27 +38,12 @@ describe("Supermemory mirror", () => {
       },
     });
 
-    expect(writes.map((write) => write.containerTag).sort()).toEqual([
-      "branch_branch_1",
-      "branch_branch_1",
-      "branch_profile_branch_1",
-      "branch_profile_branch_1",
-      "system_global",
-      "system_global",
-    ]);
-    expect(writes.map((write) => write.kind).sort()).toEqual([
-      "document",
-      "document",
-      "document",
-      "memory",
-      "memory",
-      "memory",
-    ]);
-    const documentWrite = writes.find((write) => write.kind === "document");
-    expect(documentWrite?.content).toContain("Run completed.");
-    expect(documentWrite?.content).toContain("[REDACTED]");
-    expect(documentWrite?.content).not.toContain("should-not-leak");
-    expect(documentWrite?.metadata).toMatchObject({
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.kind).toBe("memory");
+    expect(writes[0]?.containerTag).toBe("branch_profile_branch_1");
+    expect(writes[0]?.content).toContain("Run completed.");
+    expect(writes[0]?.content).not.toContain("should-not-leak");
+    expect(writes[0]?.metadata).toMatchObject({
       type: "run.completed",
       scope: "run_event",
       run_id: "run_1",
@@ -102,15 +87,10 @@ describe("Supermemory mirror", () => {
       },
     });
 
-    expect(writes).toHaveLength(6);
-    const conversationWrite = writes.find((write) => write.kind === "conversation");
-    expect(conversationWrite?.customId).toBe("kairos:debate:debate_1:transcript");
-    expect(conversationWrite?.content).toContain("The catalyst may be underpriced.");
-    expect(conversationWrite?.content).toContain("Notify but do not trade yet.");
-    expect(writes.filter((write) => write.kind === "memory")).toHaveLength(3);
-    expect(writes.map((write) => write.containerTag)).toEqual(
-      expect.arrayContaining(["branch_branch_2", "branch_profile_branch_2", "system_global"]),
-    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.kind).toBe("memory");
+    expect(writes[0]?.containerTag).toBe("branch_profile_branch_2");
+    expect(writes[0]?.content).toContain("Notify but do not trade yet.");
   });
 
   it("uses explicit branch container tags instead of deriving defaults", async () => {
@@ -128,13 +108,8 @@ describe("Supermemory mirror", () => {
       containerTags: ["branch_custom", "branch_profile_custom"],
     });
 
-    expect(writes.map((write) => write.containerTag).sort()).toEqual([
-      "branch_custom",
-      "branch_custom",
+    expect(writes.map((write) => write.containerTag)).toEqual([
       "branch_profile_custom",
-      "branch_profile_custom",
-      "system_global",
-      "system_global",
     ]);
   });
 
@@ -170,13 +145,8 @@ describe("Supermemory mirror", () => {
       payload: { summary: "done" },
     });
 
-    expect(writes.map((write) => write.containerTag).sort()).toEqual([
-      "branch_branch_3",
-      "branch_branch_3",
+    expect(writes.map((write) => write.containerTag)).toEqual([
       "branch_profile_branch_3",
-      "branch_profile_branch_3",
-      "system_global",
-      "system_global",
     ]);
     expect(writes.some((write) => write.content.includes("model_complete"))).toBe(true);
   });
