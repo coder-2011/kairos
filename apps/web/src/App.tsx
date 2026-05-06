@@ -967,22 +967,32 @@ export function App() {
     );
     if (!confirmed) return;
 
-    if (isLocalDraftBranch(branch)) {
-      const nextBranches = branches.filter((item) => item.id !== branchId);
+    const removeDiscardedBranch = (sourceBranches: BranchRecord[]) => {
+      const nextBranches = sourceBranches.filter((item) => item.id !== branchId);
       setBranches(nextBranches);
       setSelectedBranchId(nextBranches[0]?.id ?? "");
       navigate("branches");
+      return nextBranches;
+    };
+
+    if (isLocalDraftBranch(branch)) {
+      removeDiscardedBranch(branches);
       return;
     }
 
     try {
       await deleteBranch(branchId);
-      const nextBranches = await getBranches();
-      setBranches(nextBranches);
-      setSelectedBranchId(nextBranches[0]?.id ?? "");
-      navigate("branches");
+      removeDiscardedBranch(branches);
+      const refreshedBranches = await getBranches();
+      setBranches(refreshedBranches);
+      setSelectedBranchId(refreshedBranches[0]?.id ?? "");
       setLoadState("api");
-    } catch {
+    } catch (error) {
+      if (error instanceof KairosApiError && error.status === 404) {
+        removeDiscardedBranch(branches);
+        setLoadState("api");
+        return;
+      }
       setLoadState("offline");
     }
   }
