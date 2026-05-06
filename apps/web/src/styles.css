@@ -572,18 +572,25 @@ a {
   overflow: hidden;
 }
 
+.side-nav-collapsed .side-nav,
 .monitoring-shell .side-nav {
   flex: 0 0 64px;
   min-width: 64px;
   width: 64px;
 }
 
+.side-nav-collapsed .brand-block,
 .monitoring-shell .brand-block {
   justify-content: center;
   min-height: 56px;
   padding: 8px;
 }
 
+.side-nav-collapsed .brand-block > div,
+.side-nav-collapsed .nav-item > span:not(.material-symbols-outlined),
+.side-nav-collapsed .premium-access-button > span:not(.material-symbols-outlined),
+.side-nav-collapsed .theme-toggle-copy,
+.side-nav-collapsed .operator-block,
 .monitoring-shell .brand-block > div,
 .monitoring-shell .nav-item > span:not(.material-symbols-outlined),
 .monitoring-shell .premium-access-button > span:not(.material-symbols-outlined),
@@ -592,15 +599,20 @@ a {
   display: none;
 }
 
+.side-nav-collapsed .brand-logo,
 .monitoring-shell .brand-logo {
   height: 32px;
   width: 32px;
 }
 
+.side-nav-collapsed .nav-list,
 .monitoring-shell .nav-list {
   padding: 6px;
 }
 
+.side-nav-collapsed .nav-item,
+.side-nav-collapsed .theme-toggle,
+.side-nav-collapsed .premium-access-button,
 .monitoring-shell .nav-item,
 .monitoring-shell .theme-toggle,
 .monitoring-shell .premium-access-button {
@@ -609,20 +621,25 @@ a {
   padding: 8px;
 }
 
+.side-nav-collapsed .theme-toggle,
 .monitoring-shell .theme-toggle {
   margin: 0 8px 10px;
 }
 
+.side-nav-collapsed .theme-toggle-track,
 .monitoring-shell .theme-toggle-track {
   flex-basis: 32px;
   grid-template-columns: 1fr;
   height: 28px;
 }
 
+.side-nav-collapsed .theme-toggle-track > .material-symbols-outlined,
 .monitoring-shell .theme-toggle-track > .material-symbols-outlined {
   display: none;
 }
 
+.side-nav-collapsed .theme-toggle-thumb,
+.side-nav-collapsed .theme-toggle.dark .theme-toggle-thumb,
 .monitoring-shell .theme-toggle-thumb,
 .monitoring-shell .theme-toggle.dark .theme-toggle-thumb {
   height: 20px;
@@ -630,6 +647,7 @@ a {
   width: 24px;
 }
 
+.side-nav-collapsed .premium-access-button,
 .monitoring-shell .premium-access-button {
   border-left: 0;
   border-right: 0;

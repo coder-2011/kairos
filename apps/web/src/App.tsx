@@ -321,6 +321,7 @@ export function App() {
   const [authSession, setAuthSession] = useState<KairosSession>(null);
   const [authStatus, setAuthStatus] = useState<"initializing" | "ready">("initializing");
   const [authError, setAuthError] = useState("");
+  const [sideNavCollapsed, setSideNavCollapsed] = useState(false);
   const authEnabled = isSupabaseAuthEnabled;
   const hasActiveSession = authEnabled
     ? Boolean(authSession && isAuthorizedEmail(authSession.user?.email))
@@ -347,6 +348,11 @@ export function App() {
       window.history.pushState(null, "", nextHash);
     }
     scrollActiveViewToTop();
+  }
+
+  function handleSideNavSelect(nextView: Exclude<View, "config">) {
+    setSideNavCollapsed(true);
+    navigate(nextView);
   }
 
   const userLabel = authSession?.user
@@ -1056,9 +1062,16 @@ export function App() {
   }
 
   return (
-    <div className={`shell ${view === "monitoring" ? "monitoring-shell" : ""}`} data-theme={themeMode}>
+    <div
+      className={[
+        "shell",
+        sideNavCollapsed ? "side-nav-collapsed" : "",
+        view === "monitoring" ? "monitoring-shell" : "",
+      ].filter(Boolean).join(" ")}
+      data-theme={themeMode}
+    >
       <SideNav
-        setView={(nextView) => navigate(nextView)}
+        setView={handleSideNavSelect}
         themeMode={themeMode}
         view={view}
         onThemeModeChange={setThemeMode}
@@ -1083,7 +1096,6 @@ export function App() {
             branchCount={branches.length}
             chats={routerChats}
             heartbeatRuns={lastRouterHeartbeatRuns}
-            loadState={routerLoadState}
             messages={routerMessages}
             running={routerRunning}
             selectedChatId={selectedRouterChatId}
@@ -1176,7 +1188,7 @@ function SideNav({
 }: {
   themeMode: ThemeMode;
   view: View;
-  setView: (view: View) => void;
+  setView: (view: Exclude<View, "config">) => void;
   onThemeModeChange: (mode: ThemeMode) => void;
 }) {
   return (
@@ -1196,6 +1208,7 @@ function SideNav({
             className={`nav-item ${view === item.id ? "active" : ""}`}
             key={item.id}
             onClick={() => setView(item.id)}
+            title={item.label}
             type="button"
           >
             <Icon name={item.icon} />
@@ -1416,7 +1429,6 @@ function RouterView({
   branchCount,
   chats,
   heartbeatRuns,
-  loadState,
   messages,
   running,
   selectedChatId,
@@ -1428,7 +1440,6 @@ function RouterView({
   branchCount: number;
   chats: RouterChatRecord[];
   heartbeatRuns: RunRecord[];
-  loadState: LoadState;
   messages: RouterMessageRecord[];
   running: boolean;
   selectedChatId: string;
@@ -1504,13 +1515,6 @@ function RouterView({
           <div>
             <h1>Router Agent</h1>
           </div>
-          <span className={`source-pill ${loadState === "offline" ? "warning" : loadState === "api" ? "online-blue" : ""}`}>
-            {loadState === "loading"
-              ? "SYNCING"
-              : loadState === "api"
-                ? "ROUTER ONLINE"
-                : "ROUTER OFFLINE"}
-          </span>
         </div>
         {branchCount === 0 && (
           <div className="router-branch-warning">

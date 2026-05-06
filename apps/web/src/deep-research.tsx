@@ -1,7 +1,6 @@
 import type { KairosReasoningEffort } from "../../../src/global/agent-config.js";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Select, { components, type StylesConfig } from "react-select";
 
 import type { RouterToolCallRecord } from "./api";
 import {
@@ -23,13 +22,10 @@ import "./deep-research.css";
 
 type LoadState = "loading" | "api" | "offline";
 type DeepResearchReasoningEffort = "auto" | KairosReasoningEffort;
-type DeepResearchModelSelectOption = DeepResearchModelOption & {
-  value: string;
-};
 
 export function DeepResearchView() {
-  const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [modelState, setModelState] = useState<LoadState>("loading");
+  const [, setLoadState] = useState<LoadState>("loading");
+  const [, setModelState] = useState<LoadState>("loading");
   const [chats, setChats] = useState<DeepResearchChatRecord[]>([]);
   const [selectedChatId, setSelectedChatId] = useState("");
   const [messages, setMessages] = useState<DeepResearchMessageRecord[]>([]);
@@ -421,13 +417,6 @@ export function DeepResearchView() {
             <p>Isolated chat workspace for market and product research.</p>
           </div>
           <div className="deep-research-controls">
-            <span className={`source-pill ${loadState === "offline" || modelState === "offline" ? "warning" : loadState === "api" && modelState === "api" ? "online-blue" : ""}`}>
-              {loadState === "loading" || modelState === "loading"
-                ? "SYNCING"
-                : loadState === "api" && modelState === "api"
-                  ? "ONLINE"
-                  : "OFFLINE"}
-            </span>
             <ModelSelect
               model={activeModel}
               models={models}
@@ -569,69 +558,42 @@ function ModelSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const options = useMemo<DeepResearchModelSelectOption[]>(
-    () => models.map((option) => ({ ...option, value: option.id })),
-    [models],
-  );
   const selected = useMemo(
-    () => options.find((option) => option.value === value) ?? options[0],
-    [options, value],
+    () => models.find((option) => option.id === value) ?? models[0],
+    [models, value],
   );
 
   return (
-    <Select<DeepResearchModelSelectOption, false>
-      aria-label="Deep Research model"
-      className="deep-model-select"
-      classNamePrefix="deep-model"
-      inputId="deep-research-model"
-      value={selected}
-      options={options}
-      isSearchable={false}
-      isDisabled={models.length === 0}
-      blurInputOnSelect
-      menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
-      menuPosition="fixed"
-      onChange={(next) => onChange(next?.value ?? "")}
-      getOptionLabel={(option) => option.label}
-      getOptionValue={(option) => option.value}
-      formatOptionLabel={(option, { context }) =>
-        context === "menu" ? (
-          <span className="deep-model-option">
-            <span className="deep-model-logo" aria-hidden="true">
-              {option.logo}
-            </span>
-            <span className="deep-model-option-text">
-              <span className="deep-model-option-title">{option.label}</span>
-              <span className="deep-model-option-meta">
-                {option.reasoningEffort ? `${option.reasoningEffort} effort` : "Model"}
-              </span>
-            </span>
-          </span>
-        ) : (
-          <span className="deep-model-value">
-            <span className="deep-model-logo" aria-hidden="true">
-              {option.logo}
-            </span>
-            <span className="deep-model-option-text">
-              <span className="deep-model-option-title">{option.label}</span>
-              <span className="deep-model-option-meta">
-                {option.reasoningEffort ? `${option.reasoningEffort} effort` : "Model"}
-              </span>
-            </span>
-          </span>
-        )
-      }
-      components={{
-        IndicatorSeparator: () => null,
-        DropdownIndicator: (props) => (
-          <components.DropdownIndicator {...props}>
-            <span className="material-symbols-outlined">keyboard_arrow_down</span>
-          </components.DropdownIndicator>
-        ),
-      }}
-      styles={deepModelSelectStyles}
-      placeholder={model?.label ?? "Choose model"}
-    />
+    <label className="deep-model-select">
+      <span className="deep-model-logo" aria-hidden="true">
+        {selected?.logo ?? "AI"}
+      </span>
+      <span className="deep-model-option-text" aria-hidden="true">
+        <span className="deep-model-option-title">
+          {selected?.label ?? model?.label ?? "Choose model"}
+        </span>
+        <span className="deep-model-option-meta">
+          {selected?.reasoningEffort ? `${selected.reasoningEffort} effort` : "Model"}
+        </span>
+      </span>
+      <select
+        aria-label="Deep Research model"
+        disabled={models.length === 0}
+        id="deep-research-model"
+        onChange={(event) => onChange(event.target.value)}
+        value={selected?.id ?? ""}
+      >
+        {models.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+            {option.reasoningEffort ? ` (${option.reasoningEffort} effort)` : ""}
+          </option>
+        ))}
+      </select>
+      <span className="material-symbols-outlined deep-model-arrow" aria-hidden="true">
+        keyboard_arrow_down
+      </span>
+    </label>
   );
 }
 
@@ -678,73 +640,6 @@ function findSubmittedUserMessageIndex(
 
   return -1;
 }
-
-const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> = {
-  control: (base: Record<string, unknown>) => ({
-    ...base,
-    backgroundColor: "var(--surface-lowest)",
-    borderColor: "var(--outline-variant)",
-    borderRadius: "var(--radius-md)",
-    boxShadow: "none",
-    cursor: "pointer",
-    minHeight: "54px",
-    paddingLeft: "6px",
-    "&:hover": {
-      borderColor: "var(--outline)",
-    },
-  }),
-  menu: (base: Record<string, unknown>) => ({
-    ...base,
-    backgroundColor: "var(--surface-lowest)",
-    border: "1px solid var(--outline-variant)",
-    borderRadius: "var(--radius-md)",
-    marginTop: "6px",
-    overflow: "hidden",
-    zIndex: 1000,
-  }),
-  menuPortal: (base: Record<string, unknown>) => ({
-    ...base,
-    zIndex: 1000,
-  }),
-  menuList: (base: Record<string, unknown>) => ({
-    ...base,
-    maxHeight: "280px",
-    padding: "4px 4px 4px 6px",
-    overflowY: "auto",
-  }),
-  option: (base: Record<string, unknown>, state: { isFocused: boolean; isSelected: boolean }) => ({
-    ...base,
-    backgroundColor: state.isFocused || state.isSelected
-      ? "color-mix(in srgb, var(--surface) 55%, transparent)"
-      : "transparent",
-    borderRadius: "8px",
-    color: "var(--on-surface)",
-    cursor: "pointer",
-    marginBottom: "2px",
-    padding: "8px",
-  }),
-  singleValue: (base: Record<string, unknown>) => ({
-    ...base,
-    margin: "0",
-    color: "var(--on-surface)",
-  }),
-  valueContainer: (base: Record<string, unknown>) => ({
-    ...base,
-    padding: "0",
-  }),
-  indicatorSeparator: () => ({
-    display: "none",
-  }),
-  dropdownIndicator: (base: Record<string, unknown>) => ({
-    ...base,
-    color: "var(--on-variant)",
-    padding: "0 8px 0 2px",
-  }),
-  indicatorsContainer: (base: Record<string, unknown>) => ({
-    ...base,
-    paddingRight: "2px",
-  }),
-} as const;
 
 function DeepResearchMessage({
   isProcessing = false,
