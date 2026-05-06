@@ -57,7 +57,12 @@ export class GemmaTelegramFormatter {
       options.model ??
       process.env.KAIROS_NOTIFICATION_MODEL ??
       "google/gemma-4-31b-it";
-    this.baseUrl = (options.baseUrl ?? "https://openrouter.ai/api/v1").replace(/\/$/, "");
+    this.baseUrl = (
+      options.baseUrl ??
+      process.env.KAIROS_NOTIFICATION_OPENROUTER_BASE_URL ??
+      process.env.OPENROUTER_BASE_URL ??
+      "https://openrouter.ai/api/v1"
+    ).replace(/\/$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 

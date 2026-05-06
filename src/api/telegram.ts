@@ -124,7 +124,11 @@ export class TelegramBotClient {
     this.token = options.token ?? process.env.TELEGRAM_BOT_TOKEN ?? "";
     this.defaultChatId = options.defaultChatId ?? process.env.TELEGRAM_CHAT_ID ?? process.env.KAIROS_TELEGRAM_CHAT_ID ?? "";
     this.webhookSecret = options.webhookSecret ?? process.env.TELEGRAM_WEBHOOK_SECRET ?? process.env.KAIROS_TELEGRAM_WEBHOOK_SECRET ?? "";
-    this.baseUrl = (options.baseUrl ?? "https://api.telegram.org").replace(/\/$/, "");
+    this.baseUrl = (
+      options.baseUrl ??
+      process.env.TELEGRAM_BOT_API_BASE_URL ??
+      "https://api.telegram.org"
+    ).replace(/\/$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
