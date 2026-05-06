@@ -313,7 +313,7 @@ export function createSupermemoryObserver(
 
 export function formatMirrorRecord(record: SupermemoryMirrorRecord): string {
   const timestamp = record.timestamp ?? new Date().toISOString();
-  const data = redactSecrets(record.data);
+  const data = sanitizeMirrorPayload(record.data);
   return [
     `# ${redactText(record.title ?? `Kairos ${record.scope}.${record.type}`)}`,
     "",
@@ -335,8 +335,12 @@ export function formatMirrorRecord(record: SupermemoryMirrorRecord): string {
 }
 
 export function redactSecrets(value: unknown): unknown {
+  return sanitizeMirrorPayload(value);
+}
+
+function sanitizeMirrorPayload(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(redactSecrets);
+    return value.map(sanitizeMirrorPayload);
   }
 
   if (typeof value === "string") {
@@ -348,10 +352,12 @@ export function redactSecrets(value: unknown): unknown {
   }
 
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      SECRET_KEY_PATTERN.test(key) ? "[REDACTED]" : redactSecrets(entry),
-    ]),
+    Object.entries(value)
+      .filter(([key]) => !isPromptLikeKey(key))
+      .map(([key, entry]) => [
+        key,
+        SECRET_KEY_PATTERN.test(key) ? "[REDACTED]" : sanitizeMirrorPayload(entry),
+      ]),
   );
 }
 
@@ -554,7 +560,7 @@ function compactMetadata(
   return Object.fromEntries(
     Object.entries(metadata).filter(
       (entry): entry is [string, string | number | boolean] =>
-        entry[1] !== undefined,
+        entry[1] !== undefined && !isPromptLikeKey(entry[0]),
     ),
   );
 }
@@ -564,4 +570,17 @@ function safeCustomId(value: string): string {
     .replace(/[^a-zA-Z0-9_:-]/g, "_")
     .replace(/_+/g, "_")
     .slice(0, 180);
+}
+
+function isPromptLikeKey(key: string): boolean {
+  const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return normalized === "system" ||
+    normalized === "developer" ||
+    normalized === "prompt" ||
+    normalized === "prompts" ||
+    normalized === "trustedtask" ||
+    normalized === "instructions" ||
+    normalized.endsWith("prompt") ||
+    normalized.endsWith("prompts") ||
+    normalized.endsWith("instructions");
 }

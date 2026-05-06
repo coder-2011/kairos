@@ -118,15 +118,35 @@ describe("Supermemory mirror", () => {
       token: "[REDACTED]",
       keep: "value",
     });
+    expect(
+      redactSecrets({
+        keep: "value",
+        systemPrompt: "do not mirror",
+        nested: {
+          prompt: "also do not mirror",
+        },
+      }),
+    ).toEqual({
+      keep: "value",
+      nested: {},
+    });
     expect(redactText("authorization: Bearer secret-value")).toBe(
       "authorization=[REDACTED]",
     );
-    expect(formatMirrorRecord({
+    const formatted = formatMirrorRecord({
       type: "branch.updated",
       scope: "branch",
       title: "Branch",
-      data: { password: "abc" },
-    })).not.toContain("abc");
+      data: {
+        password: "abc",
+        prompts: {
+          systemPrompt: "CUSTOM HEARTBEAT SYSTEM",
+        },
+      },
+    });
+    expect(formatted).not.toContain("abc");
+    expect(formatted).not.toContain("CUSTOM HEARTBEAT SYSTEM");
+    expect(formatted).not.toContain("systemPrompt");
   });
 
   it("can mirror agent observations", async () => {

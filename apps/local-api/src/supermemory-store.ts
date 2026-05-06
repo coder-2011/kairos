@@ -635,7 +635,7 @@ function compactJson(value: unknown, maxStringLength = 1_000): unknown {
   }
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key !== "prompts")
+      .filter(([key]) => !isPromptLikeKey(key))
       .map(([key, entry]) => [key, compactJson(entry, maxStringLength)]),
   );
 }
@@ -659,4 +659,17 @@ function branchSupermemoryContainerTags(branch: BranchRecord): string[] {
       prefix: "branch_profile",
     }),
   ];
+}
+
+function isPromptLikeKey(key: string): boolean {
+  const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return normalized === "system" ||
+    normalized === "developer" ||
+    normalized === "prompt" ||
+    normalized === "prompts" ||
+    normalized === "trustedtask" ||
+    normalized === "instructions" ||
+    normalized.endsWith("prompt") ||
+    normalized.endsWith("prompts") ||
+    normalized.endsWith("instructions");
 }

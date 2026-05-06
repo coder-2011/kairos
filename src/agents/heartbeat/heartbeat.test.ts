@@ -658,6 +658,12 @@ describe("API clients", () => {
       summary: "A useful thing happened.",
     };
     const seedBundle = emptySeedBundle(output);
+    seedBundle.optionalData = {
+      promptConfig: {
+        systemPrompt: "CUSTOM HEARTBEAT SYSTEM",
+        trusted_task: "never mirror this task packet",
+      },
+    };
     const event = createEscalationEvent(output, seedBundle);
     const expectedEscalationCustomId =
       `heartbeat-escalation:${event!.branchId}:${event!.timestamp}`.replace(
@@ -669,6 +675,9 @@ describe("API clients", () => {
       containerTag: "law_branch",
       output,
       seedBundle,
+      metadata: {
+        systemPrompt: "CUSTOM HEARTBEAT SYSTEM",
+      },
     });
     await api.createMemories({
       containerTag: "law_branch",
@@ -677,11 +686,18 @@ describe("API clients", () => {
     await api.writeEscalationEvent({
       containerTag: "law_branch",
       event: event!,
+      metadata: {
+        prompt: "CUSTOM HEARTBEAT SYSTEM",
+      },
     });
     await api.writeConversation({
       containerTag: "law_branch",
       customId: "conversation_1",
-      messages: [{ role: "user", content: "Watch PLTR deals." }],
+      messages: [
+        { role: "system", content: "SYSTEM PROMPT SHOULD NOT MIRROR" },
+        { role: "developer", content: "DEVELOPER PROMPT SHOULD NOT MIRROR" },
+        { role: "user", content: "Watch PLTR deals." },
+      ],
     });
     await api.writeToolTraces({
       containerTag: "law_branch",
@@ -773,6 +789,14 @@ describe("API clients", () => {
         },
       },
     ]);
+    const escalationBody = calls[2]?.body as { content?: string };
+    expect(escalationBody.content).toContain('"seedSummary"');
+    expect(escalationBody.content).not.toContain('"seedBundle"');
+    expect(JSON.stringify(calls)).not.toContain("CUSTOM HEARTBEAT SYSTEM");
+    expect(JSON.stringify(calls)).not.toContain("SYSTEM PROMPT SHOULD NOT MIRROR");
+    expect(JSON.stringify(calls)).not.toContain("DEVELOPER PROMPT SHOULD NOT MIRROR");
+    expect(JSON.stringify(calls)).not.toContain("trusted_task");
+    expect(JSON.stringify(calls)).not.toContain("systemPrompt");
   });
 
   it("retries retryable Supermemory responses", async () => {

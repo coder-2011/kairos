@@ -232,17 +232,7 @@ export class SupermemoryApi {
       customId: safeCustomId(
         `heartbeat-escalation:${event.branchId}:${event.timestamp}`,
       ),
-      content: JSON.stringify(
-        {
-          type: "heartbeat_escalation",
-          branchId: event.branchId,
-          timestamp: event.timestamp,
-          heartbeatOutput: event.heartbeatOutput,
-          seedBundle: event.seedBundle,
-        },
-        null,
-        2,
-      ),
+      content: JSON.stringify(compactEscalationEventForMemory(event), null, 2),
       metadata: compactMetadata({
         type: "heartbeat_escalation",
         branch_id: event.branchId,
@@ -265,14 +255,15 @@ export class SupermemoryApi {
     metadata?: SupermemoryMetadata;
   }): Promise<SupermemoryAddContentResponse> {
     const { containerTag, customId, content, messages, metadata } = input;
+    const mirroredMessages = messages?.filter(({ role }) => !isPromptRole(role));
 
     return this.addContent({
       containerTag,
       customId,
-      content: content ?? formatConversation(messages ?? []),
+      content: content ?? formatConversation(mirroredMessages ?? []),
       metadata: compactMetadata({
         type: "conversation",
-        message_count: messages?.length,
+        message_count: mirroredMessages?.length,
         ...metadata,
       }),
     });
@@ -392,7 +383,75 @@ function compactMetadata(
 ): SupermemoryMetadata {
   return Object.fromEntries(
     Object.entries(metadata).filter((entry): entry is [string, string | number | boolean] => {
-      return entry[1] !== undefined;
+      return entry[1] !== undefined && !isPromptLikeKey(entry[0]);
     }),
   );
+}
+
+function compactEscalationEventForMemory(
+  event: EscalationEvent,
+): Record<string, unknown> {
+  return {
+    type: "heartbeat_escalation",
+    branchId: event.branchId,
+    timestamp: event.timestamp,
+    status: event.status,
+    heartbeatOutput: sanitizeMemoryPayload(event.heartbeatOutput),
+    seedSummary: compactSeedBundleForMemory(event.seedBundle),
+  };
+}
+
+function compactSeedBundleForMemory(
+  seedBundle: HeartbeatSeedBundle,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    branchId: seedBundle.branchId,
+    timestamp: seedBundle.timestamp,
+    law: seedBundle.law,
+    assets: seedBundle.assets,
+    seedWindowDays: seedBundle.seedWindowDays,
+    generalMarketNewsWindowDays: seedBundle.generalMarketNewsWindowDays,
+    supermemoryContainerTag: seedBundle.supermemoryContainerTag,
+    supermemoryProfileContainerTag: seedBundle.supermemoryProfileContainerTag,
+    defaultSourceKeys: Object.keys(seedBundle.defaultSources),
+    optionalSourceKeys: Object.keys(seedBundle.optionalData).filter(
+      (key) => !isPromptLikeKey(key),
+    ),
+    priorDecisionCount: seedBundle.priorDecisions.length,
+  };
+  return sanitizeMemoryPayload(summary) as Record<string, unknown>;
+}
+
+function sanitizeMemoryPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeMemoryPayload);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !isPromptLikeKey(key))
+      .map(([key, entry]) => [key, sanitizeMemoryPayload(entry)]),
+  );
+}
+
+function isPromptRole(role: string): boolean {
+  const normalized = role.trim().toLowerCase();
+  return normalized === "system" || normalized === "developer";
+}
+
+function isPromptLikeKey(key: string): boolean {
+  const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return normalized === "system" ||
+    normalized === "developer" ||
+    normalized === "prompt" ||
+    normalized === "prompts" ||
+    normalized === "trustedtask" ||
+    normalized === "instructions" ||
+    normalized.endsWith("prompt") ||
+    normalized.endsWith("prompts") ||
+    normalized.endsWith("instructions");
 }
