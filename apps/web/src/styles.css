@@ -657,7 +657,7 @@ a {
   background: var(--surface-lowest);
 }
 
-.shell.monitoring-shell:not([data-theme="dark"]) {
+.shell.monitoring-theme:not([data-theme="dark"]) {
   --background: #f8fafc;
   --surface: #ffffff;
   --surface-lowest: #ffffff;

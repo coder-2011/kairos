@@ -1066,7 +1066,7 @@ export function App() {
       className={[
         "shell",
         sideNavCollapsed ? "side-nav-collapsed" : "",
-        view === "monitoring" ? "monitoring-shell" : "",
+        view === "monitoring" ? "monitoring-theme" : "",
       ].filter(Boolean).join(" ")}
       data-theme={themeMode}
     >
