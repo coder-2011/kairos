@@ -580,13 +580,18 @@ function ModelSelect({
 
   return (
     <Select<DeepResearchModelSelectOption, false>
+      aria-label="Deep Research model"
       className="deep-model-select"
       classNamePrefix="deep-model"
+      inputId="deep-research-model"
       value={selected}
       options={options}
       isSearchable={false}
       isDisabled={models.length === 0}
-      onChange={(next) => onChange((next as DeepResearchModelSelectOption | null)?.value ?? "")}
+      blurInputOnSelect
+      menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
+      menuPosition="fixed"
+      onChange={(next) => onChange(next?.value ?? "")}
       getOptionLabel={(option) => option.label}
       getOptionValue={(option) => option.value}
       formatOptionLabel={(option, { context }) =>
@@ -695,6 +700,11 @@ const deepModelSelectStyles: StylesConfig<DeepResearchModelSelectOption, false> 
     borderRadius: "var(--radius-md)",
     marginTop: "6px",
     overflow: "hidden",
+    zIndex: 1000,
+  }),
+  menuPortal: (base: Record<string, unknown>) => ({
+    ...base,
+    zIndex: 1000,
   }),
   menuList: (base: Record<string, unknown>) => ({
     ...base,
