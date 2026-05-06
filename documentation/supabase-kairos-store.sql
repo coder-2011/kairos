@@ -13,6 +13,8 @@ create index if not exists kairos_records_collection_idx
 create index if not exists kairos_records_record_run_id_idx
   on public.kairos_records ((record ->> 'runId'));
 
+grant select, insert, update, delete on table public.kairos_records to service_role;
+
 alter table public.kairos_records enable row level security;
 
 drop policy if exists "kairos_records_service_role_all" on public.kairos_records;

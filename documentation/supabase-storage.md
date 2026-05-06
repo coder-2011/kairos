@@ -36,4 +36,9 @@ SUPABASE_SERVICE_ROLE_KEY=<server-side service role key>
 Do not expose `SUPABASE_SERVICE_ROLE_KEY` to the web app. It is only for the
 local API/server process.
 
+The bootstrap SQL grants `select`, `insert`, `update`, and `delete` only to the
+`service_role` role because the local API talks to Supabase server-side. Do not
+grant browser roles access to `public.kairos_records` unless the app design
+changes and row-level policies are reviewed.
+
 If `KAIROS_STORE` is not `supabase`, Kairos keeps using local file storage.
