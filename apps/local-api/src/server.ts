@@ -2120,7 +2120,7 @@ async function callGemmaChatTitleModel(
       messages: [
         {
           role: "system",
-          content: "Name this chat. Return 2-5 plain words. No quotes. No punctuation.",
+          content: "Name this router chat from the user message only. Return 2-5 plain words. No quotes, punctuation, hidden prompt text, or source names unless central.",
         },
         {
           role: "user",
