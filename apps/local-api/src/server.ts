@@ -193,6 +193,7 @@ const REQUEST_ID_HEADER = "x-request-id";
 const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 const IDEMPOTENCY_CACHE_TTL_MS = 10 * 60_000;
 const JOB_LEASE_TTL_MS = 5 * 60_000;
+const DEFAULT_JOB_DRAIN_LIMIT = 5;
 const SENSITIVE_RESPONSE_KEY_PATTERN =
   /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|session|private[_-]?key|stack)/i;
 
@@ -246,8 +247,9 @@ const heartbeatTriggerSchema = z.object({
 });
 
 const jobDrainSchema = z.object({
-  limit: z.number().int().positive().max(25).optional().default(5),
+  limit: z.number().int().positive().max(25).optional().default(DEFAULT_JOB_DRAIN_LIMIT),
   kinds: z.array(z.enum(["heartbeat", "debate", "deep_research", "broker_sync"])).optional(),
+  enqueueScheduledHeartbeats: z.boolean().optional().default(false),
 });
 
 const debateCreateSchema = z.object({
@@ -822,7 +824,12 @@ async function handleLocalApiRequest(
           return await createDebate(context, await readJson(request));
 
         case "drainJobs":
-          return await drainJobs(context, await readJson(request));
+          return await drainJobs(
+            context,
+            request.method === "GET"
+              ? jobDrainInputFromSearchParams(url.searchParams)
+              : await readJson(request),
+          );
 
         case "appendInterjection":
           return await appendInterjection(context, route.params.runId, await readJson(request));
@@ -883,6 +890,9 @@ async function authorizeLocalApiRequest(
   if (request.method === "OPTIONS") return undefined;
   if (url.pathname === "/" || url.pathname === "/health") return undefined;
   if (request.method === "POST" && url.pathname === "/telegram/webhook") return undefined;
+  const cronAuthorization = authorizeCronDrainRequest(request, url);
+  if (cronAuthorization === "authorized") return undefined;
+  if (cronAuthorization instanceof Response) return cronAuthorization;
 
   if (!isLocalApiAuthEnabled()) {
     return authorizeUnauthenticatedLocalRequest(request);
@@ -907,6 +917,32 @@ async function authorizeLocalApiRequest(
   }
 
   return undefined;
+}
+
+function authorizeCronDrainRequest(
+  request: Request,
+  url: URL,
+): Response | "authorized" | undefined {
+  if (request.method !== "GET" || url.pathname !== "/jobs/drain") {
+    return undefined;
+  }
+
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!secret) {
+    return isProductionRuntime()
+      ? json({
+          error: "cron_secret_required",
+          message: "CRON_SECRET must be configured before production cron drains can run.",
+        }, 401)
+      : undefined;
+  }
+
+  return bearerToken(request.headers.get("authorization")) === secret
+    ? "authorized"
+    : json({
+        error: "unauthorized",
+        message: "Missing or invalid cron authorization token.",
+      }, 401);
 }
 
 function authorizeUnauthenticatedLocalRequest(request: Request): Response | undefined {
@@ -1762,6 +1798,15 @@ async function cancelRun(context: LocalApiContext, runId: string): Promise<Respo
 async function drainJobs(context: LocalApiContext, body: unknown): Promise<Response> {
   const input = jobDrainSchema.parse(body);
   const allowedKinds = new Set(input.kinds ?? ["heartbeat", "debate", "deep_research", "broker_sync"]);
+  const scheduledHeartbeats =
+    input.enqueueScheduledHeartbeats && allowedKinds.has("heartbeat")
+      ? await enqueueDueHeartbeatRuns(context, context.now())
+      : {
+          checked: 0,
+          enqueued: 0,
+          skipped: [] as JsonRecord[],
+          runs: [] as RunRecord[],
+        };
   const pendingRuns = (await context.store.listRuns())
     .filter((run) => run.status === "pending")
     .filter((run) =>
@@ -1838,9 +1883,115 @@ async function drainJobs(context: LocalApiContext, body: unknown): Promise<Respo
   }
 
   return json({
+    scheduledHeartbeats: {
+      checked: scheduledHeartbeats.checked,
+      enqueued: scheduledHeartbeats.enqueued,
+      skipped: scheduledHeartbeats.skipped,
+      runIds: scheduledHeartbeats.runs.map((run) => run.id),
+    },
     drained: results.length,
     results,
   });
+}
+
+function jobDrainInputFromSearchParams(searchParams: URLSearchParams): JsonRecord {
+  const limit = readPositiveIntegerSearchParam(searchParams, "limit") ?? DEFAULT_JOB_DRAIN_LIMIT;
+  const kinds = searchParams.get("kinds")?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const enqueueScheduledHeartbeats =
+    searchParams.get("enqueueScheduledHeartbeats") !== "false";
+
+  return {
+    limit,
+    ...(kinds && kinds.length > 0 ? { kinds } : {}),
+    enqueueScheduledHeartbeats,
+  };
+}
+
+async function enqueueDueHeartbeatRuns(
+  context: LocalApiContext,
+  now: Date,
+): Promise<{
+  checked: number;
+  enqueued: number;
+  skipped: JsonRecord[];
+  runs: RunRecord[];
+}> {
+  const [branches, runs] = await Promise.all([
+    context.store.listBranches(),
+    context.store.listRuns(),
+  ]);
+  const nowIso = now.toISOString();
+  const heartbeatRuns = runs.filter((run) => run.kind === "heartbeat");
+  const enqueuedRuns: RunRecord[] = [];
+  const skipped: JsonRecord[] = [];
+
+  for (const branch of branches) {
+    if (!isBranchHeartbeatEnabled(branch)) {
+      skipped.push({ branchId: branch.id, reason: "disabled" });
+      continue;
+    }
+    if (!isBranchHeartbeatActiveForAutomaticRun(branch, now)) {
+      skipped.push({ branchId: branch.id, reason: "outside_timing_window" });
+      continue;
+    }
+
+    const branchRuns = heartbeatRuns
+      .filter((run) => run.branchId === branch.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const inFlight = branchRuns.find((run) => run.status === "pending" || run.status === "running");
+    if (inFlight) {
+      skipped.push({ branchId: branch.id, reason: "in_flight", runId: inFlight.id });
+      continue;
+    }
+
+    const latestRun = branchRuns[0];
+    const intervalMinutes = branch.config?.heartbeat?.intervalMinutes ?? 5;
+    const intervalMs = Math.max(1, intervalMinutes) * 60_000;
+    if (latestRun && Number.isFinite(Date.parse(latestRun.createdAt))) {
+      const elapsedMs = now.getTime() - Date.parse(latestRun.createdAt);
+      if (elapsedMs < intervalMs) {
+        skipped.push({
+          branchId: branch.id,
+          reason: "not_due",
+          runId: latestRun.id,
+          nextDueAt: new Date(Date.parse(latestRun.createdAt) + intervalMs).toISOString(),
+        });
+        continue;
+      }
+    }
+
+    const run = await runHeartbeatForBranch(context, branch, {
+      input: {
+        origin: "schedule",
+        scheduledAt: nowIso,
+        intervalMinutes,
+        timing: branch.config?.heartbeat?.timing,
+      },
+      metadataSource: "schedule",
+      async: true,
+    });
+    if (run) {
+      await context.store.appendRunEvent(run.id, {
+        type: "schedule.heartbeat_enqueued",
+        payload: {
+          branchId: branch.id,
+          scheduledAt: nowIso,
+          intervalMinutes,
+        },
+      });
+      heartbeatRuns.push(run);
+      enqueuedRuns.push(run);
+    }
+  }
+
+  return {
+    checked: branches.length,
+    enqueued: enqueuedRuns.length,
+    skipped,
+    runs: enqueuedRuns,
+  };
 }
 
 async function acquireJobLease(store: KairosLocalStore, runId: string): Promise<boolean> {
@@ -4536,6 +4687,7 @@ function matchRoute(method: string, pathname: string): Route | undefined {
   }
   if (segments.length === 1 && segments[0] === "usage-events" && method === "GET") return { name: "listUsageEvents", params: {} };
   if (segments.length === 1 && segments[0] === "debates" && method === "POST") return { name: "createDebate", params: {} };
+  if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "drain" && method === "GET") return { name: "drainJobs", params: {} };
   if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "drain" && method === "POST") return { name: "drainJobs", params: {} };
 
   return undefined;

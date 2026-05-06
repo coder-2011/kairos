@@ -9,7 +9,7 @@ import {
   SupabaseKairosStore,
   type LocalApiDependencies,
 } from "./src/server.js";
-import type { BranchRecord, JsonRecord } from "./src/store.js";
+import { MemoryKairosStore, type BranchRecord, type JsonRecord } from "./src/store.js";
 
 type SupabaseRecord = {
   collection: string;
@@ -162,6 +162,93 @@ describe("heartbeat timing E2E", () => {
       restoreEnv("VITE_KAIROS_AUTH_ENABLED", previousViteAuthEnabled);
     }
   });
+
+  it("runs the Vercel-style cron drain over HTTP with CRON_SECRET and scheduled heartbeat timing", async () => {
+    const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
+    const previousCronSecret = process.env.CRON_SECRET;
+    process.env.KAIROS_AUTH_ENABLED = "false";
+    process.env.CRON_SECRET = "cron-secret-e2e";
+
+    const store = new MemoryKairosStore();
+    const heartbeatRuns = vi.fn<NonNullable<LocalApiDependencies["runHeartbeat"]>>(
+      async ({ branchId, payload }) => ({
+        output: {
+          branchId,
+          decision: "monitor",
+          summary: "Scheduled heartbeat accepted cron timing.",
+        },
+        events: [
+          { type: "heartbeat.seeded", payload },
+          { type: "heartbeat.decision", payload: { decision: "monitor" } },
+        ],
+      }),
+    );
+
+    try {
+      const { baseUrl, closeServer } = await startApiServer({
+        store,
+        now: () => new Date("2026-05-03T12:00:00.000Z"),
+        runHeartbeat: heartbeatRuns,
+      });
+      server = closeServer;
+      api = await playwrightRequest.newContext({ baseURL: baseUrl });
+
+      await createTimedBranch(api, {
+        id: "branch_cron_http_active",
+        name: "HTTP cron active heartbeat",
+        enabled: true,
+        activeDays: ["sunday"],
+      });
+      await createTimedBranch(api, {
+        id: "branch_cron_http_closed",
+        name: "HTTP cron closed heartbeat",
+        enabled: true,
+        activeDays: ["monday"],
+      });
+
+      const response = await api.get("/jobs/drain?limit=10", {
+        headers: { authorization: "Bearer cron-secret-e2e" },
+      });
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.scheduledHeartbeats).toMatchObject({
+        checked: 2,
+        enqueued: 1,
+      });
+      expect(body.scheduledHeartbeats.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            branchId: "branch_cron_http_closed",
+            reason: "outside_timing_window",
+          }),
+        ]),
+      );
+      expect(body.drained).toBe(1);
+      expect(heartbeatRuns).toHaveBeenCalledTimes(1);
+      expect(heartbeatRuns.mock.calls[0]?.[0]).toMatchObject({
+        branchId: "branch_cron_http_active",
+        payload: {
+          origin: "schedule",
+          scheduledAt: "2026-05-03T12:00:00.000Z",
+          intervalMinutes: 5,
+        },
+      });
+
+      const runs = await store.listRuns();
+      const activeRun = runs.find((run) => run.branchId === "branch_cron_http_active");
+      expect(activeRun).toMatchObject({
+        kind: "heartbeat",
+        status: "succeeded",
+        metadata: expect.objectContaining({
+          source: "schedule",
+          durableJob: true,
+        }),
+      });
+    } finally {
+      restoreEnv("KAIROS_AUTH_ENABLED", previousAuthEnabled);
+      restoreEnv("CRON_SECRET", previousCronSecret);
+    }
+  });
 });
 
 async function createTimedBranch(
@@ -175,6 +262,7 @@ async function createTimedBranch(
   },
 ): Promise<BranchRecord> {
   const response = await api.post("/branches", {
+    headers: { "x-kairos-local-request": "1" },
     data: {
       id: input.id,
       name: input.name,

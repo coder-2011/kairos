@@ -107,7 +107,12 @@ export function isHeartbeatTimingActiveAt(
   at: Date = new Date(),
 ): boolean {
   const normalized = normalizeHeartbeatTimingConfig(timing);
-  const local = localDateTimeParts(at, normalized.timezone);
+  let local: ReturnType<typeof localDateTimeParts>;
+  try {
+    local = localDateTimeParts(at, normalized.timezone);
+  } catch {
+    return false;
+  }
 
   if (!dateWindowIncludes(local.date, normalized)) {
     return false;

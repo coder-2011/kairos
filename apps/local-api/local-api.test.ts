@@ -187,6 +187,143 @@ describe("local API handler", () => {
     }
   });
 
+  it("accepts Vercel cron GET drains with CRON_SECRET, enqueues due scheduled heartbeats, and drains them", async () => {
+    const previousCronSecret = process.env.CRON_SECRET;
+    const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
+    process.env.CRON_SECRET = "cron-secret-test";
+    process.env.KAIROS_AUTH_ENABLED = "true";
+    const store = new MemoryKairosStore();
+    await store.createBranch({
+      id: "branch_cron_due",
+      name: "Cron due heartbeat",
+      law: { thesis: "Watch PLTR contract catalysts." },
+      config: {
+        assets: ["PLTR"],
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 5,
+          seedWindowDays: 30,
+          timing: {
+            mode: "custom",
+            activeDays: ["sunday"],
+            startTime: "00:00",
+            endTime: "23:59",
+            timezone: "UTC",
+          },
+        },
+      },
+    });
+    await store.createBranch({
+      id: "branch_cron_closed",
+      name: "Cron closed heartbeat",
+      law: { thesis: "Watch NVDA supply catalysts." },
+      config: {
+        assets: ["NVDA"],
+        heartbeat: {
+          enabled: true,
+          intervalMinutes: 5,
+          seedWindowDays: 30,
+          timing: {
+            mode: "custom",
+            activeDays: ["monday"],
+            startTime: "00:00",
+            endTime: "23:59",
+            timezone: "UTC",
+          },
+        },
+      },
+    });
+    const runHeartbeat = async ({ branchId, payload }: Parameters<NonNullable<LocalApiContext["runHeartbeat"]>>[0]) => ({
+      output: {
+        branchId,
+        decision: "monitor",
+        summary: "Scheduled heartbeat ran.",
+      },
+      events: [
+        { type: "heartbeat.seeded", payload },
+        { type: "heartbeat.decision", payload: { decision: "monitor" } },
+      ],
+    });
+
+    try {
+      const response = await makeClient({
+        store,
+        runHeartbeat,
+        omitLocalRequestHeader: true,
+        headers: { authorization: "Bearer cron-secret-test" },
+      }).requestJson("GET", "/jobs/drain?limit=10");
+
+      expect(response.status).toBe(200);
+      expect(response.body.scheduledHeartbeats).toMatchObject({
+        checked: 2,
+        enqueued: 1,
+      });
+      expect(response.body.scheduledHeartbeats.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            branchId: "branch_cron_closed",
+            reason: "outside_timing_window",
+          }),
+        ]),
+      );
+      expect(response.body.drained).toBe(1);
+      expect(response.body.results).toEqual([
+        expect.objectContaining({
+          status: "succeeded",
+        }),
+      ]);
+      const runs = await store.listRuns();
+      const heartbeatRun = runs.find((run) => run.branchId === "branch_cron_due");
+      expect(heartbeatRun).toMatchObject({
+        kind: "heartbeat",
+        status: "succeeded",
+        metadata: expect.objectContaining({
+          source: "schedule",
+          durableJob: true,
+        }),
+      });
+      expect(heartbeatRun?.input).toMatchObject({
+        origin: "schedule",
+        scheduledAt: "2026-05-03T12:00:00.000Z",
+        intervalMinutes: 5,
+      });
+      const events = await store.listRunEvents(heartbeatRun!.id);
+      expect(events.map((event) => event.type)).toEqual(
+        expect.arrayContaining([
+          "job.enqueued",
+          "schedule.heartbeat_enqueued",
+          "run.started",
+          "run.completed",
+        ]),
+      );
+    } finally {
+      restoreEnv("CRON_SECRET", previousCronSecret);
+      restoreEnv("KAIROS_AUTH_ENABLED", previousAuthEnabled);
+    }
+  });
+
+  it("rejects Vercel cron GET drains with an invalid CRON_SECRET", async () => {
+    const previousCronSecret = process.env.CRON_SECRET;
+    const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
+    process.env.CRON_SECRET = "cron-secret-test";
+    process.env.KAIROS_AUTH_ENABLED = "true";
+
+    try {
+      const response = await makeClient({
+        omitLocalRequestHeader: true,
+        headers: { authorization: "Bearer wrong-secret" },
+      }).requestJson("GET", "/jobs/drain");
+
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({
+        error: "unauthorized",
+      });
+    } finally {
+      restoreEnv("CRON_SECRET", previousCronSecret);
+      restoreEnv("KAIROS_AUTH_ENABLED", previousAuthEnabled);
+    }
+  });
+
   it("refuses unauthenticated off-loopback API binding", async () => {
     const previousAuthEnabled = process.env.KAIROS_AUTH_ENABLED;
     process.env.KAIROS_AUTH_ENABLED = "false";

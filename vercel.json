@@ -7,6 +7,12 @@
       "maxDuration": 300
     }
   },
+  "crons": [
+    {
+      "path": "/api/jobs/drain",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/telegram/:path*",
