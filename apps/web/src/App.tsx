@@ -300,8 +300,6 @@ export function App() {
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModelRecord[]>([]);
   const [modelDefaults, setModelDefaults] = useState<ModelRoleDefaults>({});
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode());
-  const [portfolioLoadState, setPortfolioLoadState] =
-    useState<LoadState>("loading");
   const [portfolio, setPortfolio] = useState<PortfolioSnapshot>();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [tradeIntents, setTradeIntents] = useState<TradeIntentRecord[]>([]);
@@ -801,8 +799,6 @@ export function App() {
   }
 
   async function refreshPortfolioData() {
-    setPortfolioLoadState("loading");
-
     try {
       const [nextPortfolio, nextMessages, nextTradeIntents] = await Promise.all([
         getPortfolio(),
@@ -812,9 +808,8 @@ export function App() {
       setPortfolio(nextPortfolio);
       setMessages(nextMessages);
       setTradeIntents(nextTradeIntents);
-      setPortfolioLoadState(nextPortfolio.status === "offline" ? "offline" : "api");
     } catch {
-      setPortfolioLoadState("offline");
+      // Keep the last known portfolio snapshot if refresh fails.
     }
   }
 
@@ -1126,7 +1121,6 @@ export function App() {
         )}
         {view === "portfolio" && (
           <PortfolioView
-            loadState={portfolioLoadState}
             messages={messages}
             portfolio={portfolio}
             tradeIntents={tradeIntents}
@@ -1329,7 +1323,6 @@ function TopBar({
   return (
     <header className="top-bar">
       <div className="top-status">
-        <span className="status-light" />
         <span>{signedInUser}</span>
       </div>
       <div className="top-actions">
@@ -2273,13 +2266,11 @@ function RunOverviewPanel({
 }
 
 function PortfolioView({
-  loadState,
   messages,
   portfolio,
   tradeIntents,
   onRefresh,
 }: {
-  loadState: LoadState;
   messages: MessageRecord[];
   portfolio?: PortfolioSnapshot;
   tradeIntents: TradeIntentRecord[];
@@ -2297,13 +2288,6 @@ function PortfolioView({
             <h1>Portfolio</h1>
           </div>
           <div className="button-row">
-            <span className={`source-pill ${loadState === "offline" ? "warning" : loadState === "api" ? "online-blue" : ""}`}>
-              {loadState === "loading"
-                ? "SYNCING"
-                : loadState === "api"
-                  ? "TRADING ONLINE"
-                  : "PORTFOLIO OFFLINE"}
-            </span>
             <button className="command-button" onClick={onRefresh} type="button">
               <Icon name="refresh" /> REFRESH
             </button>
